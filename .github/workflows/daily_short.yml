@@ -1,0 +1,58 @@
+name: Daily Short Video
+
+on:
+  schedule:
+    # Runs daily at 12:00 UTC (3PM Mecca time)
+    - cron: "0 12 * * *"
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  create-and-upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet edge-tts pillow requests moviepy google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv
+
+      - name: Create .env file
+        run: |
+          echo "N8N_API_KEY=dummy" > .env
+          echo "CLAUDE_API_KEY=${{ secrets.CLAUDE_API_KEY }}" >> .env
+          echo "CLAUDE_API_URL=https://openrouter.ai/api/v1/chat/completions" >> .env
+          echo "CLAUDE_MODEL=anthropic/claude-3-haiku" >> .env
+          echo "YOUTUBE_CLIENT_ID=${{ secrets.YOUTUBE_CLIENT_ID }}" >> .env
+          echo "YOUTUBE_CLIENT_SECRET=${{ secrets.YOUTUBE_CLIENT_SECRET }}" >> .env
+          echo "OUTPUT_DIR=./assets" >> .env
+          echo "AUDIO_BACKGROUND=assets/audio/background.mp3" >> .env
+
+      - name: Decode YouTube token
+        run: |
+          echo "${{ secrets.YOUTUBE_TOKEN_B64 }}" | base64 --decode > youtube_token.pickle
+
+      - name: Create assets directories
+        run: |
+          mkdir -p assets/audio assets/images assets/videos assets/thumbnails
+
+      - name: Run daily short pipeline
+        run: python run_pipeline.py --type short
+
+      - name: Upload artifacts (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-artifacts
+          path: |
+            assets/audio/
+            assets/images/
+            assets/videos/
+            assets/thumbnails/

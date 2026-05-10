@@ -1,0 +1,20 @@
+# Environment
+.env
+
+# Generated assets
+assets/audio/
+assets/images/
+assets/videos/
+assets/thumbnails/
+
+# YouTube OAuth token
+youtube_token.pickle
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Temp files
+*.tmp
+*.log
