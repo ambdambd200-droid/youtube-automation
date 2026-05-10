@@ -212,6 +212,113 @@ def main():
     }
     print(json.dumps(result, ensure_ascii=False))
 
+def fetch_commons_images(query, max_images=5):
+    """Search Wikimedia Commons directly for images matching a query."""
+    images = []
+    session = get_wiki_session()
+
+    try:
+        params = {
+            "action": "query",
+            "list": "search",
+            "srsearch": query,
+            "srnamespace": "6",
+            "format": "json",
+            "srlimit": max_images * 2,
+            "srprop": "snippet"
+        }
+        url = "https://commons.wikimedia.org/w/api.php"
+        resp = session.get(url, params=params, timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            for page in data.get("query", {}).get("search", []):
+                title = page.get("title", "")
+                if any(title.lower().endswith(ext) for ext in ['.jpg', '.png', '.jpeg', '.gif', '.svg']):
+                    url_params = {
+                        "action": "query",
+                        "titles": title,
+                        "prop": "imageinfo",
+                        "iiprop": "url",
+                        "format": "json"
+                    }
+                    url_resp = session.get(url, params=url_params, timeout=15)
+                    if url_resp.status_code == 200:
+                        for pid2, pdata2 in url_resp.json().get("query", {}).get("pages", {}).items():
+                            for info in pdata2.get("imageinfo", []):
+                                img_url = info.get("url", "")
+                                if img_url:
+                                    images.append({
+                                        "url": img_url,
+                                        "title": title.replace("File:", ""),
+                                        "source": "commons"
+                                    })
+                                    if len(images) >= max_images:
+                                        return images
+    except Exception as ex:
+        print(f"Commons fetch error: {ex}", file=sys.stderr)
+    return images
+
+
+def generate_placeholder_images(query, count=5, output_dir=None):
+    """Generate simple placeholder images with text when no real images found."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    out_dir = output_dir or IMAGES_DIR
+    os.makedirs(out_dir, exist_ok=True)
+    files = []
+
+    # Color themes for placeholders
+    themes = [
+        (20, 15, 35), (35, 15, 25), (15, 25, 40),
+        (40, 25, 15), (25, 35, 15), (15, 35, 35),
+        (45, 20, 20), (20, 20, 45)
+    ]
+
+    for i in range(min(count, len(themes))):
+        img = Image.new("RGB", (1920, 1080), themes[i])
+        draw = ImageDraw.Draw(img)
+
+        # Try to load a font
+        font = None
+        for fp in ["C:\\Windows\\Fonts\\tahoma.ttf", "C:\\Windows\\Fonts\\arial.ttf", None]:
+            try:
+                font = ImageFont.truetype(fp, 80) if fp else ImageFont.load_default()
+                break
+            except:
+                continue
+
+        # Draw some decorative lines
+        for j in range(5):
+            y = 200 + j * 180
+            draw.line([(100, y), (1820, y)], fill=(255, 255, 255, 30), width=1)
+
+        # Draw topic text
+        words = query.split()
+        lines = []
+        current = ""
+        for w in words[:8]:
+            if len(current) + len(w) < 20:
+                current += " " + w if current else w
+            else:
+                lines.append(current)
+                current = w
+        if current:
+            lines.append(current)
+
+        if font:
+            y = 400
+            for li, line in enumerate(lines[:3]):
+                bbox = draw.textbbox((0, 0), line, font=font)
+                w = bbox[2] - bbox[0]
+                draw.text(((1920 - w) // 2, y + li * 100), line, fill=(200, 200, 200), font=font)
+
+        fpath = os.path.join(out_dir, f"bg_{i+1:02d}.jpg")
+        img.save(fpath, "JPEG", quality=80)
+        files.append(fpath)
+
+    return files
+
+
 def fetch_and_download_images(query=None, script=None, count=5, output_dir=None):
     """Fetch and download images for a given query or script."""
     out_dir = output_dir or IMAGES_DIR
@@ -224,8 +331,15 @@ def fetch_and_download_images(query=None, script=None, count=5, output_dir=None)
     if not query:
         query = "historical event"
 
-    all_images = fetch_wikipedia_images(query, count)
+    # Try Commons first (most reliable for historical images)
+    all_images = fetch_commons_images(query, count)
 
+    # Fallback to Wikipedia
+    if len(all_images) < count:
+        wiki_images = fetch_wikipedia_images(query, count - len(all_images))
+        all_images.extend(wiki_images)
+
+    # Fallback to Pexels
     if len(all_images) < count:
         pexel_images = fetch_pexels_images(query, count - len(all_images))
         all_images.extend(pexel_images)
@@ -235,6 +349,11 @@ def fetch_and_download_images(query=None, script=None, count=5, output_dir=None)
         fpath = download_image(img, out_dir, i)
         if fpath:
             downloaded.append(fpath)
+
+    # If no images downloaded at all, generate placeholders
+    if not downloaded:
+        generated = generate_placeholder_images(query, count, out_dir)
+        downloaded = generated
 
     return {
         "query": query,

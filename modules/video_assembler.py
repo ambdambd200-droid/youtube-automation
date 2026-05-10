@@ -35,15 +35,16 @@ def assemble_video(images, audio_path, output_path, background_music=None, text_
         return None
 
     try:
+        from PIL import Image as PILImage
+        import numpy as np
+
         # Load audio
         audio = AudioFileClip(audio_path)
         total_duration = audio.duration
 
         if not images or len(images) == 0:
-            # Create a solid color background
             clips = [ColorClip(size=(VIDEO_WIDTH, VIDEO_HEIGHT), color=(20, 20, 30)).with_duration(total_duration)]
         else:
-            # Split audio duration among images
             img_duration = total_duration / len(images)
             clips = []
 
@@ -51,14 +52,17 @@ def assemble_video(images, audio_path, output_path, background_music=None, text_
                 if not os.path.exists(img_path):
                     continue
                 try:
-                    clip = (ImageClip(img_path)
-                            .with_duration(img_duration)
-                            .resized(width=VIDEO_WIDTH))
-                    # Center crop if needed
-                    if clip.h < VIDEO_HEIGHT:
-                        clip = clip.resized(height=VIDEO_HEIGHT)
-                    clip = clip.cropped(x_center=clip.w/2, y_center=clip.h/2,
-                                        width=VIDEO_WIDTH, height=VIDEO_HEIGHT)
+                    # Pre-resize image with Pillow for speed
+                    pil_img = PILImage.open(img_path).convert("RGB")
+                    pil_img.thumbnail((VIDEO_WIDTH, VIDEO_HEIGHT), PILImage.LANCZOS)
+                    # Create a new image with the target size and paste centered
+                    new_img = PILImage.new("RGB", (VIDEO_WIDTH, VIDEO_HEIGHT), (20, 20, 30))
+                    x = (VIDEO_WIDTH - pil_img.width) // 2
+                    y = (VIDEO_HEIGHT - pil_img.height) // 2
+                    new_img.paste(pil_img, (x, y))
+                    frame = np.array(new_img)
+
+                    clip = ImageClip(frame).with_duration(img_duration)
                     clips.append(clip)
                 except Exception as ex:
                     print(f"Skipping image {img_path}: {ex}", file=sys.stderr)
@@ -72,27 +76,19 @@ def assemble_video(images, audio_path, output_path, background_music=None, text_
         # Set audio
         video = video.with_audio(audio)
 
-        # Add background music if provided, otherwise generate subtle ambient
+        # Add background music if provided
         try:
             from moviepy import CompositeAudioClip
+            from moviepy.audio.fx import AudioLoop, MultiplyVolume
 
             if background_music and os.path.exists(str(background_music)):
-                try:
-                    bg_music = AudioFileClip(str(background_music))
-                    if bg_music.duration < total_duration:
-                        bg_music = bg_music.loop(duration=total_duration)
-                    else:
-                        bg_music = bg_music.subclipped(0, total_duration)
-                    bg_music = bg_music.with_effects([(lambda v: v * 0.15)])
-                except Exception as ex:
-                    print(f"Background music error: {ex}", file=sys.stderr)
-                    bg_music = None
-            else:
-                bg_music = None
-
-            if bg_music is not None:
+                bg_music = AudioFileClip(str(background_music))
+                if bg_music.duration < total_duration:
+                    bg_music = bg_music.with_effects([AudioLoop(duration=total_duration)])
+                else:
+                    bg_music = bg_music.subclipped(0, total_duration)
+                bg_music = bg_music.with_effects([MultiplyVolume(0.15)])
                 video = video.with_audio(CompositeAudioClip([audio, bg_music]))
-            # else: keep just the voiceover audio
         except Exception as ex:
             print(f"Background music error: {ex}", file=sys.stderr)
 
