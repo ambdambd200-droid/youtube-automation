@@ -12,7 +12,7 @@ import math
 sys.path.insert(0, ".")
 from config import THUMBNAILS_DIR
 
-def create_thumbnail(images, title, output_path, channel_logo_path=None):
+def create_thumbnail(images, title, output_path, channel_logo_path=None, channel_name="الأعماق"):
     """Create a professional YouTube thumbnail with dark theme."""
     try:
         from PIL import Image, ImageDraw, ImageFont
@@ -140,8 +140,16 @@ def create_thumbnail(images, title, output_path, channel_logo_path=None):
 
         # Channel watermark at bottom-left
         try:
-            small_font = ImageFont.truetype(font_paths[0] if font_paths[0] else None, 20) if font else ImageFont.load_default()
-            draw.text((20, thumb_height - 40), "@AlaaFathi", fill=(150, 150, 150), font=small_font if isinstance(small_font, ImageFont.ImageFont) else ImageFont.load_default())
+            small_font = None
+            for fp2 in font_paths:
+                try:
+                    small_font = ImageFont.truetype(fp2, 22) if fp2 else None
+                    break
+                except:
+                    continue
+            if not small_font:
+                small_font = ImageFont.load_default()
+            draw.text((20, thumb_height - 40), channel_name, fill=(150, 150, 150), font=small_font)
         except:
             pass
 

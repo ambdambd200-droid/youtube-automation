@@ -31,13 +31,13 @@ def run_pipeline(video_type="short", topic=None, voiceover_path=None):
         script_data = generate_long_script(topic)
 
     script = script_data.get("script", "")
-    topic_text = script_data.get("topic", "Video")
-    title = topic_text
-    if script and "[" in script and "]" in script:
-        t = script.split("[")[1].split("]")[0].strip()
-        if t: title = t
+    script_clean = script_data.get("script_clean", script)
+    title = script_data.get("topic", "Video")
+    thumb_hint = script_data.get("thumbnail_hint", "")
     print(f"  Title: {title}")
     print(f"  Script: {len(script)} chars")
+    if thumb_hint:
+        print(f"  Thumbnail hint: {thumb_hint[:80]}")
 
     if not script or len(script) < 50:
         raise Exception(f"Script generation failed: {script[:200]}")
@@ -67,9 +67,9 @@ def run_pipeline(video_type="short", topic=None, voiceover_path=None):
         audio_path_used = dst
         print(f"  Custom voiceover: {os.path.getsize(dst)} bytes, {AudioFileClip(dst).duration:.1f}s")
     else:
-        # Step 2b: TTS
+        # Step 2b: TTS (use clean script without production notes)
         print(f"\n>>> STEP 2/5: Generating TTS voiceover...")
-        segments = split_script_into_segments(script)
+        segments = split_script_into_segments(script_clean)
         print(f"  Segments: {len(segments)}")
 
         audio_files = []
@@ -133,7 +133,8 @@ def run_pipeline(video_type="short", topic=None, voiceover_path=None):
     thumb_path = create_thumbnail(
         images, title,
         os.path.join(THUMBNAILS_DIR, f"{video_type}_thumb.jpg"),
-        channel_logo_path=os.path.join(VOICEOVERS_DIR, "channel_logo.png")
+        channel_logo_path="assets/channel_pic.png",
+        channel_name="الأعماق"
     )
 
     # Upload to YouTube

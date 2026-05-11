@@ -1,0 +1,59 @@
+========================================
+إعدادات قناة "الأعماق" - YouTube Studio
+========================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. BASIC INFO — Upload Defaults
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+العنوان (Title Format):
+[موضوع الفيديو] #Shorts
+
+مثال: 
+الموت الغامض في الجليد #Shorts
+الحقيقة المدفونة لآلاف السنين #Shorts
+
+الوصف (Description Template):
+[نفس الوصف الموجود في channel_description.txt]
+
+الوسوم (Tags):
+الأعماق, تاريخ, غموض, قصص تاريخية, حقائق, وثائقي, 
+حوادث تاريخية, أشخاص, نفسية, dark history, mystery,
+educational, shorts, youtube shorts, عربي, بالعربي,
+محتو ى عربي, معلومات, ثقافة, تاريخ غامض, أحداث غامضة,
+شخصيات تاريخية, حضارات, أسرار, قصص مرعبة, أحداث صادمة
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. ADVANCED SETTINGS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+الترخيص (License): Creative Commons — Attribution
+(يسمح بالمشاركة مع attribution)
+
+التصنيف (Category): 22 — Education
+
+Caption Certification: "This content is not made for kids"
+(لأن المحتوى تاريخي ونفسي قد لا يناسب الأطفال)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. COMMUNITY MODERATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Blocked words (كلمات محظورة تلقائياً):
+سب, شتم, تطرف, عنصرية, plus common spam patterns
+
+Holding for review:
+- روابط خارجية
+- 3+ emojis في التعليق الواحد
+- تعليقات من حسابات جديدة (أقل من 24 ساعة)
+
+Default moderation: "Hold potentially inappropriate comments for review"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. KEYWORDS (القناة ككل)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+قناة الأعماق, تاريخ, غموض, نفسية, قصص تاريخية,
+وثائقي, معلومات عامة, ثقافة, حقائق مذهلة,
+حوادث غامضة, dark history, mystery stories,
+educational arabic, arabic history channel

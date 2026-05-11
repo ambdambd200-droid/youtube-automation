@@ -170,27 +170,29 @@ def upload_video(video_path, title, description, tags, category_id="22", privacy
 def generate_seo_metadata(script, title):
     """Generate SEO metadata for YouTube upload."""
     tags = [
-        "شرح", "تاريخ", "حوادث", "dark history", "educational",
-        "حقائق", "غموض", "وثائقي", "وثائقي قصير",
-        "الشرح بالعربية", "معلومات عامة", "ثقافة"
+        "الأعماق", "تاريخ", "غموض", "قصص تاريخية", "حقائق",
+        "وثائقي", "حوادث", "dark history", "mystery",
+        "educational", "شورت", "يوتيوب", "عربي",
+        "معلومات عامة", "ثقافة", "نفسية", "أحداث غامضة",
+        "شخصيات تاريخية", "حضارات", "أسرار"
     ]
     if title:
-        title_words = title.replace("|", "").replace("-", "").split()
+        title_words = title.replace("|", "").replace("-", "").replace("#", "").split()
         tags.extend(title_words[:5])
     tags = list(dict.fromkeys(tags))
 
     description = f"""{title}
 
-📌 في هذا الفيديو:
+📌 في هذا الفيديو من {title or "الأعماق"}:
 {script[:2000] if script else ""}
 
 ━━━━━━━━━━━━━━━━━━━━━━
-🔔 اشترك في القناة وفعل الجرس ليصلك كل جديد
+🔔 اشترك في قناة الأعماق وفعل الجرس ليصلك كل جديد
 👍 لا تنسى الإعجاب بالفيديو إذا أعجبك
-💬 شاركنا رأيك في التعليقات
+💬 شو رأيك؟ اكتب تعليقك تحت
 ━━━━━━━━━━━━━━━━━━━━━━
 
-#تاريخ #حوادث #شرح #معلومات #ثقافة #وثائقي
+#الأعماق #تاريخ #غموض #حقائق #ثقافة #وثائقي
 """
     return description, tags
 
