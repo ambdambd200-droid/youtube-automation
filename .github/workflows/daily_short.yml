@@ -2,7 +2,6 @@ name: Daily Short Video
 
 on:
   schedule:
-    # Runs daily at 12:00 UTC (3PM Mecca time)
     - cron: "0 12 * * *"
   workflow_dispatch:
 
@@ -23,16 +22,22 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq espeak-ng libsndfile1-dev ffmpeg fonts-dejavu-core
+
+      - name: Install Python dependencies
         run: |
           pip install --quiet edge-tts pillow requests moviepy google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv imageio-ffmpeg
 
-      - name: Install fonts
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-dejavu-core
+      - name: Install Coqui TTS (voice cloning)
+        run: |
+          pip install --quiet TTS
 
       - name: Debug secrets
         run: |
-          echo "CLAUDE_API_KEY set: ${{ secrets.CLAUDE_API_KEY != '' }}"
+          echo "GROQ_API_KEY set: ${{ secrets.GROQ_API_KEY != '' }}"
           echo "YOUTUBE_CLIENT_ID set: ${{ secrets.YOUTUBE_CLIENT_ID != '' }}"
           echo "YOUTUBE_CLIENT_SECRET set: ${{ secrets.YOUTUBE_CLIENT_SECRET != '' }}"
           echo "YOUTUBE_REFRESH_TOKEN set: ${{ secrets.YOUTUBE_REFRESH_TOKEN != '' }}"
@@ -41,9 +46,7 @@ jobs:
       - name: Create .env file
         run: |
           echo "N8N_API_KEY=dummy" > .env
-          echo "CLAUDE_API_KEY=${{ secrets.CLAUDE_API_KEY }}" >> .env
-          echo "CLAUDE_API_URL=https://openrouter.ai/api/v1/chat/completions" >> .env
-          echo "CLAUDE_MODEL=anthropic/claude-3-haiku" >> .env
+          echo "GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" >> .env
           echo "YOUTUBE_CLIENT_ID=${{ secrets.YOUTUBE_CLIENT_ID }}" >> .env
           echo "YOUTUBE_CLIENT_SECRET=${{ secrets.YOUTUBE_CLIENT_SECRET }}" >> .env
           echo "YOUTUBE_REFRESH_TOKEN=${{ secrets.YOUTUBE_REFRESH_TOKEN }}" >> .env
@@ -61,7 +64,7 @@ jobs:
       - name: Ensure background audio exists
         run: |
           if [ ! -f assets/audio/background.mp3 ]; then
-            echo "Background audio missing, generating silent fallback..."
+            echo "Generating background audio..."
             ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t 18 -q:a 9 assets/audio/background.mp3 -y
           fi
 

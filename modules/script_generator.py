@@ -1,6 +1,6 @@
 """
 Professional script generator for Depths channel.
-Generates viral English scripts with hooks, retention, and engagement.
+Generates viral English scripts using free Groq API (Llama 3 70B).
 """
 
 import argparse
@@ -11,58 +11,53 @@ import random
 from datetime import datetime
 
 sys.path.insert(0, ".")
-from config import CLAUDE_API_KEY, CLAUDE_API_URL, CLAUDE_MODEL
+from config import GROQ_API_KEY, GROQ_API_URL, GROQ_MODEL
 
 HISTORICAL_EVENTS_CACHE = {}
 
 
-# ─────────────────────────────────────────────
-# SYSTEM PROMPT — Team of 100 Professionals
-# ─────────────────────────────────────────────
-SHORT_SYSTEM = """You are a full production team of 100 specialists for "Depths" — a YouTube channel specializing in dark history, mystery, and psychological content.
+SYSTEM_PROMPT = """You are a top-tier scriptwriter for "Depths" — a YouTube channel about dark history, mystery, and psychology.
 
-Script rules:
-1. THE HOOK (first 3 seconds): A shocking statement that prevents closing — "Imagine...", "What if I told you...", "Something was happening in...", "They never told you about..."
-2. LANGUAGE: Conversational English — short punchy sentences. Write like a narrator telling a campfire story
-3. RHYTHM: Short, punchy lines. One sentence per line. Every sentence stands on its own
-4. RETENTION: Use "but wait...", "here's where it gets crazy...", "and then something unexpected happened..."
-5. STRUCTURE: Shock → Curiosity → Information → Twist → Interactive ending
-6. ENDING: Open-ended question that makes the viewer comment or share
-7. LENGTH: 150-300 words for shorts (45-60 sec), 1500-2500 words for long-form (10-15 min)
-8. VOICE INSTRUCTIONS: Sprinkle delivery cues in {curly braces} — {loud} {whisper} {fast} {pause} {emphasize}
-9. For shorts: topic = historical event that happened on this day
-10. For long-form: topic = deep analysis of an event, person, or phenomenon
+CORE PRINCIPLES:
+1. THE HOOK (first 3 seconds): A shocking, curiosity-grabbing opener that stops the scroll. Start with "Imagine...", "What if I told you...", "Something was happening in...", "They never told you about..."
+2. TONE: Conversational, urgent, storytelling. Like a friend telling you something wild at 2am
+3. PACING: Short punchy sentences. One idea per line. Every sentence builds tension
+4. RETENTION: Use "but here's the thing...", "this is where it gets crazy...", "and then everything changed..."
+5. STRUCTURE: Shock → Build curiosity → Reveal information → Twist → Interactive ending
+6. EMOTION: Make the viewer feel something — dread, wonder, shock, fascination
+7. ENDING: End with an open question like "What would you have done?" or "Doesn't that make you think?"
+8. LENGTH: 150-300 words for shorts, 1500-2500 words for long-form
+9. VOICE CUES: Add delivery instructions in {curly braces} — {build tension} {pause} {emphasize} {whisper} {slow down}
+10. THUMBNAIL: Last line must be 🎬 followed by specific thumbnail description
 
 First line: [Suggested video title]
-Last line: 🎬 [thumbnail description — scene, colors, text overlay]"""
+Last line: 🎬 [thumbnail — scene, colors, text overlay, facial expression if any]"""
 
-LONG_SYSTEM = SHORT_SYSTEM.replace("150-300 words for shorts", "1500-2500 words for long-form (10-15 min)")
-LONG_SYSTEM += "\n\nDivide the script into 5-6 sections with subheadings. Each section reveals a new angle."
+LONG_SYSTEM = SYSTEM_PROMPT.replace("150-300 words for shorts", "1500-2500 words for long-form")
+LONG_SYSTEM += "\n\nDivide into 5-6 sections with subheadings. Each section reveals a new angle. End sections with mini-cliffhangers."
 
 
-def generate_script_with_claude(prompt, is_short=True):
-    """Send prompt to Claude via OpenRouter with the professional system prompt."""
-    system_msg = SHORT_SYSTEM if is_short else LONG_SYSTEM
+def generate_script(prompt, is_short=True):
+    """Send prompt to Groq's free Llama 3 70B API."""
+    system_msg = SYSTEM_PROMPT if is_short else LONG_SYSTEM
 
     headers = {
-        "Authorization": f"Bearer {CLAUDE_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:5678",
-        "X-Title": "Depths YouTube Automation"
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
     }
 
     payload = {
-        "model": CLAUDE_MODEL,
+        "model": GROQ_MODEL,
         "messages": [
             {"role": "system", "content": system_msg},
             {"role": "user", "content": prompt}
         ],
-        "max_tokens": 4000 if is_short else 8000,
-        "temperature": 0.85
+        "max_tokens": 2000 if is_short else 6000,
+        "temperature": 0.8
     }
 
     try:
-        resp = requests.post(CLAUDE_API_URL, headers=headers, json=payload, timeout=120)
+        resp = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=120)
         resp.raise_for_status()
         data = resp.json()
         content = data["choices"][0]["message"]["content"]
@@ -72,7 +67,7 @@ def generate_script_with_claude(prompt, is_short=True):
 
 
 def get_on_this_day_events(month, day):
-    """Fetch historical events for a given date from Wikipedia API."""
+    """Fetch historical events from Wikipedia for a given date."""
     url = f"https://api.wikimedia.org/feed/v1/wikipedia/en/onthisday/events/{month}/{day}"
     try:
         resp = requests.get(url, timeout=15)
@@ -87,36 +82,34 @@ def get_on_this_day_events(month, day):
                     "pages": e.get("pages", [])
                 })
             return results
-    except Exception as ex:
-        return [{"year": "Unknown", "text": f"Error fetching events: {ex}"}]
+    except:
+        return []
     return []
 
 
 def build_short_prompt(event):
-    """Build a professional prompt for a short video."""
+    """Build a prompt for a short video about a historical event."""
     event_year = event.get("year", "")
     event_text = event.get("text", "")
     pages = event.get("pages", [])
-    title = ""
     extract = ""
     if pages and len(pages) > 0:
-        title = pages[0].get("title", "")
         extract = pages[0].get("extract", "")
-    if not extract and title:
-        extract = title
+    if not extract and pages:
+        extract = pages[0].get("title", "")
 
-    return f"""Write a short video script for "Depths" channel about an event that happened on this day in history.
+    return f"""Write a gripping short script for "Depths" channel about THIS DAY IN HISTORY.
 
 Event: {event_text}
 Year: {event_year}
-Details: {(extract or '')[:600]}
+Context: {(extract or '')[:800]}
 
 Requirements:
 - Killer hook in first 3 seconds
-- Curiosity in every sentence
-- Ending with a question for the viewer
-- Delivery instructions in {{curly braces}}
-- Last line: thumbnail description
+- Build curiosity every sentence
+- End with a question
+- Add voice delivery cues in {{curly braces}}
+- End with 🎬 thumbnail description
 
 Write the complete script now."""
 
@@ -124,17 +117,17 @@ Write the complete script now."""
 def build_long_prompt(topic=None):
     """Build a prompt for a long-form video."""
     if not topic:
-        topic = "one of the most terrifying and psychologically impactful events in human history"
+        topic = "one of the most disturbing psychological experiments in history"
 
-    return f"""Write a long-form video script for "Depths" channel about: {topic}
+    return f"""Write a long-form script for "Depths" about: {topic}
 
 Requirements:
 - Hook in first 3 seconds
-- 5-6 sections, each revealing a new angle
-- Delivery instructions in {{curly braces}}
+- 5-6 sections with subheadings
+- Voice cues in {{curly braces}}
 - Deep psychological analysis
-- Interactive ending with a question
-- Last line: thumbnail description
+- Interactive ending with question
+- End with 🎬 thumbnail description
 
 Write the complete script now."""
 
@@ -152,21 +145,19 @@ def extract_thumbnail_note(script):
         return ""
     lines = script.strip().split("\n")
     for line in reversed(lines):
-        if "🎬" in line or "thumbnail" in line.lower():
+        if "🎬" in line:
             return line.strip()
     return ""
 
 
 def clean_script_for_tts(script):
     """Remove production instructions from script for clean TTS."""
+    import re
     lines = []
     for line in script.split("\n"):
-        # Remove thumbnail line
-        if "🎬" in line: continue
-        # Remove bracketed instructions but keep text
-        cleaned = line
-        import re
-        cleaned = re.sub(r'\{[^}]*\}', '', cleaned)
+        if "🎬" in line:
+            continue
+        cleaned = re.sub(r'\{[^}]*\}', '', line)
         if cleaned.strip():
             lines.append(cleaned.strip())
     return "\n".join(lines)
@@ -187,11 +178,11 @@ def generate_on_this_day_script(date_str=None):
     if events and len(events) > 0:
         event = random.choice(events[:20])
     else:
-        event = {"year": "Unknown", "text": "A mysterious historical event", "pages": []}
+        event = {"year": "Unknown", "text": "A mysterious historical event that defies explanation", "pages": []}
 
     prompt = build_short_prompt(event)
-    script = generate_script_with_claude(prompt, is_short=True)
-    title = extract_title(script) or event.get("text", "Historical Event")
+    script = generate_script(prompt, is_short=True)
+    title = extract_title(script) or event.get("text", "Mysterious Historical Event")
     thumb_note = extract_thumbnail_note(script)
 
     return {
@@ -208,8 +199,8 @@ def generate_on_this_day_script(date_str=None):
 def generate_long_script(topic=None):
     """Generate a professional long-form script."""
     prompt = build_long_prompt(topic)
-    script = generate_script_with_claude(prompt, is_short=False)
-    title = extract_title(script) or topic or "Historical Topic"
+    script = generate_script(prompt, is_short=False)
+    title = extract_title(script) or topic or "Dark History Deep Dive"
     thumb_note = extract_thumbnail_note(script)
 
     return {

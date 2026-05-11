@@ -6,9 +6,10 @@ load_dotenv()
 N8N_API_KEY = os.getenv("N8N_API_KEY")
 N8N_BASE_URL = os.getenv("N8N_BASE_URL", "http://localhost:5678")
 
-CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
-CLAUDE_API_URL = os.getenv("CLAUDE_API_URL", "https://openrouter.ai/api/v1/chat/completions")
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "anthropic/claude-3-haiku")
+# Groq API (free, no payment needed)
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "llama3-70b-8192"  # Free model, high quality
 
 YOUTUBE_CLIENT_ID = os.getenv("YOUTUBE_CLIENT_ID", "")
 YOUTUBE_CLIENT_SECRET = os.getenv("YOUTUBE_CLIENT_SECRET", "")
