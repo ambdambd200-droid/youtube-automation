@@ -88,6 +88,9 @@ def create_thumbnail(images, title, output_path, channel_logo_path=None):
                 "C:\\Windows\\Fonts\\tahoma.ttf",
                 "C:\\Windows\\Fonts\\seguiemj.ttf",
                 "C:\\Windows\\Fonts\\segoeui.ttf",
+                "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
+                "/usr/share/fonts/truetype/noto/NotoSansArabic-VariableFont_wdth,wght.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
                 None  # default
             ]
 

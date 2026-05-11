@@ -58,7 +58,7 @@ def run_pipeline(video_type="short", topic=None):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     for i, seg in enumerate(segments):
-        fname = f"{video_type}_voiceover.mp3"
+        fname = f"{video_type}_voiceover_{i+1:02d}.mp3"
         path = os.path.join(AUDIO_DIR, fname)
         result = loop.run_until_complete(generate_tts_from_text(seg, path))
         if result:
@@ -78,10 +78,28 @@ def run_pipeline(video_type="short", topic=None):
 
     # Step 4: Video
     print(f"\n>>> STEP 4/5: Assembling video...")
+
+    # Combine multiple audio segments into one
+    combined_audio_path = os.path.join(AUDIO_DIR, f"{video_type}_combined.mp3")
+    if len(audio_files) > 1:
+        import subprocess
+        ffmpeg = "ffmpeg"
+        inputs = []
+        filter_parts = []
+        for idx, af in enumerate(audio_files):
+            inputs.extend(["-i", af])
+            filter_parts.append(f"[{idx}:0]")
+        filter_str = "".join(filter_parts) + f"concat=n={len(audio_files)}:v=0:a=1[out]"
+        cmd = [ffmpeg, *inputs, "-filter_complex", filter_str, "-map", "[out]", combined_audio_path, "-y"]
+        subprocess.run(cmd, capture_output=True)
+        audio_path_used = combined_audio_path if os.path.exists(combined_audio_path) else audio_files[0]
+    else:
+        audio_path_used = audio_files[0]
+
     bg = str(AUDIO_BACKGROUND) if AUDIO_BACKGROUND and os.path.exists(str(AUDIO_BACKGROUND)) else None
     video_path = assemble_video(
         images=images,
-        audio_path=audio_files[0],
+        audio_path=audio_path_used,
         output_path=os.path.join(VIDEOS_DIR, f"{video_type}_final.mp4"),
         background_music=bg,
         is_short=(video_type == "short")

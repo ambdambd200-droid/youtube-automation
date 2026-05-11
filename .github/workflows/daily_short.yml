@@ -6,6 +6,9 @@ on:
     - cron: "0 12 * * *"
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   create-and-upload:
     runs-on: ubuntu-latest
@@ -22,7 +25,10 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install --quiet edge-tts pillow requests moviepy google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv
+          pip install --quiet edge-tts pillow requests moviepy google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv imageio-ffmpeg
+
+      - name: Install Arabic fonts
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-core fonts-noto-extra
 
       - name: Create .env file
         run: |
@@ -32,6 +38,7 @@ jobs:
           echo "CLAUDE_MODEL=anthropic/claude-3-haiku" >> .env
           echo "YOUTUBE_CLIENT_ID=${{ secrets.YOUTUBE_CLIENT_ID }}" >> .env
           echo "YOUTUBE_CLIENT_SECRET=${{ secrets.YOUTUBE_CLIENT_SECRET }}" >> .env
+          echo "YOUTUBE_REFRESH_TOKEN=${{ secrets.YOUTUBE_REFRESH_TOKEN }}" >> .env
           echo "OUTPUT_DIR=./assets" >> .env
           echo "AUDIO_BACKGROUND=assets/audio/background.mp3" >> .env
 
@@ -42,6 +49,13 @@ jobs:
       - name: Create assets directories
         run: |
           mkdir -p assets/audio assets/images assets/videos assets/thumbnails
+
+      - name: Ensure background audio exists
+        run: |
+          if [ ! -f assets/audio/background.mp3 ]; then
+            echo "Background audio missing, generating silent fallback..."
+            ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t 18 -q:a 9 assets/audio/background.mp3 -y
+          fi
 
       - name: Run daily short pipeline
         run: python run_pipeline.py --type short

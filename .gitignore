@@ -1,11 +1,12 @@
 # Environment
 .env
 
-# Generated assets
-assets/audio/
-assets/images/
-assets/videos/
-assets/thumbnails/
+# Generated assets (but allow static background music)
+assets/audio/*
+!assets/audio/background.mp3
+assets/images/*
+assets/videos/*
+assets/thumbnails/*
 
 # YouTube OAuth token
 youtube_token.pickle

@@ -278,9 +278,16 @@ def generate_placeholder_images(query, count=5, output_dir=None):
         img = Image.new("RGB", (1920, 1080), themes[i])
         draw = ImageDraw.Draw(img)
 
-        # Try to load a font
+        # Try to load a font (cross-platform: Windows + Linux)
         font = None
-        for fp in ["C:\\Windows\\Fonts\\tahoma.ttf", "C:\\Windows\\Fonts\\arial.ttf", None]:
+        for fp in [
+            "C:\\Windows\\Fonts\\tahoma.ttf",
+            "C:\\Windows\\Fonts\\arial.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSansArabic-VariableFont_wdth,wght.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            None
+        ]:
             try:
                 font = ImageFont.truetype(fp, 80) if fp else ImageFont.load_default()
                 break
