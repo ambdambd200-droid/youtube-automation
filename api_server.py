@@ -140,7 +140,7 @@ def assemble_video_endpoint():
 def generate_thumbnail_endpoint():
     data = request.get_json() or {}
     images = data.get("images", [])
-    title = data.get("title", "فيديو جديد")
+    title = data.get("title", "New Video")
 
     output_id = uuid.uuid4().hex[:8]
     output_path = os.path.join(THUMBNAILS_DIR, f"thumb_{output_id}.jpg")

@@ -1,9 +1,5 @@
 """
 Uploads video to YouTube using YouTube Data API v3.
-Call: python -m modules.youtube_uploader --video video.mp4 --title "Title" --description "Desc" --thumbnail thumb.jpg
-
-NOTE: You need to set up YouTube OAuth 2.0 credentials first!
-See: https://console.cloud.google.com/apis/credentials
 """
 
 import argparse
@@ -170,11 +166,11 @@ def upload_video(video_path, title, description, tags, category_id="22", privacy
 def generate_seo_metadata(script, title):
     """Generate SEO metadata for YouTube upload."""
     tags = [
-        "الأعماق", "تاريخ", "غموض", "قصص تاريخية", "حقائق",
-        "وثائقي", "حوادث", "dark history", "mystery",
-        "educational", "شورت", "يوتيوب", "عربي",
-        "معلومات عامة", "ثقافة", "نفسية", "أحداث غامضة",
-        "شخصيات تاريخية", "حضارات", "أسرار"
+        "Depths", "dark history", "mystery", "historical stories", "true crime",
+        "psychology", "unsolved mysteries", "documentary", "creepy history",
+        "educational", "shorts", "history facts", "mind blowing",
+        "dark secrets", "ancient mysteries", "forgotten history",
+        "historical events", "conspiracy", "scary history", "shorts history"
     ]
     if title:
         title_words = title.replace("|", "").replace("-", "").replace("#", "").split()
@@ -183,23 +179,23 @@ def generate_seo_metadata(script, title):
 
     description = f"""{title}
 
-📌 في هذا الفيديو من {title or "الأعماق"}:
+📌 In this video from Depths:
 {script[:2000] if script else ""}
 
 ━━━━━━━━━━━━━━━━━━━━━━
-🔔 اشترك في قناة الأعماق وفعل الجرس ليصلك كل جديد
-👍 لا تنسى الإعجاب بالفيديو إذا أعجبك
-💬 شو رأيك؟ اكتب تعليقك تحت
+🔔 Subscribe to Depths and hit the bell for more dark history & mystery
+👍 Like if you enjoyed this video
+💬 What do you think? Drop a comment below
 ━━━━━━━━━━━━━━━━━━━━━━
 
-#الأعماق #تاريخ #غموض #حقائق #ثقافة #وثائقي
+#Depths #DarkHistory #Mystery #HistoryFacts #Educational #Documentary
 """
     return description, tags
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--video", required=False, default="")
-    parser.add_argument("--title", default="فيديو جديد")
+    parser.add_argument("--title", default="New Video")
     parser.add_argument("--description", default=None)
     parser.add_argument("--tags", nargs="+", default=[])
     parser.add_argument("--thumbnail", default=None)

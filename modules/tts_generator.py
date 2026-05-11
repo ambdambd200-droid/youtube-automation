@@ -1,5 +1,5 @@
 """
-Generates Arabic voiceover using Edge-TTS (free, high-quality neural TTS).
+Generates voiceover using Edge-TTS (free, high-quality neural TTS).
 Call: python -m modules.tts_generator --script "text to speak" --output "output.mp3"
 """
 
@@ -10,12 +10,12 @@ import sys
 import asyncio
 
 sys.path.insert(0, ".")
-from config import ARABIC_TTS_VOICE, AUDIO_DIR
+from config import TTS_VOICE, AUDIO_DIR
 
 async def generate_tts(text, output_path, voice=None):
     """Generate TTS audio using edge-tts."""
     if voice is None:
-        voice = ARABIC_TTS_VOICE
+        voice = TTS_VOICE
 
     try:
         import edge_tts

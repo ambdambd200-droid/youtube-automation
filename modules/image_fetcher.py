@@ -1,5 +1,5 @@
 """
-Fetches images for YouTube videos from Wikipedia Commons and/or Pexels.
+Fetches images for YouTube videos from Wikipedia Commons and Pexels.
 Call: python -m modules.image_fetcher --query "historical event" --count 5 --output-dir ./assets/images
 """
 
@@ -28,9 +28,8 @@ def fetch_wikipedia_images(query, max_images=5):
     images = []
     session = get_wiki_session()
 
-    # Try Arabic Wikipedia first, then English
+    # Search English Wikipedia
     search_configs = [
-        ("https://ar.wikipedia.org/w/api.php", query),
         ("https://en.wikipedia.org/w/api.php", query),
     ]
 
@@ -103,7 +102,7 @@ def fetch_pexels_images(query, max_images=5):
     images = []
     url = "https://api.pexels.com/v1/search"
     headers = {"Authorization": PEXELS_API_KEY}
-    params = {"query": query, "per_page": max_images, "locale": "ar-SA"}
+    params = {"query": query, "per_page": max_images}
 
     try:
         resp = requests.get(url, headers=headers, params=params, timeout=15)
@@ -148,11 +147,11 @@ def download_image(img_info, output_dir, index):
     return None
 
 def extract_keywords_from_script(script):
-    """Extract main keywords from an Arabic script for image search."""
+    """Extract main keywords from a script for image search."""
     # Simple keyword extraction - take significant words
     words = re.findall(r'\w{4,}', script)
-    # Filter common Arabic stop words
-    stop_words = {'هذا', 'هذه', 'ذلك', 'كان', 'على', 'عن', 'في', 'من', 'إلى', 'مع', 'ما', 'لا', 'إن', 'أن', 'قد', 'كل', 'بعض', 'هو', 'هي', 'هم', 'كانت', 'يكون', 'يكونون', 'ليس', 'ولكن', 'أو', 'إذا', 'حتى', 'عند', 'بعد', 'قبل', 'فقط', 'كما', 'لقد', 'سوف', 'ثم', 'حين', 'بين', 'تحت', 'فوق', 'دون', 'غير'}
+    # Filter common English stop words
+    stop_words = {'this', 'that', 'these', 'those', 'with', 'from', 'have', 'been', 'were', 'what', 'when', 'where', 'which', 'their', 'there', 'could', 'would', 'should', 'about', 'after', 'before', 'between', 'through', 'during', 'without', 'because', 'just', 'then', 'also', 'more', 'some', 'them', 'than', 'very', 'still', 'over', 'such', 'each', 'other', 'into', 'only', 'much', 'many', 'most', 'like', 'well', 'even'}
     keywords = [w for w in words if w not in stop_words]
 
     # Count frequency and take top 10
@@ -283,8 +282,6 @@ def generate_placeholder_images(query, count=5, output_dir=None):
         for fp in [
             "C:\\Windows\\Fonts\\tahoma.ttf",
             "C:\\Windows\\Fonts\\arial.ttf",
-            "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
-            "/usr/share/fonts/truetype/noto/NotoSansArabic-VariableFont_wdth,wght.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
             None
         ]:

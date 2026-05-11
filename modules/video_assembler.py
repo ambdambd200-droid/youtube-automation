@@ -182,7 +182,7 @@ def assemble_video(images, audio_path, output_path, background_music=None,
 
         # Add 2-3 key captions only (not every word)
         if script and len(overlay_clips) < 5:
-            sentences = [s.strip() for s in script.replace('؟', '?').replace('،', ',').split('.') if len(s.strip()) > 15]
+            sentences = [s.strip() for s in script.split('.') if len(s.strip()) > 15]
             caption_count = min(3, len(sentences))
             caption_duration = total_duration / max(caption_count, 1)
             for idx in range(caption_count):

@@ -1,6 +1,6 @@
 """
 Generates YouTube thumbnails (3x2 photo collage style) using Pillow.
-Call: python -m modules.thumbnail_generator --images img1.jpg img2.jpg --title "عنوان الفيديو" --output thumbnail.jpg
+Call: python -m modules.thumbnail_generator --images img1.jpg img2.jpg --title "Video Title" --output thumbnail.jpg
 """
 
 import argparse
@@ -12,7 +12,7 @@ import math
 sys.path.insert(0, ".")
 from config import THUMBNAILS_DIR
 
-def create_thumbnail(images, title, output_path, channel_logo_path=None, channel_name="الأعماق"):
+def create_thumbnail(images, title, output_path, channel_logo_path=None, channel_name="Depths"):
     """Create a professional YouTube thumbnail with dark theme."""
     try:
         from PIL import Image, ImageDraw, ImageFont
@@ -87,9 +87,8 @@ def create_thumbnail(images, title, output_path, channel_logo_path=None, channel
                 "C:\\Windows\\Fonts\\tahoma.ttf",
                 "C:\\Windows\\Fonts\\seguiemj.ttf",
                 "C:\\Windows\\Fonts\\segoeui.ttf",
-                "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
-                "/usr/share/fonts/truetype/noto/NotoSansArabic-VariableFont_wdth,wght.ttf",
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
                 None
             ]
 
@@ -179,7 +178,7 @@ def main():
         title = data.get("title", title)
         output_path = data.get("output", output_path)
 
-    video_title = title or "فيديو جديد"
+    video_title = title or "New Video"
     thumb_path = create_thumbnail(images, video_title, output_path, args.logo)
 
     result = {

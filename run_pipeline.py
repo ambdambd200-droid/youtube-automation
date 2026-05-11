@@ -1,5 +1,5 @@
 """
-Main pipeline - generates + uploads YouTube videos.
+Main pipeline - generates and uploads YouTube videos.
 Usage: python run_pipeline.py --type short [--voiceover voice.mp3]
        python run_pipeline.py --type long --topic "Topic"
 """
@@ -134,7 +134,7 @@ def run_pipeline(video_type="short", topic=None, voiceover_path=None):
         images, title,
         os.path.join(THUMBNAILS_DIR, f"{video_type}_thumb.jpg"),
         channel_logo_path="assets/channel_pic.png",
-        channel_name="الأعماق"
+        channel_name="Depths"
     )
 
     # Upload to YouTube

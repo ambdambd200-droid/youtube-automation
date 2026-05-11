@@ -25,10 +25,10 @@ IMAGES_DIR = os.path.join(OUTPUT_DIR, "images")
 VIDEOS_DIR = os.path.join(OUTPUT_DIR, "videos")
 THUMBNAILS_DIR = os.path.join(OUTPUT_DIR, "thumbnails")
 
-# Arabic voice config for Edge-TTS
-# Available Arabic voices: ar-SA-ZariyahNeural, ar-SA-HamedNeural, ar-EG-SalmaNeural, ar-EG-ShakirNeural
-ARABIC_TTS_VOICE = "ar-SA-ZariyahNeural"  # Female Saudi voice - realistic
-ARABIC_TTS_VOICE_MALE = "ar-SA-HamedNeural"  # Male Saudi voice
+# English voice config for Edge-TTS
+# Available English voices: en-US-JennyNeural (F), en-US-GuyNeural (M), en-GB-SoniaNeural (F), en-GB-RyanNeural (M)
+TTS_VOICE = "en-US-GuyNeural"  # Male American voice - authoritative for dark history/mystery
+TTS_VOICE_FEMALE = "en-US-JennyNeural"  # Female American voice
 
 # Video settings
 VIDEO_WIDTH = 1920

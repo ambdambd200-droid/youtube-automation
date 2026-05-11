@@ -27,8 +27,8 @@ jobs:
         run: |
           pip install --quiet edge-tts pillow requests moviepy google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv imageio-ffmpeg
 
-      - name: Install Arabic fonts
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-core fonts-noto-extra
+      - name: Install fonts
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-dejavu-core
 
       - name: Debug secrets
         run: |

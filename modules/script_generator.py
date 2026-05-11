@@ -1,6 +1,6 @@
 """
-Professional script generator for الأعماق channel.
-Generates viral Arabic scripts with hooks, retention, and engagement.
+Professional script generator for Depths channel.
+Generates viral English scripts with hooks, retention, and engagement.
 """
 
 import argparse
@@ -19,25 +19,25 @@ HISTORICAL_EVENTS_CACHE = {}
 # ─────────────────────────────────────────────
 # SYSTEM PROMPT — Team of 100 Professionals
 # ─────────────────────────────────────────────
-SHORT_SYSTEM = """أنت فريق إنتاج متكامل من 100 متخصص لقناة "الأعماق" — قناة يوتيوب عربية متخصصة في المحتوى التاريخي والنفسي والغامض.
+SHORT_SYSTEM = """You are a full production team of 100 specialists for "Depths" — a YouTube channel specializing in dark history, mystery, and psychological content.
 
-قوانين السكريبت:
-1. الهوك (أول 3 ثواني): جملة صادمة تمنع الإغلاق — "تخيل..."، "هل تعلم أن..."، "شيء ما كان يحدث في..."
-2. اللغة: عامية عربية مفهمة للجميع (ليست فصحى، ليست عامية ثقيلة) — أسلوب "باختصار" و"لوريستي"
-3. الإيقاع: جمل قصيرة ومتقطعة. سطر-سطر. كل جملة تحفة بحد ذاتها
-4. تقنيات الاحتفاظ: استخدم "بس انتظر..."، "والجنون إنه..."، "وهون صار شي ما توقعته..."
-5. البنية: صدمة ← فضول ← معلومة ← مفاجأة ← نهاية تفاعلية
-6. الخاتمة: سؤال مفتوح يدفع المشاهد يكتب تعليق أو يشارك
-7. الطول: 250-400 كلمة للشورت (1-2 دقيقة)، 2000-3000 كلمة للطويل (12-15 دقيقة)
-8. كل شوية حط تعليمات إلقاء بين قوسين {} — مثل {بصوت عالي} {بهدوء} {بسرعة} {توقف}
-9. للشورت: الموضوع = حدث تاريخي حصل في نفس اليوم من السنة
-10. للطويل: الموضوع = تحليل عميق لحدث أو شخصية أو ظاهرة
+Script rules:
+1. THE HOOK (first 3 seconds): A shocking statement that prevents closing — "Imagine...", "What if I told you...", "Something was happening in...", "They never told you about..."
+2. LANGUAGE: Conversational English — short punchy sentences. Write like a narrator telling a campfire story
+3. RHYTHM: Short, punchy lines. One sentence per line. Every sentence stands on its own
+4. RETENTION: Use "but wait...", "here's where it gets crazy...", "and then something unexpected happened..."
+5. STRUCTURE: Shock → Curiosity → Information → Twist → Interactive ending
+6. ENDING: Open-ended question that makes the viewer comment or share
+7. LENGTH: 150-300 words for shorts (45-60 sec), 1500-2500 words for long-form (10-15 min)
+8. VOICE INSTRUCTIONS: Sprinkle delivery cues in {curly braces} — {loud} {whisper} {fast} {pause} {emphasize}
+9. For shorts: topic = historical event that happened on this day
+10. For long-form: topic = deep analysis of an event, person, or phenomenon
 
-أول سطر: [عنوان الفيديو المقترح]
-آخر سطر: 🎬 [وصف الثمبنيل — المشهد والألوان والنص]"""
+First line: [Suggested video title]
+Last line: 🎬 [thumbnail description — scene, colors, text overlay]"""
 
-LONG_SYSTEM = SHORT_SYSTEM.replace("250-400 كلمة للشورت", "2000-3000 كلمة للطويل (12-15 دقيقة)")
-LONG_SYSTEM += "\n\nقسم النص إلى 5-6 أقسام بعناوين فرعية. كل قسم يكشف زاوية جديدة."
+LONG_SYSTEM = SHORT_SYSTEM.replace("150-300 words for shorts", "1500-2500 words for long-form (10-15 min)")
+LONG_SYSTEM += "\n\nDivide the script into 5-6 sections with subheadings. Each section reveals a new angle."
 
 
 def generate_script_with_claude(prompt, is_short=True):
@@ -48,7 +48,7 @@ def generate_script_with_claude(prompt, is_short=True):
         "Authorization": f"Bearer {CLAUDE_API_KEY}",
         "Content-Type": "application/json",
         "HTTP-Referer": "http://localhost:5678",
-        "X-Title": "الأعماق YouTube Automation"
+        "X-Title": "Depths YouTube Automation"
     }
 
     payload = {
@@ -68,7 +68,7 @@ def generate_script_with_claude(prompt, is_short=True):
         content = data["choices"][0]["message"]["content"]
         return content.strip()
     except Exception as ex:
-        return f"خطأ في توليد النص: {ex}"
+        return f"Error generating script: {ex}"
 
 
 def get_on_this_day_events(month, day):
@@ -105,38 +105,38 @@ def build_short_prompt(event):
     if not extract and title:
         extract = title
 
-    return f"""اكتب سكريبت فيديو قصير لقناة "الأعماق" عن حدث حصل في مثل هذا اليوم من التاريخ.
+    return f"""Write a short video script for "Depths" channel about an event that happened on this day in history.
 
-الحدث: {event_text}
-السنة: {event_year}
-التفاصيل: {(extract or '')[:600]}
+Event: {event_text}
+Year: {event_year}
+Details: {(extract or '')[:600]}
 
-مطلوب:
-- هوك قاتل في أول 3 ثواني
-- فضول في كل جملة
-- خاتمة تسأل المشاهد سؤال
-- تعليمات إلقاء {بين قوسين}
-- آخر سطر: وصف الثمبنيل
+Requirements:
+- Killer hook in first 3 seconds
+- Curiosity in every sentence
+- Ending with a question for the viewer
+- Delivery instructions in {{curly braces}}
+- Last line: thumbnail description
 
-اكتب السكريبت كاملًا الآن."""
+Write the complete script now."""
 
 
 def build_long_prompt(topic=None):
     """Build a prompt for a long-form video."""
     if not topic:
-        topic = "واحدة من أكثر الحوادث التاريخية رعبًا وتأثيرًا في نفسية البشر"
+        topic = "one of the most terrifying and psychologically impactful events in human history"
 
-    return f"""اكتب سكريبت فيديو طويل لقناة "الأعماق" عن: {topic}
+    return f"""Write a long-form video script for "Depths" channel about: {topic}
 
-مطلوب:
-- هوك في أول 3 ثواني
-- 5-6 أقسام كل قسم يكشف زاوية جديدة
-- تعليمات إلقاء {بين قوسين}
-- تحليل نفسي عميق
-- خاتمة تفاعلية مع سؤال
-- آخر سطر: وصف الثمبنيل
+Requirements:
+- Hook in first 3 seconds
+- 5-6 sections, each revealing a new angle
+- Delivery instructions in {{curly braces}}
+- Deep psychological analysis
+- Interactive ending with a question
+- Last line: thumbnail description
 
-اكتب السكريبت كاملًا الآن."""
+Write the complete script now."""
 
 
 def extract_title(script):
@@ -152,7 +152,7 @@ def extract_thumbnail_note(script):
         return ""
     lines = script.strip().split("\n")
     for line in reversed(lines):
-        if "🎬" in line or "الثمبنيل" in line or "thumbnail" in line.lower():
+        if "🎬" in line or "thumbnail" in line.lower():
             return line.strip()
     return ""
 
@@ -187,11 +187,11 @@ def generate_on_this_day_script(date_str=None):
     if events and len(events) > 0:
         event = random.choice(events[:20])
     else:
-        event = {"year": "Unknown", "text": "حدث تاريخي غامض", "pages": []}
+        event = {"year": "Unknown", "text": "A mysterious historical event", "pages": []}
 
     prompt = build_short_prompt(event)
     script = generate_script_with_claude(prompt, is_short=True)
-    title = extract_title(script) or event.get("text", "حدث تاريخي")
+    title = extract_title(script) or event.get("text", "Historical Event")
     thumb_note = extract_thumbnail_note(script)
 
     return {
@@ -209,7 +209,7 @@ def generate_long_script(topic=None):
     """Generate a professional long-form script."""
     prompt = build_long_prompt(topic)
     script = generate_script_with_claude(prompt, is_short=False)
-    title = extract_title(script) or topic or "موضوع تاريخي"
+    title = extract_title(script) or topic or "Historical Topic"
     thumb_note = extract_thumbnail_note(script)
 
     return {
