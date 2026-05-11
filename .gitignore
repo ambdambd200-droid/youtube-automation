@@ -7,6 +7,7 @@ assets/audio/*
 assets/images/*
 assets/videos/*
 assets/thumbnails/*
+assets/voiceovers/*
 
 # YouTube OAuth token
 youtube_token.pickle
