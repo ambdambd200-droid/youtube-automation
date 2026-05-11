@@ -35,6 +35,14 @@ jobs:
       - name: Install Arabic fonts
         run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-noto-core fonts-noto-extra
 
+      - name: Debug secrets
+        run: |
+          echo "CLAUDE_API_KEY set: ${{ secrets.CLAUDE_API_KEY != '' }}"
+          echo "YOUTUBE_CLIENT_ID set: ${{ secrets.YOUTUBE_CLIENT_ID != '' }}"
+          echo "YOUTUBE_CLIENT_SECRET set: ${{ secrets.YOUTUBE_CLIENT_SECRET != '' }}"
+          echo "YOUTUBE_REFRESH_TOKEN set: ${{ secrets.YOUTUBE_REFRESH_TOKEN != '' }}"
+          echo "YOUTUBE_TOKEN_B64 set: ${{ secrets.YOUTUBE_TOKEN_B64 != '' }}"
+
       - name: Create .env file
         run: |
           echo "N8N_API_KEY=dummy" > .env

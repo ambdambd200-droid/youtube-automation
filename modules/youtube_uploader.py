@@ -24,52 +24,56 @@ def _is_ci():
 
 def get_authenticated_service():
     """Get authenticated YouTube service using OAuth 2.0.
-    Priority: env vars > pickle file > (local only) interactive OAuth."""
+    Tries: env vars (client_id+secret+refresh) → pickle file → (local only) interactive OAuth."""
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
 
-    creds = None
+    errors = []
 
-    # 1) Build from env vars FIRST (most reliable for CI)
+    # Attempt 1: Build from env vars
     if YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET and YOUTUBE_REFRESH_TOKEN:
-        creds = Credentials(
-            token=None,
-            refresh_token=YOUTUBE_REFRESH_TOKEN,
-            token_uri="https://oauth2.googleapis.com/token",
-            client_id=YOUTUBE_CLIENT_ID,
-            client_secret=YOUTUBE_CLIENT_SECRET,
-            scopes=SCOPES
-        )
+        try:
+            creds = Credentials(
+                token=None,
+                refresh_token=YOUTUBE_REFRESH_TOKEN,
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=YOUTUBE_CLIENT_ID,
+                client_secret=YOUTUBE_CLIENT_SECRET,
+                scopes=SCOPES
+            )
+            if creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            if creds and creds.valid:
+                return build("youtube", "v3", credentials=creds)
+        except Exception as e:
+            errors.append(f"env: {e}")
 
-    # 2) Fallback to pickle file
-    if not creds and os.path.exists(TOKEN_FILE):
-        with open(TOKEN_FILE, "rb") as token:
-            creds = pickle.load(token)
+    # Attempt 2: Pickle file
+    if os.path.exists(TOKEN_FILE):
+        try:
+            with open(TOKEN_FILE, "rb") as token:
+                creds = pickle.load(token)
+            if creds:
+                if creds.expired and creds.refresh_token:
+                    creds.refresh(Request())
+                if creds and creds.valid:
+                    return build("youtube", "v3", credentials=creds)
+        except Exception as e:
+            errors.append(f"pickle: {e}")
 
-    # 3) Validate and refresh
-    if creds:
-        if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        if creds and creds.valid:
-            return build("youtube", "v3", credentials=creds)
-
-    # 4) If all fails, try interactive OAuth (local only, never on CI)
+    # All attempts failed
+    err_msg = "YouTube auth failed. " + "; ".join(errors)
     if _is_ci():
-        print(json.dumps({
-            "error": "YouTube auth failed in CI. "
-                     "Ensure YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, "
-                     "and YOUTUBE_REFRESH_TOKEN secrets are set correctly."
-        }))
+        err_msg += ". Set secrets in repo: Settings → Secrets and variables → Actions: "
+        err_msg += "YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN, YOUTUBE_TOKEN_B64"
+        print(json.dumps({"error": err_msg}))
         sys.exit(1)
 
     # Local interactive fallback
     from google_auth_oauthlib.flow import InstalledAppFlow
     if not YOUTUBE_CLIENT_ID or not YOUTUBE_CLIENT_SECRET:
-        print(json.dumps({
-            "error": "YouTube credentials not configured. "
-                     "Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in .env."
-        }))
+        print(json.dumps({"error": "YouTube credentials not configured in .env"}))
         sys.exit(1)
 
     flow = InstalledAppFlow.from_client_config(
@@ -85,10 +89,8 @@ def get_authenticated_service():
         SCOPES
     )
     creds = flow.run_local_server(port=0)
-
     with open(TOKEN_FILE, "wb") as token:
         pickle.dump(creds, token)
-
     return build("youtube", "v3", credentials=creds)
 
 def verify_auth():
