@@ -10,35 +10,29 @@ import argparse
 import json
 import os
 import sys
-import http.client
-import urllib.parse
-import mimetypes
 import pickle
-import re
 
 sys.path.insert(0, ".")
 from config import YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+SCOPES = ["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube"]
 TOKEN_FILE = "youtube_token.pickle"
-API_BASE = "www.googleapis.com"
+
+def _is_ci():
+    """Detect if running in CI (GitHub Actions, etc)."""
+    return os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
 
 def get_authenticated_service():
-    """Get authenticated YouTube service using OAuth 2.0."""
+    """Get authenticated YouTube service using OAuth 2.0.
+    Priority: env vars > pickle file > (local only) interactive OAuth."""
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
-    from google_auth_oauthlib.flow import InstalledAppFlow
     from googleapiclient.discovery import build
 
     creds = None
 
-    # Try pickle file first
-    if os.path.exists(TOKEN_FILE):
-        with open(TOKEN_FILE, "rb") as token:
-            creds = pickle.load(token)
-
-    # If no pickle but we have all credentials in env, build from env
-    if not creds and YOUTUBE_REFRESH_TOKEN and YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET:
+    # 1) Build from env vars FIRST (most reliable for CI)
+    if YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET and YOUTUBE_REFRESH_TOKEN:
         creds = Credentials(
             token=None,
             refresh_token=YOUTUBE_REFRESH_TOKEN,
@@ -48,38 +42,74 @@ def get_authenticated_service():
             scopes=SCOPES
         )
 
-    # If no valid credentials, let user log in
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
+    # 2) Fallback to pickle file
+    if not creds and os.path.exists(TOKEN_FILE):
+        with open(TOKEN_FILE, "rb") as token:
+            creds = pickle.load(token)
+
+    # 3) Validate and refresh
+    if creds:
+        if creds.expired and creds.refresh_token:
             creds.refresh(Request())
-        else:
-            if not YOUTUBE_CLIENT_ID or not YOUTUBE_CLIENT_SECRET:
-                print(json.dumps({
-                    "error": "YouTube credentials not configured. "
-                             "Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in .env, "
-                             "or run with --auth-flow to set up OAuth."
-                }))
-                sys.exit(1)
+        if creds and creds.valid:
+            return build("youtube", "v3", credentials=creds)
 
-            flow = InstalledAppFlow.from_client_config(
-                {
-                    "installed": {
-                        "client_id": YOUTUBE_CLIENT_ID,
-                        "client_secret": YOUTUBE_CLIENT_SECRET,
-                        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                        "token_uri": "https://oauth2.googleapis.com/token",
-                        "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob"]
-                    }
-                },
-                SCOPES
-            )
-            creds = flow.run_local_server(port=0)
+    # 4) If all fails, try interactive OAuth (local only, never on CI)
+    if _is_ci():
+        print(json.dumps({
+            "error": "YouTube auth failed in CI. "
+                     "Ensure YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, "
+                     "and YOUTUBE_REFRESH_TOKEN secrets are set correctly."
+        }))
+        sys.exit(1)
 
-        # Save credentials for next run
-        with open(TOKEN_FILE, "wb") as token:
-            pickle.dump(creds, token)
+    # Local interactive fallback
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    if not YOUTUBE_CLIENT_ID or not YOUTUBE_CLIENT_SECRET:
+        print(json.dumps({
+            "error": "YouTube credentials not configured. "
+                     "Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in .env."
+        }))
+        sys.exit(1)
+
+    flow = InstalledAppFlow.from_client_config(
+        {
+            "installed": {
+                "client_id": YOUTUBE_CLIENT_ID,
+                "client_secret": YOUTUBE_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob"]
+            }
+        },
+        SCOPES
+    )
+    creds = flow.run_local_server(port=0)
+
+    with open(TOKEN_FILE, "wb") as token:
+        pickle.dump(creds, token)
 
     return build("youtube", "v3", credentials=creds)
+
+def verify_auth():
+    """Verify authentication by fetching channel info."""
+    youtube = get_authenticated_service()
+    request = youtube.channels().list(part="snippet", mine=True)
+    response = request.execute()
+    items = response.get("items", [])
+    if items:
+        channel = items[0]
+        print(json.dumps({
+            "status": "ok",
+            "channel_name": channel["snippet"]["title"],
+            "channel_id": channel["id"]
+        }, ensure_ascii=False))
+    else:
+        print(json.dumps({
+            "status": "error",
+            "error": "No YouTube channel found. Create one at youtube.com."
+        }))
+    return items
 
 def upload_video(video_path, title, description, tags, category_id="22", privacy_status="public", thumbnail_path=None):
     """Upload video to YouTube."""
@@ -137,19 +167,14 @@ def upload_video(video_path, title, description, tags, category_id="22", privacy
 
 def generate_seo_metadata(script, title):
     """Generate SEO metadata for YouTube upload."""
-    # Basic tags for Arabic dark explainer niche
     tags = [
         "شرح", "تاريخ", "حوادث", "dark history", "educational",
         "حقائق", "غموض", "وثائقي", "وثائقي قصير",
         "الشرح بالعربية", "معلومات عامة", "ثقافة"
     ]
-
-    # Extract potential tags from title
     if title:
         title_words = title.replace("|", "").replace("-", "").split()
         tags.extend(title_words[:5])
-
-    # Deduplicate
     tags = list(dict.fromkeys(tags))
 
     description = f"""{title}
@@ -165,7 +190,6 @@ def generate_seo_metadata(script, title):
 
 #تاريخ #حوادث #شرح #معلومات #ثقافة #وثائقي
 """
-
     return description, tags
 
 def main():
@@ -179,10 +203,15 @@ def main():
     parser.add_argument("--script", default=None)
     parser.add_argument("--auth-flow", action="store_true",
                         help="Run OAuth flow to get YouTube credentials")
+    parser.add_argument("--verify", action="store_true",
+                        help="Verify authentication without uploading")
     args = parser.parse_args()
 
+    if args.verify:
+        verify_auth()
+        return
+
     if args.auth_flow:
-        # Just run the auth flow without uploading
         get_authenticated_service()
         print(json.dumps({"status": "authenticated", "message": "YouTube OAuth setup complete!"}))
         return
@@ -192,7 +221,6 @@ def main():
         print(json.dumps(result, ensure_ascii=False))
         sys.exit(1)
 
-    # Generate metadata if not provided
     description = args.description
     tags = list(args.tags)
 
