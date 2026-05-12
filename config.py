@@ -9,7 +9,9 @@ N8N_BASE_URL = os.getenv("N8N_BASE_URL", "http://localhost:5678")
 # Groq API (free, no payment needed)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "llama3-70b-8192"  # Free model, high quality
+GROQ_MODEL = "llama-3.3-70b-versatile"  # Llama 3.3 70B - free tier
+if not GROQ_API_KEY:
+    print("WARNING: GROQ_API_KEY not set. Get a free key at https://console.groq.com")
 
 YOUTUBE_CLIENT_ID = os.getenv("YOUTUBE_CLIENT_ID", "")
 YOUTUBE_CLIENT_SECRET = os.getenv("YOUTUBE_CLIENT_SECRET", "")

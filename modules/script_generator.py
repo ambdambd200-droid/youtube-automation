@@ -74,12 +74,11 @@ def generate_script(prompt, is_short=True):
 
     try:
         resp = requests.post(GROQ_API_URL, headers=headers, json=payload, timeout=120)
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            return f"Error {resp.status_code}: {resp.text[:500]}"
         data = resp.json()
         content = data["choices"][0]["message"]["content"].strip()
 
-        # Strip any planning/thinking before the script starts
-        # Script always starts with [title]
         if "[" in content:
             content = content[content.index("["):]
 
