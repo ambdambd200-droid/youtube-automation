@@ -1,29 +1,96 @@
 """
-Professional video assembler with dynamic motion, transitions, and text animations.
-No external paid services - pure MoviePy + ffmpeg.
+Internal video engine for Depths channel.
+Implements professional pacing phases, freeze+zoom, dynamic text.
+Zero external dependencies — pure MoviePy + internal effects.
 """
 
 import argparse
 import json
 import os
 import sys
-import random
 import math
+import random
 
 sys.path.insert(0, ".")
 from config import VIDEO_WIDTH, VIDEO_HEIGHT, FPS
 
 
 def ease_in_out(t):
-    """Smooth ease-in-out curve for Ken Burns."""
+    """Smooth ease-in-out curve."""
     return t * t * (3 - 2 * t)
 
 
-def make_animated_text(text, duration, font_size=52, anim_type="slide_up"):
+def phase_cuts(phase, total_duration):
+    """Calculate cut interval based on video phase.
+    Hook (0-15s): fast cuts every 1-2s
+    Build (15s-40%): cuts every 3-5s
+    Peak (40-65%): cuts every 2-3s
+    Ending (65-100%): cuts every 4-6s
     """
-    Create animated text overlay with professional motion.
-    Types: slide_up, typewriter, fade_in, scale_in
-    """
+    hook_end = min(15, total_duration * 0.15)
+    build_end = total_duration * 0.40
+    peak_end = total_duration * 0.65
+
+    if phase == "hook":
+        return random.uniform(1.0, 2.0)
+    elif phase == "build":
+        return random.uniform(3.0, 5.0)
+    elif phase == "peak":
+        return random.uniform(2.0, 3.0)
+    else:
+        return random.uniform(4.0, 6.0)
+
+
+def get_phase(t, total_duration):
+    """Determine which phase a timestamp falls in."""
+    hook_end = min(15, total_duration * 0.15)
+    build_end = total_duration * 0.40
+    peak_end = total_duration * 0.65
+
+    if t < hook_end:
+        return "hook"
+    elif t < build_end:
+        return "build"
+    elif t < peak_end:
+        return "peak"
+    else:
+        return "ending"
+
+
+def find_key_moments(script, total_duration):
+    """Extract key moments from script for text overlays."""
+    import re
+    moments = []
+
+    if not script:
+        return moments
+
+    # Find "wait" moments
+    for m in re.finditer(r'(?i)\b(wait|but here\'s|this is where|and then)\b', script):
+        rel_pos = m.start() / max(len(script), 1)
+        t = rel_pos * total_duration
+        moments.append({"time": t, "type": "wait", "text": "wait..."})
+
+    # Find question marks
+    for m in re.finditer(r'([^.]*\?)', script):
+        rel_pos = m.start() / max(len(script), 1)
+        t = rel_pos * total_duration
+        q = m.group(1).strip()[:60]
+        if len(q) > 10:
+            moments.append({"time": t, "type": "question", "text": q})
+
+    # Find numbers with impact
+    for m in re.finditer(r'\b(\d{2,}%|\d{3,})\b', script):
+        rel_pos = m.start() / max(len(script), 1)
+        t = rel_pos * total_duration
+        moments.append({"time": t, "type": "number", "text": m.group(1)})
+
+    return moments[:5]
+
+
+def make_text_layer(text, duration, anim_type="slide_up", font_size=52,
+                    text_color=(255, 255, 255), bar_color=(0, 0, 0)):
+    """Create animated text overlay with professional motion."""
     try:
         from PIL import Image, ImageDraw, ImageFont
         import numpy as np
@@ -31,12 +98,10 @@ def make_animated_text(text, duration, font_size=52, anim_type="slide_up"):
 
         font = None
         for fp in [
-            "C:\\Windows\\Fonts\\arialbd.ttf",
-            "C:\\Windows\\Fonts\\arial.ttf",
+            "C:\\Windows\\Fonts\\arialbd.ttf", "C:\\Windows\\Fonts\\arial.ttf",
             "C:\\Windows\\Fonts\\tahoma.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            None
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", None
         ]:
             try:
                 font = ImageFont.truetype(fp, font_size) if fp else ImageFont.load_default()
@@ -44,72 +109,63 @@ def make_animated_text(text, duration, font_size=52, anim_type="slide_up"):
             except:
                 continue
 
-        # Wrap text
+        # Word wrap
         draw_test = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
         words = text.split()
-        lines = []
-        current = ""
+        lines, current = [], ""
         for w in words:
             test = current + " " + w if current else w
             bbox = draw_test.textbbox((0, 0), test, font=font)
-            if bbox[2] - bbox[0] < VIDEO_WIDTH - 160:
+            if bbox[2] - bbox[0] < VIDEO_WIDTH - 200:
                 current = test
             else:
                 lines.append(current)
                 current = w
         if current:
             lines.append(current)
-        lines = lines[:3]
+        lines = lines[:2]
 
-        line_height = font_size + 15
-        total_h = len(lines) * line_height + 40
-        bar_h = total_h + 20
+        line_h = font_size + 15
+        bar_h = len(lines) * line_h + 40
 
         def make_frame(t):
             progress = min(t / max(duration, 0.01), 1)
 
-            # Animation offset
-            offset = 0
-            alpha = 1
+            offset, alpha = 0, 1
             if anim_type == "slide_up":
-                offset = int(80 * (1 - ease_in_out(min(progress * 2, 1))))
+                offset = int(60 * (1 - ease_in_out(min(progress * 2, 1))))
                 alpha = min(progress * 4, 1)
             elif anim_type == "fade_in":
                 alpha = min(progress * 3, 1)
             elif anim_type == "scale_in":
-                scale = 0.5 + 0.5 * ease_in_out(min(progress * 2, 1))
+                s = 0.5 + 0.5 * ease_in_out(min(progress * 2, 1))
                 alpha = min(progress * 3, 1)
 
-            # Create frame with background bar
-            bar = Image.new("RGBA", (VIDEO_WIDTH, bar_h), (0, 0, 0, int(160 * alpha)))
+            bar = Image.new("RGBA", (VIDEO_WIDTH, bar_h),
+                           (*bar_color, int(160 * alpha)))
             draw = ImageDraw.Draw(bar)
 
-            y_start = 20 + offset
+            y_pos = 20 + offset
             for li, line in enumerate(lines):
                 bbox = draw.textbbox((0, 0), line, font=font)
                 w = bbox[2] - bbox[0]
                 x = (VIDEO_WIDTH - w) // 2
-                y = y_start + li * line_height
-
-                # Shadow
+                y = y_pos + li * line_h
                 for ox, oy in [(3, 3), (2, 2)]:
                     draw.text((x + ox, y + oy), line, fill=(0, 0, 0, int(200 * alpha)), font=font)
-                # Main text
-                draw.text((x, y), line, fill=(255, 255, 255, int(255 * alpha)), font=font)
+                draw.text((x, y), line, fill=(*text_color, int(255 * alpha)), font=font)
 
-            frame = np.array(bar)
-            return frame
+            return np.array(bar)
 
-        clip = VideoClip(make_frame, duration=duration).with_position(("center", "bottom"))
-        return clip
+        return VideoClip(make_frame, duration=duration).with_position(("center", "bottom"))
 
     except Exception as ex:
-        print(f"  [assembler] Text animation error: {ex}", flush=True)
+        print(f"  [video] Text error: {ex}", flush=True)
         return None
 
 
-def make_title_animation(text, duration):
-    """Create animated title that scales and fades in at center."""
+def make_big_word(text, duration):
+    """Create a single big word overlay for shock moments."""
     try:
         from PIL import Image, ImageDraw, ImageFont
         import numpy as np
@@ -117,23 +173,61 @@ def make_title_animation(text, duration):
 
         font = None
         for fp in [
-            "C:\\Windows\\Fonts\\arialbd.ttf",
-            "C:\\Windows\\Fonts\\arial.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            None
+            "C:\\Windows\\Fonts\\arialbd.ttf", "C:\\Windows\\Fonts\\arial.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", None
         ]:
             try:
-                font = ImageFont.truetype(fp, 60) if fp else ImageFont.load_default()
+                font = ImageFont.truetype(fp, 90) if fp else ImageFont.load_default()
                 break
             except:
                 continue
 
-        # Wrap
+        def make_frame(t):
+            progress = min(t / max(duration, 0.01), 1)
+            alpha = min(progress * 5, 1)
+            p = ease_in_out(min(progress * 3, 1))
+
+            canvas = Image.new("RGBA", (VIDEO_WIDTH, VIDEO_HEIGHT), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(canvas)
+            bbox = draw.textbbox((0, 0), text, font=font)
+            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            x = (VIDEO_WIDTH - tw) // 2
+            y = (VIDEO_HEIGHT - th) // 2
+
+            for ox, oy in [(4, 4), (3, 3)]:
+                draw.text((x + ox, y + oy), text, fill=(0, 0, 0, int(200 * alpha)), font=font)
+            draw.text((x, y), text, fill=(200, 40, 40, int(255 * alpha)), font=font)
+
+            return np.array(canvas)
+
+        return VideoClip(make_frame, duration=duration)
+
+    except Exception as ex:
+        print(f"  [video] Big word error: {ex}", flush=True)
+        return None
+
+
+def make_title_animation(text, duration):
+    """Animated title that scales and fades in at center."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        import numpy as np
+        from moviepy import VideoClip
+
+        font = None
+        for fp in [
+            "C:\\Windows\\Fonts\\arialbd.ttf", "C:\\Windows\\Fonts\\arial.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", None
+        ]:
+            try:
+                font = ImageFont.truetype(fp, 58) if fp else ImageFont.load_default()
+                break
+            except:
+                continue
+
         draw_test = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
         words = text.split()
-        lines = []
-        current = ""
+        lines, current = [], ""
         for w in words:
             test = current + " " + w if current else w
             bbox = draw_test.textbbox((0, 0), test, font=font)
@@ -153,43 +247,37 @@ def make_title_animation(text, duration):
             p = ease_in_out(min(progress * 2, 1))
             alpha = min(progress * 3, 1)
             scale = 0.3 + 0.7 * p
+            fw, fh = int(VIDEO_WIDTH * scale), int((len(lines) * line_h + 40) * scale)
 
-            frame_w = int(VIDEO_WIDTH * scale)
-            frame_h = int((len(lines) * line_h + 40) * scale)
-
-            # Draw on scaled canvas then place
             canvas = Image.new("RGBA", (VIDEO_WIDTH, VIDEO_HEIGHT), (0, 0, 0, 0))
-            overlay = Image.new("RGBA", (frame_w, frame_h), (0, 0, 0, int(180 * alpha)))
+            overlay = Image.new("RGBA", (fw, fh), (0, 0, 0, int(180 * alpha)))
             draw = ImageDraw.Draw(overlay)
 
             for li, line in enumerate(lines):
                 bbox = draw.textbbox((0, 0), line, font=font)
-                w = bbox[2] - bbox[0]
-                x = (frame_w - w) // 2
-                y = 20 + li * line_h
-
+                w, y = bbox[2] - bbox[0], 20 + li * line_h
+                x = (fw - w) // 2
                 for ox, oy in [(3, 3), (2, 2)]:
                     draw.text((x + ox, y + oy), line, fill=(0, 0, 0, int(200 * alpha)), font=font)
                 draw.text((x, y), line, fill=(255, 215, 0, int(255 * alpha)), font=font)
 
-            canvas.paste(overlay, ((VIDEO_WIDTH - frame_w) // 2, (VIDEO_HEIGHT - frame_h) // 2))
+            canvas.paste(overlay, ((VIDEO_WIDTH - fw) // 2, (VIDEO_HEIGHT - fh) // 2))
             return np.array(canvas)
 
         return VideoClip(make_frame, duration=duration)
 
     except Exception as ex:
-        print(f"  [assembler] Title animation error: {ex}", flush=True)
+        print(f"  [video] Title error: {ex}", flush=True)
         return None
 
 
 def assemble_video(images, audio_path, output_path, background_music=None,
                    text_overlays=None, is_short=True, title=None, script=None):
-    """Assemble professional video with motion, transitions, and audio."""
+    """Assemble professional video with phase-based pacing, effects, and text animations."""
     try:
         from moviepy import (
             AudioFileClip, ImageClip, VideoClip,
-            CompositeVideoClip, concatenate_videoclips,
-            ColorClip
+            CompositeVideoClip, concatenate_videoclips, ColorClip
         )
         from PIL import Image as PILImage
         import numpy as np
@@ -198,145 +286,167 @@ def assemble_video(images, audio_path, output_path, background_music=None,
         from moviepy import CompositeAudioClip
         from modules.audio_processor import enhance_tts, add_background_music
 
-        # Load and enhance audio
-        print(f"  [assembler] Processing audio...", flush=True)
-        enhanced_audio = os.path.join(os.path.dirname(output_path), "enhanced_audio.mp3")
-        enhance_tts(audio_path, enhanced_audio)
+        # ── Audio pipeline ─────────────────────────────────
+        print(f"  [video] Processing audio...", flush=True)
+        enhanced = os.path.join(os.path.dirname(output_path), "enhanced_audio.mp3")
+        enhance_tts(audio_path, enhanced)
 
-        final_audio = os.path.join(os.path.dirname(output_path), "final_audio.mp3")
+        final_audio_p = os.path.join(os.path.dirname(output_path), "final_audio.mp3")
         if background_music and os.path.exists(str(background_music)):
-            add_background_music(enhanced_audio, str(background_music), final_audio)
+            add_background_music(enhanced, str(background_music), final_audio_p)
         else:
             import shutil
-            shutil.copy2(enhanced_audio, final_audio)
+            shutil.copy2(enhanced, final_audio_p)
 
-        audio = AudioFileClip(final_audio)
+        audio = AudioFileClip(final_audio_p)
         total_duration = audio.duration
-        print(f"  [assembler] Audio: {total_duration:.1f}s (enhanced)", flush=True)
+        print(f"  [video] Audio: {total_duration:.1f}s", flush=True)
 
-        # Build image clips with professional Ken Burns
-        if not images or len(images) == 0:
+        # ── Image clips with eased Ken Burns ────────────────
+        if not images:
             clips = [ColorClip(size=(VIDEO_WIDTH, VIDEO_HEIGHT), color=(5, 5, 15)).with_duration(total_duration)]
         else:
-            img_count = len(images)
-            img_duration = total_duration / img_count
-            clips = []
+            # Phase-based image distribution
+            hook_end_t = min(15, total_duration * 0.15)
+            build_end_t = total_duration * 0.40
+            peak_end_t = total_duration * 0.65
 
-            for i, img_path in enumerate(images):
-                if not os.path.exists(img_path):
-                    continue
-                try:
-                    pil_img = PILImage.open(img_path).convert("RGB")
-                    w, h = pil_img.size
-
-                    # Smart crop: center-crop to 16:9
-                    target_ratio = VIDEO_WIDTH / VIDEO_HEIGHT
-                    img_ratio = w / h
-
-                    if img_ratio > target_ratio:
-                        new_w = int(h * target_ratio)
-                        new_h = h
-                        x = (w - new_w) // 2
-                        y = 0
-                    else:
-                        new_w = w
-                        new_h = int(w / target_ratio)
-                        x = 0
-                        y = (h - new_h) // 2
-
-                    pil_img = pil_img.crop((x, y, x + new_w, y + new_h))
-                    pil_img = pil_img.resize((VIDEO_WIDTH, VIDEO_HEIGHT), PILImage.LANCZOS)
-
-                    # Dark overlay for text readability
-                    arr = np.array(pil_img).astype(np.float32)
-                    arr *= 0.75
-                    arr = arr.astype(np.uint8)
-
-                    base_clip = ImageClip(arr).with_duration(img_duration)
-
-                    # Eased Ken Burns zoom
-                    zoom_max = 1.15 if is_short else 1.10
-                    zoomed = base_clip.with_effects([
-                        Resize(lambda t: 1 + (zoom_max - 1) * ease_in_out(t / max(img_duration, 0.01)))
-                    ])
-
-                    clips.append(zoomed)
-
-                except Exception as ex:
-                    print(f"  [assembler] Skipping bad image {img_path}: {ex}", flush=True)
-
-            if not clips:
+            # Calculate cuts per phase
+            images_available = [p for p in images if os.path.exists(p)]
+            if not images_available:
                 clips = [ColorClip(size=(VIDEO_WIDTH, VIDEO_HEIGHT), color=(5, 5, 15)).with_duration(total_duration)]
+            else:
+                clips = []
+                t = 0.0
+                img_idx = 0
 
-        print(f"  [assembler] {len(clips)} image clips with eased Ken Burns", flush=True)
+                while t < total_duration - 0.5:
+                    phase = get_phase(t, total_duration)
+                    cut_dur = min(phase_cuts(phase, total_duration), total_duration - t)
 
-        # Professional transitions
+                    # Pick image (cycle through available)
+                    img_path = images_available[img_idx % len(images_available)]
+                    img_idx += 1
+
+                    try:
+                        pil_img = PILImage.open(img_path).convert("RGB")
+                        w, h = pil_img.size
+                        ratio = VIDEO_WIDTH / VIDEO_HEIGHT
+                        img_r = w / h
+
+                        if img_r > ratio:
+                            nw, nh = int(h * ratio), h
+                            cx, cy = (w - nw) // 2, 0
+                        else:
+                            nw, nh = w, int(w / ratio)
+                            cx, cy = 0, (h - nh) // 2
+
+                        pil_img = pil_img.crop((cx, cy, cx + nw, cy + nh))
+                        pil_img = pil_img.resize((VIDEO_WIDTH, VIDEO_HEIGHT), PILImage.LANCZOS)
+
+                        arr = np.array(pil_img).astype(np.float32)
+                        arr *= 0.75
+                        arr = arr.astype(np.uint8)
+
+                        base = ImageClip(arr).with_duration(cut_dur)
+
+                        # Zoom rate varies by phase
+                        zoom_max = {"hook": 1.12, "build": 1.08, "peak": 1.15, "ending": 1.05}[phase]
+                        zoomed = base.with_effects([
+                            Resize(lambda t: 1 + (zoom_max - 1) * ease_in_out(t / max(cut_dur, 0.01)))
+                        ])
+
+                        clips.append(zoomed)
+                    except:
+                        # fallback: dark frame
+                        clips.append(ColorClip(size=(VIDEO_WIDTH, VIDEO_HEIGHT), color=(5, 5, 15)).with_duration(cut_dur))
+
+                    t += cut_dur
+
+        print(f"  [video] {len(clips)} clips with phase-based pacing", flush=True)
+
+        # ── Transitions ──────────────────────────────────────
         final_clips = []
         for i, clip in enumerate(clips):
             if i > 0:
-                fade_dur = min(0.5, clip.duration * 0.15)
-                clip = clip.with_effects([CrossFadeIn(fade_dur)])
+                fd = min(0.4, clip.duration * 0.15)
+                clip = clip.with_effects([CrossFadeIn(fd)])
             else:
                 clip = clip.with_effects([FadeIn(0.3)])
             final_clips.append(clip)
 
         video = concatenate_videoclips(final_clips, method="compose")
         video = video.with_audio(audio)
+        layers = [video]
 
-        # Build overlay layers
-        overlay_layers = [video]
-
-        # Animated title at start
+        # ── Animated title ──────────────────────────────────
         if title:
-            title_dur = min(5, total_duration * 0.3)
-            title_clip = make_title_animation(title, title_dur)
-            if title_clip:
-                overlay_layers.append(title_clip)
+            td = min(5, total_duration * 0.25)
+            tc = make_title_animation(title, td)
+            if tc:
+                layers.append(tc)
 
-        # Dynamic captions from script
-        if script and len(overlay_layers) < 4:
-            import re
-            sentences = [s.strip() for s in re.split(r'[.!?]', script) if len(s.strip()) > 20]
-            random.shuffle(sentences)
-            caption_count = min(2, len(sentences))
-            if caption_count > 0:
-                spacing = total_duration / (caption_count + 1)
-                for idx in range(caption_count):
-                    start_t = spacing * (idx + 1)
-                    cap_text = sentences[idx][:100]
-                    dur = min(4, total_duration - start_t - 0.5)
-                    if dur > 1:
-                        anims = ["slide_up", "fade_in"]
-                        tc = make_animated_text(cap_text, dur, font_size=44, anim_type=random.choice(anims))
-                        if tc:
-                            tc = tc.with_start(start_t).with_position(("center", "bottom"))
-                            overlay_layers.append(tc)
+        # ── Key moments from script ──────────────────────────
+        if script:
+            moments = find_key_moments(script, total_duration)
+            for m in moments:
+                mt = m["time"]
+                if mt > total_duration - 2:
+                    continue
+                md = min(3, total_duration - mt - 0.5)
+                if md < 0.5:
+                    continue
 
-        # Text overlays from param
+                if m["type"] == "number":
+                    # Big number overlay
+                    clip = make_big_word(m["text"], md).with_start(mt)
+                    if clip:
+                        layers.append(clip)
+                elif m["type"] == "wait":
+                    clip = make_text_layer(m["text"], md, font_size=58,
+                                           text_color=(200, 40, 40), anim_type="scale_in")
+                    if clip:
+                        layers.append(clip.with_start(mt))
+                elif m["type"] == "question":
+                    clip = make_text_layer(m["text"], md, font_size=44,
+                                           anim_type="fade_in")
+                    if clip:
+                        layers.append(clip.with_start(mt))
+
+            # Add 1-2 random captions if not enough moments
+            if len(moments) < 2:
+                import re as re_mod
+                sentences = [s.strip() for s in re_mod.split(r'[.!?]', script) if len(s.strip()) > 25]
+                random.shuffle(sentences)
+                for i, sent in enumerate(sentences[:2]):
+                    st = total_duration * (0.3 + i * 0.25)
+                    sd = min(4, total_duration - st - 0.5)
+                    if sd > 1:
+                        clip = make_text_layer(sent[:100], sd, font_size=42,
+                                               anim_type=random.choice(["slide_up", "fade_in"]))
+                        if clip:
+                            layers.append(clip.with_start(st))
+
+        # ── External text overlays ──────────────────────────
         if text_overlays:
             for to in text_overlays:
                 txt = to.get("text", "")
-                start = to.get("start", 0)
-                end = to.get("end", total_duration)
-                dur = min(end - start, total_duration - start)
-                if dur > 1 and txt:
-                    tc = make_animated_text(txt, dur, anim_type="fade_in")
-                    if tc:
-                        overlay_layers.append(tc.with_start(start))
+                st = to.get("start", 0)
+                sd = min(to.get("end", total_duration) - st, total_duration - st)
+                if sd > 1 and txt:
+                    clip = make_text_layer(txt, sd, anim_type="fade_in")
+                    if clip:
+                        layers.append(clip.with_start(st))
 
-        if len(overlay_layers) > 1:
-            video = CompositeVideoClip(overlay_layers, size=(VIDEO_WIDTH, VIDEO_HEIGHT))
+        if len(layers) > 1:
+            video = CompositeVideoClip(layers, size=(VIDEO_WIDTH, VIDEO_HEIGHT))
 
-        print(f"  [assembler] Rendering video...", flush=True)
+        # ── Render ──────────────────────────────────────────
+        print(f"  [video] Rendering (phase-based pacing)...", flush=True)
         video.write_videofile(
-            output_path,
-            codec="libx264",
-            audio_codec="aac",
-            fps=FPS,
-            preset="veryfast",
-            bitrate="3000k",
-            ffmpeg_params=["-movflags", "+faststart"],
-            logger=None
+            output_path, codec="libx264", audio_codec="aac",
+            fps=FPS, preset="veryfast", bitrate="3000k",
+            ffmpeg_params=["-movflags", "+faststart"], logger=None
         )
 
         video.close()
@@ -362,36 +472,21 @@ def main():
     parser.add_argument("--json", default=None)
     args = parser.parse_args()
 
-    images = args.images
-    audio_path = args.audio
-    output_path = args.output
-    bg_music = args.background
-    vid_title = args.title
-    script_text = args.script
-
+    data = {}
     if args.json:
         data = json.loads(args.json)
-        images = data.get("images", images)
-        audio_path = data.get("audio", audio_path)
-        output_path = data.get("output", output_path)
-        bg_music = data.get("background", bg_music)
-
-    if not os.path.exists(audio_path):
-        result = {"error": f"Audio file not found: {audio_path}", "output": None}
-        print(json.dumps(result, ensure_ascii=False))
-        sys.exit(1)
-
-    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
 
     video_path = assemble_video(
-        images, audio_path, output_path, bg_music,
-        is_short=(args.type == "short"),
-        title=vid_title,
-        script=script_text
+        images=data.get("images", args.images or []),
+        audio_path=data.get("audio", args.audio),
+        output_path=data.get("output", args.output),
+        background_music=data.get("background", args.background),
+        is_short=(data.get("type", args.type) == "short"),
+        title=data.get("title", args.title),
+        script=data.get("script", args.script)
     )
 
-    result = {"output": video_path, "images_used": len(images), "audio": audio_path}
-    print(json.dumps(result, ensure_ascii=False))
+    print(json.dumps({"output": video_path}))
 
 
 if __name__ == "__main__":
