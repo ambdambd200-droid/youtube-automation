@@ -94,13 +94,17 @@ def fetch_wikipedia_images(query, max_images=5):
 
     return images
 
-def fetch_pexels_images(query, max_images=5):
-    """Fetch images from Pexels API."""
+def fetch_pexels_images(query, max_images=5, media_type="images"):
+    """Fetch images or videos from Pexels API."""
     if not PEXELS_API_KEY:
         return []
 
     images = []
-    url = "https://api.pexels.com/v1/search"
+    if media_type == "videos":
+        url = "https://api.pexels.com/videos/search"
+    else:
+        url = "https://api.pexels.com/v1/search"
+
     headers = {"Authorization": PEXELS_API_KEY}
     params = {"query": query, "per_page": max_images}
 
@@ -108,29 +112,55 @@ def fetch_pexels_images(query, max_images=5):
         resp = requests.get(url, headers=headers, params=params, timeout=15)
         if resp.status_code == 200:
             data = resp.json()
-            for photo in data.get("photos", []):
-                images.append({
-                    "url": photo.get("src", {}).get("large", ""),
-                    "title": query,
-                    "source": "pexels",
-                    "photographer": photo.get("photographer", "")
-                })
+            if media_type == "videos":
+                for video in data.get("videos", []):
+                    # Get the best quality mobile or HD video
+                    video_files = video.get("video_files", [])
+                    best_file = None
+                    for vf in video_files:
+                        if vf.get("width") >= 1280:
+                            best_file = vf.get("link")
+                            break
+                    if not best_file and video_files:
+                        best_file = video_files[0].get("link")
+
+                    if best_file:
+                        images.append({
+                            "url": best_file,
+                            "title": query,
+                            "source": "pexels_video",
+                            "type": "video"
+                        })
+            else:
+                for photo in data.get("photos", []):
+                    images.append({
+                        "url": photo.get("src", {}).get("large2x", photo.get("src", {}).get("large", "")),
+                        "title": query,
+                        "source": "pexels",
+                        "type": "image"
+                    })
     except Exception as ex:
         print(f"Pexels fetch error: {ex}", file=sys.stderr)
 
     return images
 
 def download_image(img_info, output_dir, index):
-    """Download an image from URL and save to disk."""
+    """Download an image or video from URL and save to disk."""
     url = img_info.get("url", "")
     if not url:
         return None
 
-    ext = os.path.splitext(url.split("?")[0])[1] or ".jpg"
-    if ext not in [".jpg", ".jpeg", ".png", ".gif"]:
-        ext = ".jpg"
+    is_video = img_info.get("type") == "video"
+    ext = os.path.splitext(url.split("?")[0])[1] or (".mp4" if is_video else ".jpg")
 
-    fname = f"img_{index:02d}{ext}"
+    if is_video:
+        if ext not in [".mp4", ".mov", ".avi", ".mkv"]:
+            ext = ".mp4"
+        fname = f"vid_{index:02d}{ext}"
+    else:
+        if ext not in [".jpg", ".jpeg", ".png", ".gif"]:
+            ext = ".jpg"
+        fname = f"img_{index:02d}{ext}"
     fpath = os.path.join(output_dir, fname)
 
     try:
