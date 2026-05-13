@@ -89,7 +89,7 @@ def find_key_moments(script, total_duration):
 
 
 def make_text_layer(text, duration, anim_type="slide_up", font_size=52,
-                    text_color=(255, 255, 255), bar_color=(0, 0, 0)):
+                    text_color=(255, 255, 255), bar_color=(0, 0, 0), is_word_by_word=False):
     """Create animated text overlay with professional motion."""
     try:
         from PIL import Image, ImageDraw, ImageFont
@@ -138,7 +138,6 @@ def make_text_layer(text, duration, anim_type="slide_up", font_size=52,
             elif anim_type == "fade_in":
                 alpha = min(progress * 3, 1)
             elif anim_type == "scale_in":
-                s = 0.5 + 0.5 * ease_in_out(min(progress * 2, 1))
                 alpha = min(progress * 3, 1)
 
             bar = Image.new("RGBA", (VIDEO_WIDTH, bar_h),
@@ -146,13 +145,23 @@ def make_text_layer(text, duration, anim_type="slide_up", font_size=52,
             draw = ImageDraw.Draw(bar)
 
             y_pos = 20 + offset
+
+            if is_word_by_word:
+                # Dynamic word highlighting - simplified for now
+                words = text.split()
+                num_words = len(words)
+                # current_word_idx = int(progress * num_words)
+
             for li, line in enumerate(lines):
                 bbox = draw.textbbox((0, 0), line, font=font)
                 w = bbox[2] - bbox[0]
                 x = (VIDEO_WIDTH - w) // 2
                 y = y_pos + li * line_h
-                for ox, oy in [(3, 3), (2, 2)]:
-                    draw.text((x + ox, y + oy), line, fill=(0, 0, 0, int(200 * alpha)), font=font)
+
+                # Loristy shadow/glow
+                for ox, oy in [(4, 4), (2, 2)]:
+                    draw.text((x + ox, y + oy), line, fill=(0, 0, 0, int(220 * alpha)), font=font)
+
                 draw.text((x, y), line, fill=(*text_color, int(255 * alpha)), font=font)
 
             return np.array(bar)
@@ -272,7 +281,7 @@ def make_title_animation(text, duration):
 
 
 def assemble_video(images, audio_path, output_path, background_music=None,
-                   text_overlays=None, is_short=True, title=None, script=None):
+                   text_overlays=None, is_short=True, title=None, script=None, cinematic=True):
     """Assemble professional video with phase-based pacing, effects, and text animations."""
     try:
         from moviepy import (
@@ -302,63 +311,79 @@ def assemble_video(images, audio_path, output_path, background_music=None,
         total_duration = audio.duration
         print(f"  [video] Audio: {total_duration:.1f}s", flush=True)
 
-        # ── Image clips with eased Ken Burns ────────────────
+        # ── Media clips (Images and Videos) ────────────────
+        from moviepy import VideoFileClip
         if not images:
             clips = [ColorClip(size=(VIDEO_WIDTH, VIDEO_HEIGHT), color=(5, 5, 15)).with_duration(total_duration)]
         else:
-            # Phase-based image distribution
-            hook_end_t = min(15, total_duration * 0.15)
-            build_end_t = total_duration * 0.40
-            peak_end_t = total_duration * 0.65
-
-            # Calculate cuts per phase
+            # Phase-based media distribution
             images_available = [p for p in images if os.path.exists(p)]
             if not images_available:
                 clips = [ColorClip(size=(VIDEO_WIDTH, VIDEO_HEIGHT), color=(5, 5, 15)).with_duration(total_duration)]
             else:
                 clips = []
                 t = 0.0
-                img_idx = 0
+                media_idx = 0
 
                 while t < total_duration - 0.5:
                     phase = get_phase(t, total_duration)
                     cut_dur = min(phase_cuts(phase, total_duration), total_duration - t)
 
-                    # Pick image (cycle through available)
-                    img_path = images_available[img_idx % len(images_available)]
-                    img_idx += 1
+                    media_path = images_available[media_idx % len(images_available)]
+                    media_idx += 1
+
+                    is_video_file = any(media_path.lower().endswith(ext) for ext in ['.mp4', '.mov', '.avi'])
 
                     try:
-                        pil_img = PILImage.open(img_path).convert("RGB")
-                        w, h = pil_img.size
-                        ratio = VIDEO_WIDTH / VIDEO_HEIGHT
-                        img_r = w / h
+                        if is_video_file:
+                            # Process Video Clip
+                            v_clip = VideoFileClip(media_path).with_effects([Resize((VIDEO_WIDTH, VIDEO_HEIGHT))]).without_audio()
+                            if v_clip.duration > cut_dur:
+                                start_t = random.uniform(0, v_clip.duration - cut_dur)
+                                v_clip = v_clip.with_section(start_t, start_t + cut_dur)
+                            else:
+                                v_clip = v_clip.with_duration(cut_dur)
 
-                        if img_r > ratio:
-                            nw, nh = int(h * ratio), h
-                            cx, cy = (w - nw) // 2, 0
+                            # Apply subtle darkening for text readability
+                            # Using a color effect would be better, but for now we'll just use the clip
+                            clips.append(v_clip)
                         else:
-                            nw, nh = w, int(w / ratio)
-                            cx, cy = 0, (h - nh) // 2
+                            # Process Image Clip
+                            pil_img = PILImage.open(media_path).convert("RGB")
+                            w, h = pil_img.size
+                            ratio = VIDEO_WIDTH / VIDEO_HEIGHT
+                            img_r = w / h
 
-                        pil_img = pil_img.crop((cx, cy, cx + nw, cy + nh))
-                        pil_img = pil_img.resize((VIDEO_WIDTH, VIDEO_HEIGHT), PILImage.LANCZOS)
+                            if img_r > ratio:
+                                nw, nh = int(h * ratio), h
+                                cx, cy = (w - nw) // 2, 0
+                            else:
+                                nw, nh = w, int(w / ratio)
+                                cx, cy = 0, (h - nh) // 2
 
-                        arr = np.array(pil_img).astype(np.float32)
-                        arr *= 0.75
-                        arr = arr.astype(np.uint8)
+                            pil_img = pil_img.crop((cx, cy, cx + nw, cy + nh))
+                            pil_img = pil_img.resize((VIDEO_WIDTH, VIDEO_HEIGHT), PILImage.LANCZOS)
 
-                        base = ImageClip(arr).with_duration(cut_dur)
+                            arr = np.array(pil_img).astype(np.float32)
+                            arr *= 0.75
+                            arr = arr.astype(np.uint8)
 
-                        # Zoom rate varies by phase
-                        zoom_max = {"hook": 1.12, "build": 1.08, "peak": 1.15, "ending": 1.05}[phase]
-                        zoomed = base.with_effects([
-                            Resize(lambda t: 1 + (zoom_max - 1) * ease_in_out(t / max(cut_dur, 0.01)))
-                        ])
+                            base = ImageClip(arr).with_duration(cut_dur)
 
-                        clips.append(zoomed)
-                    except:
-                        # fallback: dark frame
+                            zoom_max = {"hook": 1.20, "build": 1.10, "peak": 1.25, "ending": 1.08}[phase]
+                            zoom_dir = random.choice([1, -1])
+                            if zoom_dir == 1:
+                                zoomed = base.with_effects([
+                                    Resize(lambda t: 1 + (zoom_max - 1) * ease_in_out(t / max(cut_dur, 0.01)))
+                                ]).with_duration(cut_dur)
+                            else:
+                                zoomed = base.with_effects([
+                                    Resize(lambda t: zoom_max - (zoom_max - 1) * ease_in_out(t / max(cut_dur, 0.01)))
+                                ]).with_duration(cut_dur)
+
+                            clips.append(zoomed)
+                    except Exception as e:
+                        print(f"Error processing media {media_path}: {e}")
                         clips.append(ColorClip(size=(VIDEO_WIDTH, VIDEO_HEIGHT), color=(5, 5, 15)).with_duration(cut_dur))
 
                     t += cut_dur
@@ -378,6 +403,28 @@ def assemble_video(images, audio_path, output_path, background_music=None,
         video = concatenate_videoclips(final_clips, method="compose")
         video = video.with_audio(audio)
         layers = [video]
+
+        # Cinematic: Add SFX layers
+        sfx_layers = []
+        sfx_dir = "assets/sfx"
+        if os.path.exists(sfx_dir):
+            sfx_files = [os.path.join(sfx_dir, f) for f in os.listdir(sfx_dir) if f.endswith(('.mp3', '.wav'))]
+            if sfx_files:
+                # Add a 'swoosh' at every transition
+                t_accum = 0
+                for clip in final_clips[:-1]:
+                    t_accum += clip.duration
+                    swoosh = random.choice(sfx_files)
+                    try:
+                        sfx_clip = AudioFileClip(swoosh).with_start(t_accum - 0.2).with_effects([MultiplyVolume(0.3)])
+                        sfx_layers.append(sfx_clip)
+                    except:
+                        pass
+
+        if sfx_layers:
+            final_audio_combined = CompositeAudioClip([audio] + sfx_layers)
+            video = video.with_audio(final_audio_combined)
+            layers[0] = video
 
         # ── Animated title ──────────────────────────────────
         if title:

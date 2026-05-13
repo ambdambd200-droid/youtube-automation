@@ -18,6 +18,7 @@ YOUTUBE_CLIENT_SECRET = os.getenv("YOUTUBE_CLIENT_SECRET", "")
 YOUTUBE_REFRESH_TOKEN = os.getenv("YOUTUBE_REFRESH_TOKEN", "")
 
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
 
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "./assets")
 AUDIO_BACKGROUND = os.getenv("AUDIO_BACKGROUND", "")
@@ -32,6 +33,11 @@ THUMBNAILS_DIR = os.path.join(OUTPUT_DIR, "thumbnails")
 # Available English voices: en-US-JennyNeural (F), en-US-GuyNeural (M), en-GB-SoniaNeural (F), en-GB-RyanNeural (M)
 TTS_VOICE = "en-US-GuyNeural"  # Male American voice - authoritative for dark history/mystery
 TTS_VOICE_FEMALE = "en-US-JennyNeural"  # Female American voice
+
+# ElevenLabs Settings
+# "Marcus" is a good authoritative voice for dark history
+# "George" or "Brian" are also good options
+ELEVEN_VOICE_ID = "pMs7ixS9os7V3K12YxOq" # Marcus
 
 # Video settings
 VIDEO_WIDTH = 1920

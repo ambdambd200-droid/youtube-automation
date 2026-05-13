@@ -10,10 +10,32 @@ import sys
 import asyncio
 
 sys.path.insert(0, ".")
-from config import TTS_VOICE, AUDIO_DIR
+from config import TTS_VOICE, AUDIO_DIR, ELEVENLABS_API_KEY, ELEVEN_VOICE_ID
 
 async def generate_tts(text, output_path, voice=None):
-    """Generate TTS audio using edge-tts."""
+    """Generate TTS audio using ElevenLabs (preferred) or Edge-TTS."""
+
+    # Try ElevenLabs first if API key is available
+    if ELEVENLABS_API_KEY:
+        try:
+            from elevenlabs.client import ElevenLabs
+            client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+
+            audio = client.text_to_speech.convert(
+                voice_id=ELEVEN_VOICE_ID,
+                text=text,
+                model_id="eleven_multilingual_v2",
+                output_format="mp3_44100_128"
+            )
+
+            with open(output_path, "wb") as f:
+                for chunk in audio:
+                    f.write(chunk)
+            return output_path
+        except Exception as ex:
+            print(f"ElevenLabs error: {ex}. Falling back to Edge-TTS.", file=sys.stderr)
+
+    # Fallback to Edge-TTS
     if voice is None:
         voice = TTS_VOICE
 
