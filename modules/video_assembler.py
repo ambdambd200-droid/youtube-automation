@@ -16,7 +16,8 @@ from config import VIDEO_WIDTH, VIDEO_HEIGHT, FPS
 
 
 def ease_in_out(t):
-    """Smooth ease-in-out curve."""
+    """Smooth ease-in-out curve. Clamped to [0, 1]."""
+    t = max(0, min(1, t))
     return t * t * (3 - 2 * t)
 
 
@@ -372,13 +373,17 @@ def assemble_video(images, audio_path, output_path, background_music=None,
 
                             zoom_max = {"hook": 1.20, "build": 1.10, "peak": 1.25, "ending": 1.08}[phase]
                             zoom_dir = random.choice([1, -1])
+
+                            # Safety: ensures cut_dur is never zero
+                            safe_dur = max(cut_dur, 0.1)
+
                             if zoom_dir == 1:
                                 zoomed = base.with_effects([
-                                    Resize(lambda t: 1 + (zoom_max - 1) * ease_in_out(t / max(cut_dur, 0.01)))
+                                    Resize(lambda t: max(0.01, 1 + (zoom_max - 1) * ease_in_out(t / safe_dur)))
                                 ]).with_duration(cut_dur)
                             else:
                                 zoomed = base.with_effects([
-                                    Resize(lambda t: zoom_max - (zoom_max - 1) * ease_in_out(t / max(cut_dur, 0.01)))
+                                    Resize(lambda t: max(0.01, zoom_max - (zoom_max - 1) * ease_in_out(t / safe_dur)))
                                 ]).with_duration(cut_dur)
 
                             clips.append(zoomed)
