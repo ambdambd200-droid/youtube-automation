@@ -11,7 +11,7 @@ import sys
 import math
 import random
 
-sys.path.insert(0, ".")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import VIDEO_WIDTH, VIDEO_HEIGHT, FPS
 
 
@@ -331,6 +331,8 @@ def assemble_video(images, audio_path, output_path, background_music=None,
                     try:
                         pil_img = PILImage.open(img_path).convert("RGB")
                         w, h = pil_img.size
+                        if w < 10 or h < 10:
+                            raise ValueError(f"Image too small: {w}x{h}")
                         ratio = VIDEO_WIDTH / VIDEO_HEIGHT
                         img_r = w / h
 
