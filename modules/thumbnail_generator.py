@@ -56,8 +56,7 @@ def create_thumbnail_variant_1(frame_path, output_path, text, content_type):
 
     font_path = "C\\:/Windows/Fonts/arialbd.ttf"
     # Check if arialbd exists, else use arial
-    import os as os_mod
-    if not os_mod.path.exists("C:/Windows/Fonts/arialbd.ttf"):
+    if not os.path.exists("C:/Windows/Fonts/arialbd.ttf"):
         font_path = "C\\:/Windows/Fonts/arial.ttf"
 
     overlay_text = text[:60].replace("'", "\\'").replace(":", "\\:")
@@ -91,8 +90,7 @@ def create_thumbnail_variant_2(frame_path, output_path, text, content_type):
         return None
 
     font_path = "C\\:/Windows/Fonts/arialbd.ttf"
-    import os as os_mod
-    if not os_mod.path.exists("C:/Windows/Fonts/arialbd.ttf"):
+    if not os.path.exists("C:/Windows/Fonts/arialbd.ttf"):
         font_path = "C\\:/Windows/Fonts/arial.ttf"
 
     overlay_text = text[:40].replace("'", "\\'").replace(":", "\\:")
@@ -126,8 +124,7 @@ def create_thumbnail_variant_3(frame_path, output_path, text, content_type):
         return None
 
     font_path = "C\\:/Windows/Fonts/arialbd.ttf"
-    import os as os_mod
-    if not os_mod.path.exists("C:/Windows/Fonts/arialbd.ttf"):
+    if not os.path.exists("C:/Windows/Fonts/arialbd.ttf"):
         font_path = "C\\:/Windows/Fonts/arial.ttf"
 
     # Create a more dramatic version with gradients (via ffmpeg)

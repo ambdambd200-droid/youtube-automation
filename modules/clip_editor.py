@@ -7,7 +7,6 @@ import os
 import subprocess
 import sys
 import random
-import math
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (

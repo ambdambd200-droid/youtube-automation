@@ -4,13 +4,12 @@ Tracks history in a JSON log to prevent repeating the same scene/topic.
 """
 import json
 import os
+import sys
 import random
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import LOG_DIR, CONTENT_WEIGHTS, WORLDCUP_KEYWORDS, MOVIE_KEYWORDS
-
-import sys
 
 HISTORY_FILE = os.path.join(LOG_DIR, "content_history.json")
 USED_SCENES_FILE = os.path.join(LOG_DIR, "used_scenes.json")
