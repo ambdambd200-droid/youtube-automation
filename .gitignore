@@ -1,13 +1,14 @@
 # Environment
 .env
 
-# Generated assets (but allow static background music)
-assets/audio/*
-!assets/audio/background.mp3
-assets/images/*
-assets/videos/*
+# Generated assets — downloads are cleaned up by pipeline
+assets/downloads/*
+assets/clips/*
 assets/thumbnails/*
-assets/voiceovers/*
+assets/thumbnails/variants/*
+
+# Keep log files (track history)
+!assets/logs/*
 
 # YouTube OAuth token
 youtube_token.pickle
@@ -20,6 +21,8 @@ __pycache__/
 # Temp files
 *.tmp
 *.log
-*.b64
-*.b64_clean
 *TEMP_MPY*
+
+# OS files
+Thumbs.db
+.DS_Store

@@ -1,77 +1,140 @@
-# YouTube Automation System
+# VARY — Daily Clip Automation
 
-Automated Arabic dark explainer YouTube channel powered by n8n + Python.
+Automated YouTube Shorts channel that posts daily random clips from movies, World Cup matches, and the internet. Powered by n8n + Python.
+
+## Content
+
+Every day, the pipeline randomly selects between:
+- **🎬 Movie Scenes** — Iconic, viral, and memorable scenes from old and new movies
+- **⚽ World Cup 2026** — Controversial moments, amazing goals, viral match highlights
+
+No music. Natural sound only. Pure moments.
 
 ## Architecture
 
 ```
-n8n (trigger + orchestration)
-  └── HTTP Requests ──► Python Flask API (port 5001)
-                           ├── /generate-script    (Claude API)
-                           ├── /generate-tts       (Edge-TTS)
-                           ├── /fetch-images        (Wikipedia/Pexels)
-                           ├── /assemble-video      (moviepy + FFmpeg)
-                           └── /generate-thumbnail  (Pillow)
+n8n (scheduled trigger)  →  Flask API (port 5001)
+                                │
+                    ┌───────────┴───────────┐
+                    │   Pipeline Steps       │
+                    │                        │
+                    │  1. Select Content     │
+                    │  2. Download Clip      │
+                    │  3. Edit to Shorts     │
+                    │  4. Generate Thumbnails│
+                    │  5. Generate SEO       │
+                    │  6. Upload to YouTube  │
+                    │  7. Cleanup Space      │
+                    └────────────────────────┘
+```
+
+## Module Structure
+
+```
+├── config.py                    # Configuration
+├── api_server.py                # Flask API (called by n8n)
+├── run_pipeline.py              # Standalone pipeline runner
+├── create_workflows.py          # Creates n8n workflows
+├── start_api_server.bat         # One-click server start
+├── .env                         # API keys (create this)
+├── modules/
+│   ├── content_selector.py      # Random content type selection
+│   ├── clip_downloader.py       # YouTube clip download (yt-dlp)
+│   ├── clip_editor.py           # Trim, crop to 9:16, keep natural audio
+│   ├── thumbnail_generator.py   # Frame extraction + A/B variants
+│   ├── seo_generator.py         # Titles, descriptions, tags
+│   ├── space_manager.py         # Delete source files after processing
+│   └── youtube_uploader.py      # YouTube Data API v3 upload
+└── assets/
+    ├── downloads/               # Raw clips (deleted after processing)
+    ├── clips/                   # Final processed Shorts
+    ├── thumbnails/              # Generated thumbnails + variants
+    └── logs/                    # History logs (never deleted)
 ```
 
 ## Setup Instructions
 
-### 1. Start the API Server
-Run this in a terminal (keep it running):
-```
-start_api_server.bat
-```
-Or manually: `python api_server.py`
-The server runs on http://127.0.0.1:5001
+### 1. Prerequisites
 
-### 2. n8n Workflows
-Two workflows are already created in n8n:
-- **"YouTube Daily Short - Automation"** — triggers daily
-- **"YouTube Weekly Long-Form - Automation"** — triggers weekly
+- Python 3.8+
+- [ffmpeg](https://ffmpeg.org/) (must be in PATH)
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) (install via `pip install yt-dlp`)
 
-Open n8n UI at http://localhost:5678 to view/edit them.
+### 2. Install Python Dependencies
 
-### 3. YouTube API Setup
-To enable YouTube uploads:
-1. Go to https://console.cloud.google.com/apis/credentials
-2. Create a new OAuth 2.0 Client ID (Desktop app type)
-3. Add YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET to `.env`
-4. Run: `python -m modules.youtube_uploader --auth-flow`
-5. Follow the browser login to authorize
-
-### 4. Configuration (.env)
-| Variable | Required | Description |
-|----------|----------|-------------|
-| N8N_API_KEY | ✓ | n8n API key (already set) |
-| CLAUDE_API_KEY | ✓ | OpenRouter/Claude API key (already set) |
-| YOUTUBE_CLIENT_ID | For uploads | Google OAuth client ID |
-| YOUTUBE_CLIENT_SECRET | For uploads | Google OAuth client secret |
-| PEXELS_API_KEY | Optional | For better stock images |
-
-## Module Structure
-```
-n8n/
-  ├── api_server.py           # Flask API for n8n to call
-  ├── config.py               # Configuration
-  ├── start_api_server.bat    # One-click server start
-  ├── .env                    # API keys
-  ├── modules/
-  │   ├── script_generator.py   # Claude-powered Arabic script writing
-  │   ├── tts_generator.py      # Edge-TTS voiceover (free)
-  │   ├── image_fetcher.py      # Wikipedia/Pexels image search
-  │   ├── video_assembler.py    # moviepy video composition
-  │   ├── thumbnail_generator.py # Pillow thumbnail maker
-  │   └── youtube_uploader.py   # YouTube Data API uploader
-  ├── assets/
-  │   ├── audio/              # Generated voiceover files
-  │   ├── images/             # Downloaded images
-  │   ├── videos/             # Final video output
-  │   └── thumbnails/         # Generated thumbnails
-  └── workflows/              # Exported n8n workflow JSON
-```
-
-## Manual Testing
-To test individual steps:
 ```bash
-python -c "from modules.script_generator import generate_on_this_day_script; print(generate_on_this_day_script()['script'][:200])"
+pip install -r requirements.txt
 ```
+
+If no requirements.txt exists, install:
+```bash
+pip install flask python-dotenv yt-dlp moviepy Pillow google-api-python-client google-auth-httplib2 google-auth-oauthlib
+```
+
+### 3. Configure .env
+
+Create a `.env` file in the project root:
+
+```env
+# YouTube API (required for uploading)
+YOUTUBE_CLIENT_ID=your_client_id
+YOUTUBE_CLIENT_SECRET=your_client_secret
+YOUTUBE_REFRESH_TOKEN=your_refresh_token
+
+# n8n (if using n8n orchestration)
+N8N_API_KEY=your_n8n_key
+N8N_BASE_URL=http://localhost:5678
+```
+
+### 4. YouTube API Setup
+
+1. Go to https://console.cloud.google.com/apis/credentials
+2. Create an OAuth 2.0 Client ID (Desktop app type)
+3. Add `YOUTUBE_CLIENT_ID` and `YOUTUBE_CLIENT_SECRET` to `.env`
+4. Run: `python -m modules.youtube_uploader --auth-flow`
+5. Follow the browser login to authorize your VARY channel
+
+### 5. Run a Pipeline Test
+
+```bash
+# Run with random content selection
+python run_pipeline.py
+
+# Force movie content
+python run_pipeline.py --type movie
+
+# Force World Cup content
+python run_pipeline.py --type worldcup
+
+# Custom search query
+python run_pipeline.py --query "world cup controversial moment 2026"
+```
+
+### 6. Start API Server (for n8n)
+
+```bash
+start_api_server.bat
+# Or: python api_server.py
+```
+
+### 7. Create n8n Workflows
+
+```bash
+python create_workflows.py
+```
+
+This creates a daily scheduled workflow in n8n that runs the full pipeline automatically.
+
+## Channel Branding
+
+- **Name**: VARY
+- **Tagline**: Daily Clips. Infinite Variety.
+- **Schedule**: Daily YouTube Shorts
+
+## Space Management
+
+The pipeline automatically deletes source video files after processing to save disk space. Only the final Short clip and thumbnails are kept. Old clips are cleaned up after 7 days.
+
+## Note
+
+The old "Depths" (Arabic dark explainer) content has been fully replaced. This is now a clip-based curation channel.

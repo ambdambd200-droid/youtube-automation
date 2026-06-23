@@ -1,191 +1,216 @@
 """
-Generates YouTube thumbnails (3x2 photo collage style) using Pillow.
-Call: python -m modules.thumbnail_generator --images img1.jpg img2.jpg --title "Video Title" --output thumbnail.jpg
+Thumbnail Generator — creates YouTube Shorts thumbnails from video frames.
+Generates 3 variants for A/B testing.
 """
-
-import argparse
 import json
 import os
+import subprocess
 import sys
-import math
+import random
 
-sys.path.insert(0, ".")
-from config import THUMBNAILS_DIR
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import THUMBNAILS_DIR, THUMBNAILS_VARIANTS_DIR, SHORTS_WIDTH, SHORTS_HEIGHT
 
-def create_thumbnail(images, title, output_path, channel_logo_path=None, channel_name="Depths"):
-    """Create a professional YouTube thumbnail with dark theme."""
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-    except ImportError:
-        result = {"error": "Pillow not installed", "output": None}
-        print(json.dumps(result, ensure_ascii=False))
-        return None
 
-    try:
-        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-
-        thumb_width = 1280
-        thumb_height = 720
-
-        bg = Image.new("RGB", (thumb_width, thumb_height), (10, 10, 20))
-        draw = ImageDraw.Draw(bg)
-
-        if images and len(images) > 0:
-            cols = 3
-            rows = 2
-            cell_w = thumb_width // cols
-            cell_h = thumb_height // rows
-
-            valid_images = []
-            for img_path in images[:6]:
-                if os.path.exists(img_path):
-                    try:
-                        img = Image.open(img_path)
-                        min_dim = min(img.size)
-                        left = (img.width - min_dim) // 2
-                        top = (img.height - min_dim) // 2
-                        img = img.crop((left, top, left + min_dim, top + min_dim))
-                        img = img.resize((cell_w, cell_h), Image.LANCZOS)
-                        valid_images.append(img)
-                    except:
-                        pass
-
-            for idx, img in enumerate(valid_images[:6]):
-                r = idx // cols
-                c = idx % cols
-                x = c * cell_w
-                y = r * cell_h
-                overlay = Image.new("RGBA", (cell_w, cell_h), (0, 0, 0, 100))
-                img_with_overlay = img.copy()
-                img_with_overlay.paste(overlay, (0, 0), overlay)
-                bg.paste(img_with_overlay, (x, y))
-
-            for idx in range(len(valid_images), 6):
-                r = idx // cols
-                c = idx % cols
-                x = c * cell_w
-                y = r * cell_h
-                draw.rectangle([x, y, x + cell_w, y + cell_h], fill=(20, 20, 35))
-        else:
-            for i in range(thumb_height):
-                shade = max(8, 25 - int(i * 20 / thumb_height))
-                draw.line([(0, i), (thumb_width, i)], fill=(shade, shade, shade + 8))
-
-        # Bottom gradient overlay (darker at bottom for text readability)
-        for i in range(thumb_height - 180, thumb_height):
-            alpha = int(255 * (1 - (thumb_height - i) / 180))
-            draw.line([(0, i), (thumb_width, i)], fill=(0, 0, 0, alpha))
-
-        # Red accent line above text area
-        accent_y = thumb_height - 200
-        draw.rectangle([40, accent_y, thumb_width - 40, accent_y + 4], fill=(200, 40, 40))
-
-        if title:
-            font_size = 58
-            font_paths = [
-                "C:\\Windows\\Fonts\\arial.ttf",
-                "C:\\Windows\\Fonts\\tahoma.ttf",
-                "C:\\Windows\\Fonts\\seguiemj.ttf",
-                "C:\\Windows\\Fonts\\segoeui.ttf",
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-                None
-            ]
-
-            font = None
-            for fp in font_paths:
-                try:
-                    font = ImageFont.truetype(fp, font_size) if fp else ImageFont.load_default()
-                    break
-                except:
-                    continue
-
-            if font is None:
-                font = ImageFont.load_default()
-
-            words = title.split()
-            lines = []
-            current_line = ""
-            for word in words:
-                test_line = current_line + " " + word if current_line else word
-                bbox = draw.textbbox((0, 0), test_line, font=font)
-                if bbox[2] - bbox[0] < thumb_width - 120:
-                    current_line = test_line
-                else:
-                    lines.append(current_line)
-                    current_line = word
-            if current_line:
-                lines.append(current_line)
-
-            lines_to_show = lines[:2]
-
-            for li, line in enumerate(lines_to_show):
-                y_pos = thumb_height - 120 + li * 65
-                text_bbox = draw.textbbox((0, 0), line, font=font)
-                text_width = text_bbox[2] - text_bbox[0]
-                x_pos = (thumb_width - text_width) // 2
-
-                for ox, oy in [(3, 3), (-1, -1), (1, -1), (-1, 1), (1, 1)]:
-                    draw.text((x_pos + ox, y_pos + oy), line, fill=(0, 0, 0), font=font)
-                draw.text((x_pos, y_pos), line, fill=(255, 255, 255), font=font)
-
-        if channel_logo_path and os.path.exists(channel_logo_path):
-            try:
-                logo = Image.open(channel_logo_path)
-                logo = logo.resize((60, 60), Image.LANCZOS)
-                bg.paste(logo, (thumb_width - 80, 20), logo if logo.mode == 'RGBA' else None)
-            except:
-                pass
-
-        # Channel watermark at bottom-left
+def extract_frame(video_path, output_path, at_time=None):
+    """Extract a frame from a video at the best time."""
+    if at_time is None:
+        # Pick a random frame from the middle third (most interesting)
         try:
-            small_font = None
-            for fp2 in font_paths:
-                try:
-                    small_font = ImageFont.truetype(fp2, 22) if fp2 else None
-                    break
-                except:
-                    continue
-            if not small_font:
-                small_font = ImageFont.load_default()
-            draw.text((20, thumb_height - 40), channel_name, fill=(150, 150, 150), font=small_font)
-        except:
-            pass
+            duration_cmd = [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                video_path,
+            ]
+            result = subprocess.run(duration_cmd, capture_output=True, text=True, timeout=15)
+            duration = float(result.stdout.strip())
+            # Pick from 25% to 65% into the video
+            at_time = random.uniform(duration * 0.25, duration * 0.65)
+        except (ValueError, subprocess.TimeoutExpired):
+            at_time = 5.0
 
-        bg.save(output_path, "JPEG", quality=95)
-        return output_path
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", str(at_time),
+        "-i", video_path,
+        "-vframes", "1",
+        "-q:v", "2",
+        "-vf", f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=2,crop={SHORTS_WIDTH}:{SHORTS_HEIGHT}",
+        output_path,
+    ]
 
-    except Exception as ex:
-        print(f"Thumbnail error: {ex}", file=sys.stderr)
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=30)
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+            return output_path
+    except:
+        pass
+    return None
+
+
+def create_thumbnail_variant_1(frame_path, output_path, text, content_type):
+    """Style 1: Clean frame with bottom text bar — bold title overlay."""
+    if not os.path.exists(frame_path):
         return None
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--images", nargs="+", default=[])
-    parser.add_argument("--title", default="")
-    parser.add_argument("--output", required=True)
-    parser.add_argument("--logo", default=None)
-    parser.add_argument("--json", default=None)
-    args = parser.parse_args()
+    font_path = "C\\:/Windows/Fonts/arialbd.ttf"
+    # Check if arialbd exists, else use arial
+    import os as os_mod
+    if not os_mod.path.exists("C:/Windows/Fonts/arialbd.ttf"):
+        font_path = "C\\:/Windows/Fonts/arial.ttf"
 
-    images = args.images
-    title = args.title
-    output_path = args.output
+    overlay_text = text[:60].replace("'", "\\'").replace(":", "\\:")
 
-    if args.json:
-        data = json.loads(args.json)
-        images = data.get("images", images)
-        title = data.get("title", title)
-        output_path = data.get("output", output_path)
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", frame_path,
+        "-vf",
+        f"drawtext=text='{overlay_text}':fontcolor=white:fontsize=48:"
+        f"x=(w-text_w)/2:y=h-th-80:box=1:boxcolor=black@0.6:boxborderw=15:"
+        f"fontfile='{font_path}',"
+        f"drawtext=text='VARY':fontcolor=white@0.7:fontsize=28:"
+        f"x=20:y=20:box=1:boxcolor=black@0.4:boxborderw=8:"
+        f"fontfile='{font_path}'",
+        "-q:v", "2",
+        output_path,
+    ]
 
-    video_title = title or "New Video"
-    thumb_path = create_thumbnail(images, video_title, output_path, args.logo)
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=30)
+        if os.path.exists(output_path):
+            return output_path
+    except:
+        pass
+    return None
 
-    result = {
-        "output": thumb_path,
-        "title": video_title
-    }
-    print(json.dumps(result, ensure_ascii=False))
+
+def create_thumbnail_variant_2(frame_path, output_path, text, content_type):
+    """Style 2: Split with emoji/icon, text on left side."""
+    if not os.path.exists(frame_path):
+        return None
+
+    font_path = "C\\:/Windows/Fonts/arialbd.ttf"
+    import os as os_mod
+    if not os_mod.path.exists("C:/Windows/Fonts/arialbd.ttf"):
+        font_path = "C\\:/Windows/Fonts/arial.ttf"
+
+    overlay_text = text[:40].replace("'", "\\'").replace(":", "\\:")
+    icon = "🎬" if content_type == "movie" else "⚽"
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", frame_path,
+        "-vf",
+        f"drawtext=text='{icon}':fontcolor=white:fontsize=72:"
+        f"x=40:y=(h-th)/2-60:fontfile='{font_path}',"
+        f"drawtext=text='{overlay_text}':fontcolor=white:fontsize=38:"
+        f"x=120:y=(h-text_h)/2:box=1:boxcolor=black@0.5:boxborderw=12:"
+        f"fontfile='{font_path}'",
+        "-q:v", "2",
+        output_path,
+    ]
+
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=30)
+        if os.path.exists(output_path):
+            return output_path
+    except:
+        pass
+    return None
+
+
+def create_thumbnail_variant_3(frame_path, output_path, text, content_type):
+    """Style 3: Full bleed with top/bottom bars, minimal text."""
+    if not os.path.exists(frame_path):
+        return None
+
+    font_path = "C\\:/Windows/Fonts/arialbd.ttf"
+    import os as os_mod
+    if not os_mod.path.exists("C:/Windows/Fonts/arialbd.ttf"):
+        font_path = "C\\:/Windows/Fonts/arial.ttf"
+
+    # Create a more dramatic version with gradients (via ffmpeg)
+    overlay_text = text[:50].replace("'", "\\'").replace(":", "\\:")
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", frame_path,
+        "-vf",
+        f"drawbox=x=0:y=h-120:w=iw:h=120:color=black@0.5:t=fill,"
+        f"drawtext=text='{overlay_text}':fontcolor=white:fontsize=42:"
+        f"x=(w-text_w)/2:y=h-th+15:fontfile='{font_path}',"
+        f"drawtext=text='VARY':fontcolor=gold:fontsize=32:"
+        f"x=(w-text_w)/2:y=20:box=1:boxcolor=black@0.5:boxborderw=10:"
+        f"fontfile='{font_path}'",
+        "-q:v", "2",
+        output_path,
+    ]
+
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=30)
+        if os.path.exists(output_path):
+            return output_path
+    except:
+        pass
+    return None
+
+
+def generate_thumbnails(video_path, title, content_type):
+    """Generate 3 thumbnail variants for A/B testing.
+
+    Args:
+        video_path: Path to the processed Short video
+        title: Video title for text overlay
+        content_type: "worldcup_2026" or "movie"
+
+    Returns:
+        Dict with 3 thumbnail paths, or None
+    """
+    os.makedirs(THUMBNAILS_DIR, exist_ok=True)
+    os.makedirs(THUMBNAILS_VARIANTS_DIR, exist_ok=True)
+
+    # Extract a base frame
+    import uuid
+    frame_id = uuid.uuid4().hex[:8]
+    frame_path = os.path.join(THUMBNAILS_DIR, f"frame_{frame_id}.jpg")
+
+    if not extract_frame(video_path, frame_path):
+        print("  [thumbnail] Failed to extract frame", flush=True)
+        return None
+
+    variants = {}
+
+    # Variant 1: Bold bottom text
+    v1_path = os.path.join(THUMBNAILS_VARIANTS_DIR, f"thumb_{frame_id}_v1.jpg")
+    if create_thumbnail_variant_1(frame_path, v1_path, title, content_type):
+        variants["v1"] = v1_path
+
+    # Variant 2: Left-aligned with icon
+    v2_path = os.path.join(THUMBNAILS_VARIANTS_DIR, f"thumb_{frame_id}_v2.jpg")
+    if create_thumbnail_variant_2(frame_path, v2_path, title, content_type):
+        variants["v2"] = v2_path
+
+    # Variant 3: Dramatic with gradient
+    v3_path = os.path.join(THUMBNAILS_VARIANTS_DIR, f"thumb_{frame_id}_v3.jpg")
+    if create_thumbnail_variant_3(frame_path, v3_path, title, content_type):
+        variants["v3"] = v3_path
+
+    # Clean up the raw frame
+    try:
+        os.remove(frame_path)
+    except:
+        pass
+
+    if variants:
+        print(f"  [thumbnail] Generated {len(variants)} variants: {list(variants.keys())}", flush=True)
+        return variants
+
+    return None
+
 
 if __name__ == "__main__":
-    main()
+    # Test
+    if len(sys.argv) > 1:
+        result = generate_thumbnails(sys.argv[1], "Test Clip", "movie")
+        print(json.dumps(result, indent=2, default=str) if result else "Failed")

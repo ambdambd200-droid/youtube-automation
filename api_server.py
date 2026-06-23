@@ -1,161 +1,246 @@
 """
-Flask API server that wraps all YouTube automation modules.
-n8n calls this server's endpoints via HTTP Request nodes.
-
+VARY — Flask API server for n8n orchestration.
+Endpoints for the clip-based daily Shorts pipeline.
 Run: python api_server.py
 Runs on: http://localhost:5001
 """
-
 import json
 import os
 import sys
 import uuid
-import asyncio
+import random
 from datetime import datetime
-
 from flask import Flask, request, jsonify
 
 sys.path.insert(0, os.path.dirname(__file__))
-from config import OUTPUT_DIR, AUDIO_DIR, IMAGES_DIR, VIDEOS_DIR, THUMBNAILS_DIR
-from modules.script_generator import generate_on_this_day_script, generate_long_script
-from modules.tts_generator import generate_tts_from_text, split_script_into_segments
-from modules.image_fetcher import fetch_and_download_images
-from modules.video_assembler import assemble_video
-from modules.thumbnail_generator import create_thumbnail
+
+from config import (
+    CLIPS_DIR, THUMBNAILS_DIR, DOWNLOADS_DIR, LOG_DIR,
+)
+from modules.content_selector import select_today_content, load_used_scenes, save_used_scene
+from modules.clip_downloader import download_best_match
+from modules.clip_editor import create_clip
+from modules.thumbnail_generator import generate_thumbnails
+from modules.seo_generator import generate_metadata
+from modules.space_manager import full_cleanup
 
 app = Flask(__name__)
 
-# Ensure output dirs exist
-for d in [AUDIO_DIR, IMAGES_DIR, VIDEOS_DIR, THUMBNAILS_DIR]:
+# Ensure all dirs exist
+for d in [CLIPS_DIR, THUMBNAILS_DIR, DOWNLOADS_DIR, LOG_DIR]:
     os.makedirs(d, exist_ok=True)
 
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "channel": "VARY", "timestamp": datetime.now().isoformat()})
 
 
-@app.route("/generate-script", methods=["POST"])
-def generate_script():
+@app.route("/select-content", methods=["POST"])
+def select_content():
+    """Step 1: Select today's content type and search query."""
     data = request.get_json() or {}
-    video_type = data.get("type", "short")
-    date_str = data.get("date")
+    force_type = data.get("type")  # "worldcup_2026" or "movie"
+    force_query = data.get("query")
 
     try:
-        if video_type == "short":
-            result = generate_on_this_day_script(date_str)
+        if force_type or force_query:
+            from config import WORLDCUP_KEYWORDS, MOVIE_KEYWORDS
+            content_info = {
+                "type": force_type or "custom",
+                "search_query": force_query or random.choice(
+                    WORLDCUP_KEYWORDS if force_type == "worldcup_2026" else MOVIE_KEYWORDS
+                ),
+                "description": f"{'Forced: ' + force_type if force_type else 'Custom: ' + force_query}",
+            }
         else:
-            topic = data.get("topic")
-            result = generate_long_script(topic)
+            content_info = select_today_content()
 
-        return jsonify(result)
+        return jsonify(content_info)
     except Exception as ex:
         return jsonify({"error": str(ex)}), 500
 
 
-@app.route("/generate-tts", methods=["POST"])
-def generate_tts():
+@app.route("/download-clip", methods=["POST"])
+def download_clip():
+    """Step 2: Download a clip based on search query."""
     data = request.get_json() or {}
-    script = data.get("script", "")
-    output_prefix = data.get("output_prefix", f"vid_{uuid.uuid4().hex[:8]}")
+    search_query = data.get("search_query", "")
+    content_type = data.get("type", "movie")
 
-    if not script:
-        return jsonify({"error": "No script provided"}), 400
+    if not search_query:
+        return jsonify({"error": "No search_query provided"}), 400
 
     try:
-        segments = split_script_into_segments(script)
-        os.makedirs(AUDIO_DIR, exist_ok=True)
+        used = load_used_scenes()
+        used_ids = set()
+        for key in ["movie_scenes", "worldcup_matches"]:
+            for entry in used.get(key, []):
+                used_ids.add(entry.get("identifier", ""))
 
-        generated_files = []
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        result = download_best_match(search_query, used_ids=used_ids)
 
-        for i, seg in enumerate(segments):
-            if len(segments) == 1:
-                fname = f"{output_prefix}_voiceover.mp3"
-            else:
-                fname = f"{output_prefix}_voiceover_part{i+1:02d}.mp3"
-            path = os.path.join(AUDIO_DIR, fname)
-            result_path = loop.run_until_complete(generate_tts_from_text(seg, path))
-            if result_path:
-                generated_files.append(result_path)
-
-        loop.close()
+        if not result:
+            return jsonify({"error": f"No video found for: {search_query}"}), 404
 
         return jsonify({
-            "segments": len(generated_files),
-            "files": generated_files,
-            "script_length": len(script)
+            "status": "downloaded",
+            "path": result["path"],
+            "title": result["title"],
+            "video_id": result["video_id"],
+            "url": result.get("url", ""),
+            "duration": result.get("duration", 0),
         })
     except Exception as ex:
         return jsonify({"error": str(ex)}), 500
 
 
-@app.route("/fetch-images", methods=["POST"])
-def fetch_images():
+@app.route("/edit-clip", methods=["POST"])
+def edit_clip():
+    """Step 3: Edit downloaded clip to Shorts format."""
     data = request.get_json() or {}
-    query = data.get("query", "")
-    script = data.get("script", "")
-    count = data.get("count", 5)
+    source_path = data.get("source_path", "")
+    content_type = data.get("type", "movie")
+    title = data.get("title", "")
+
+    if not source_path or not os.path.exists(source_path):
+        return jsonify({"error": f"Source file not found: {source_path}"}), 400
 
     try:
-        result = fetch_and_download_images(query, script, count)
-        return jsonify(result)
-    except Exception as ex:
-        return jsonify({"error": str(ex)}), 500
+        result = create_clip(source_path, content_type, title=title)
 
+        if not result:
+            return jsonify({"error": "Clip editing failed"}), 500
 
-@app.route("/assemble-video", methods=["POST"])
-def assemble_video_endpoint():
-    data = request.get_json() or {}
-    images = data.get("images", [])
-    audio = data.get("audio", "")
-    video_type = data.get("type", "short")
-    bg_music = data.get("background", "")
-
-    if not audio or not os.path.exists(str(audio)):
-        return jsonify({"error": f"Audio file not found: {audio}"}), 400
-
-    output_id = uuid.uuid4().hex[:8]
-    output_path = os.path.join(VIDEOS_DIR, f"{video_type}_{output_id}.mp4")
-
-    try:
-        video_path = assemble_video(
-            images=images,
-            audio_path=audio,
-            output_path=output_path,
-            background_music=bg_music if bg_music else None,
-            is_short=(video_type == "short")
-        )
         return jsonify({
-            "output": video_path,
-            "images_used": len(images),
-            "audio": audio
+            "status": "edited",
+            "path": result["path"],
+            "duration": result.get("duration", 0),
+            "content_type": content_type,
+            "source_title": title,
         })
     except Exception as ex:
         return jsonify({"error": str(ex)}), 500
 
 
 @app.route("/generate-thumbnail", methods=["POST"])
-def generate_thumbnail_endpoint():
+def generate_thumbnail():
+    """Step 4: Generate thumbnail variants from the processed clip."""
     data = request.get_json() or {}
-    images = data.get("images", [])
-    title = data.get("title", "New Video")
+    video_path = data.get("video_path", "")
+    title = data.get("title", "VARY Clip")
+    content_type = data.get("type", "movie")
 
-    output_id = uuid.uuid4().hex[:8]
-    output_path = os.path.join(THUMBNAILS_DIR, f"thumb_{output_id}.jpg")
+    if not video_path or not os.path.exists(video_path):
+        return jsonify({"error": f"Video file not found: {video_path}"}), 400
 
     try:
-        result_path = create_thumbnail(images, title, output_path)
+        variants = generate_thumbnails(video_path, title, content_type)
+
         return jsonify({
-            "output": result_path,
-            "title": title
+            "status": "generated" if variants else "skipped",
+            "variants": variants or {},
         })
     except Exception as ex:
         return jsonify({"error": str(ex)}), 500
 
 
+@app.route("/generate-seo", methods=["POST"])
+def generate_seo():
+    """Step 5: Generate SEO metadata."""
+    data = request.get_json() or {}
+    source_title = data.get("source_title", "")
+    content_type = data.get("type", "movie")
+    source_url = data.get("source_url", "")
+
+    try:
+        metadata = generate_metadata(source_title, content_type, source_url)
+
+        return jsonify({
+            "status": "generated",
+            "title": metadata["title"],
+            "description": metadata["description"],
+            "tags": metadata["tags"],
+        })
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
+@app.route("/upload", methods=["POST"])
+def upload():
+    """Step 6: Upload to YouTube."""
+    data = request.get_json() or {}
+    video_path = data.get("video_path", "")
+    title = data.get("title", "VARY Clip")
+    description = data.get("description", "")
+    tags = data.get("tags", [])
+    thumbnail_path = data.get("thumbnail_path")
+
+    if not video_path or not os.path.exists(video_path):
+        return jsonify({"error": f"Video file not found: {video_path}"}), 400
+
+    try:
+        from modules.youtube_uploader import upload_video
+
+        video_id, response = upload_video(
+            video_path=video_path,
+            title=title,
+            description=description,
+            tags=tags,
+            thumbnail_path=thumbnail_path if thumbnail_path and os.path.exists(thumbnail_path) else None,
+            privacy_status="public",
+        )
+
+        return jsonify({
+            "status": "uploaded",
+            "video_id": video_id,
+            "url": f"https://youtu.be/{video_id}",
+            "title": title,
+        })
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
+@app.route("/cleanup", methods=["POST"])
+def cleanup():
+    """Step 7: Delete source files and free space."""
+    data = request.get_json() or {}
+    source_paths = data.get("source_paths", [])
+
+    try:
+        space_info = full_cleanup(source_paths)
+        return jsonify({
+            "status": "cleaned",
+            "space": space_info,
+        })
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
+@app.route("/run-full-pipeline", methods=["POST"])
+def run_full_pipeline():
+    """Run the complete pipeline end-to-end."""
+    data = request.get_json() or {}
+    force_type = data.get("type")
+    force_query = data.get("query")
+
+    try:
+        from run_pipeline import run_pipeline
+
+        result = run_pipeline(force_type=force_type, force_query=force_query)
+
+        return jsonify({
+            "status": "complete",
+            "result": result,
+        })
+    except Exception as ex:
+        return jsonify({
+            "status": "failed",
+            "error": str(ex),
+        }), 500
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("API_PORT", 5001))
-    print(f"Starting YouTube Automation API on port {port}...")
+    print(f"Starting VARY API on port {port}...")
     app.run(host="127.0.0.1", port=port, debug=False)
