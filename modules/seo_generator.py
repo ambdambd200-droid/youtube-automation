@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 SEO Generator — creates optimized titles, descriptions, and tags for YouTube Shorts.
 Tailored to each content type (World Cup vs Movie).
