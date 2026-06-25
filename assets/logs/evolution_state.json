@@ -1,0 +1,44 @@
+{
+  "generation": 1,
+  "last_updated": "2026-06-24T12:00:00.526254",
+  "parameters": {
+    "content_weights_active": {
+      "worldcup_2026": 0.4,
+      "movie": 0.6
+    },
+    "content_weights_post_wc": {
+      "movie": 1.0
+    },
+    "worldcup_keywords": [
+      "world cup 2026 best moments",
+      "world cup 2026 highlight",
+      "world cup 2026 controversial",
+      "world cup 2026 amazing goal",
+      "world cup 2026 viral moment"
+    ],
+    "movie_keywords": [
+      "iconic movie scene",
+      "best movie moments",
+      "classic film scene",
+      "cinematic masterpiece scene"
+    ],
+    "clip_min_duration": 15,
+    "clip_max_duration": 60,
+    "scene_threshold": 0.3,
+    "title_style_preference": "balanced",
+    "thumbnail_variant_preference": "v2"
+  },
+  "performance": {
+    "average_score": 50.0,
+    "peak_score": 0.0,
+    "total_clips_analyzed": 0,
+    "total_evolutions": 0,
+    "history_by_type": {},
+    "history_by_hour": {},
+    "real_performance_average": null,
+    "real_performance_best_type": null,
+    "real_videos_tracked": 0,
+    "critique_vs_real_delta": 0.0
+  },
+  "mutations": []
+}

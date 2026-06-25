@@ -1,0 +1,60 @@
+{
+  "last_30_days": [
+    {
+      "type": "movie",
+      "search_query": "classic film scene",
+      "date": "2026-06-23T15:47:42.854466"
+    },
+    {
+      "type": "worldcup_2026",
+      "search_query": "world cup 2026 best moments",
+      "date": "2026-06-23T15:48:19.184887"
+    },
+    {
+      "type": "movie",
+      "search_query": "classic film scene",
+      "date": "2026-06-23T15:54:08.722106"
+    },
+    {
+      "type": "worldcup_2026",
+      "search_query": "world cup 2026 best moments",
+      "date": "2026-06-23T16:00:19.915159"
+    },
+    {
+      "type": "movie",
+      "search_query": "cinematic masterpiece scene",
+      "date": "2026-06-23T16:08:21.512711"
+    },
+    {
+      "type": "worldcup_2026",
+      "search_query": "world cup 2026 best moments Portugal",
+      "date": "2026-06-24T11:06:27.908350"
+    },
+    {
+      "type": "movie",
+      "search_query": "classic film scene",
+      "date": "2026-06-24T17:47:20.699489"
+    },
+    {
+      "type": "worldcup_2026",
+      "search_query": "world cup 2026 best moments ",
+      "date": "2026-06-24T17:58:13.992436"
+    },
+    {
+      "type": "movie",
+      "search_query": "best movie moments",
+      "date": "2026-06-24T18:28:00.884801"
+    },
+    {
+      "type": "worldcup_2026",
+      "search_query": "world cup 2026 amazing goal",
+      "date": "2026-06-24T21:34:26.814892"
+    },
+    {
+      "type": "worldcup_2026",
+      "search_query": "world cup 2026 controversial",
+      "date": "2026-06-25T16:13:37.295351"
+    }
+  ],
+  "total_count": 11
+}

@@ -9,7 +9,7 @@ import shutil
 from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import DOWNLOADS_DIR, LOG_DIR
+from config import DOWNLOADS_DIR
 
 
 def delete_file(filepath):

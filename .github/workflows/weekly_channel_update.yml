@@ -1,0 +1,68 @@
+name: Weekly Channel Update
+
+on:
+  schedule:
+    - cron: "0 12 * * 0"
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  channel-update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+
+      - name: Install Python dependencies
+        run: |
+          pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv
+
+      - name: Create .env file
+        run: |
+          echo "YOUTUBE_CLIENT_ID=${{ secrets.YOUTUBE_CLIENT_ID }}" >> .env
+          echo "YOUTUBE_CLIENT_SECRET=${{ secrets.YOUTUBE_CLIENT_SECRET }}" >> .env
+          echo "YOUTUBE_REFRESH_TOKEN=${{ secrets.YOUTUBE_REFRESH_TOKEN }}" >> .env
+          echo "OUTPUT_DIR=./assets" >> .env
+
+      - name: Decode YouTube token
+        run: |
+          echo "${{ secrets.YOUTUBE_TOKEN_B64 }}" | base64 --decode > youtube_token.pickle
+
+      - name: Generate channel branding
+        run: |
+          python -c "
+          from modules.channel_branding_generator import generate_all_branding
+          result = generate_all_branding()
+          print(f'Profile: {result[\"profile_picture\"]}')
+          print(f'Banner: {result[\"banner\"]}')
+          "
+
+      - name: Update channel description and branding
+        run: |
+          python -c "
+          from modules.channel_manager import check_and_update_channel
+          result = check_and_update_channel()
+          print(f'World Cup active: {result[\"world_cup_active\"]}')
+          print(f'Description updated: {result[\"description_updated\"]}')
+          print(f'Branding uploaded: {result[\"branding_uploaded\"]}')
+          "
+
+      - name: Upload channel art as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: channel-art
+          path: assets/channel_art/

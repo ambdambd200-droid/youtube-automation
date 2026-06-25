@@ -1,9 +1,20 @@
-name: Daily Short Video
+name: VARY — Daily Shorts (×3)
 
 on:
   schedule:
-    - cron: "0 12 * * *"
+    - cron: "33 7 * * *"    # 07:33 UTC — morning
+    - cron: "55 17 * * *"   # 17:55 UTC — afternoon
+    - cron: "18 22 * * *"   # 22:18 UTC — night
   workflow_dispatch:
+    inputs:
+      type:
+        description: 'Content type (movie, worldcup, or auto)'
+        required: false
+        default: ''
+      query:
+        description: 'Custom search query'
+        required: false
+        default: ''
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -12,6 +23,10 @@ jobs:
   create-and-upload:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    # Auto-retry on failure (watchdog: 1 automatic retry)
+    strategy:
+      max-parallel: 1  # ensure sequential runs (avoid download conflicts)
+    continue-on-error: false
 
     steps:
       - name: Checkout repo
@@ -25,19 +40,14 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq espeak-ng libsndfile1-dev ffmpeg fonts-dejavu-core
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
 
       - name: Install Python dependencies
         run: |
-          pip install --quiet edge-tts pillow requests moviepy google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv imageio-ffmpeg
-
-      - name: Install Coqui TTS (voice cloning)
-        run: |
-          pip install --quiet TTS
+          pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
 
       - name: Debug secrets
         run: |
-          echo "GROQ_API_KEY set: ${{ secrets.GROQ_API_KEY != '' }}"
           echo "YOUTUBE_CLIENT_ID set: ${{ secrets.YOUTUBE_CLIENT_ID != '' }}"
           echo "YOUTUBE_CLIENT_SECRET set: ${{ secrets.YOUTUBE_CLIENT_SECRET != '' }}"
           echo "YOUTUBE_REFRESH_TOKEN set: ${{ secrets.YOUTUBE_REFRESH_TOKEN != '' }}"
@@ -46,12 +56,10 @@ jobs:
       - name: Create .env file
         run: |
           echo "N8N_API_KEY=dummy" > .env
-          echo "GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" >> .env
           echo "YOUTUBE_CLIENT_ID=${{ secrets.YOUTUBE_CLIENT_ID }}" >> .env
           echo "YOUTUBE_CLIENT_SECRET=${{ secrets.YOUTUBE_CLIENT_SECRET }}" >> .env
           echo "YOUTUBE_REFRESH_TOKEN=${{ secrets.YOUTUBE_REFRESH_TOKEN }}" >> .env
           echo "OUTPUT_DIR=./assets" >> .env
-          echo "AUDIO_BACKGROUND=assets/audio/background.mp3" >> .env
 
       - name: Decode YouTube token
         run: |
@@ -59,25 +67,37 @@ jobs:
 
       - name: Create assets directories
         run: |
-          mkdir -p assets/audio assets/images assets/videos assets/thumbnails
+          mkdir -p assets/downloads assets/clips assets/thumbnails/variants assets/logs assets/channel_art
 
-      - name: Ensure background audio exists
+      - name: Run clip pipeline (with auto-retry on crash)
+        id: pipeline
         run: |
-          if [ ! -f assets/audio/background.mp3 ]; then
-            echo "Generating background audio..."
-            ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t 18 -q:a 9 assets/audio/background.mp3 -y
-          fi
-
-      - name: Run daily short pipeline
-        run: python run_pipeline.py --type short
+          MAX_RETRIES=1
+          RETRY_DELAY=60  # seconds
+          for attempt in $(seq 0 $MAX_RETRIES); do
+            if [ $attempt -gt 0 ]; then
+              echo "Retry attempt $attempt/$MAX_RETRIES after $RETRY_DELAY seconds..."
+              sleep $RETRY_DELAY
+            fi
+            python run_pipeline.py \
+              ${{ github.event.inputs.type && format('--type {0}', github.event.inputs.type) || '' }} \
+              ${{ github.event.inputs.query && format('--query \"{0}\"', github.event.inputs.query) || '' }} \
+            && break
+            EXIT_CODE=$?
+            echo "Pipeline failed (exit code: $EXIT_CODE) on attempt $attempt"
+            if [ $attempt -eq $MAX_RETRIES ]; then
+              echo "All retries exhausted. Reporting failure."
+              exit $EXIT_CODE
+            fi
+          done
 
       - name: Upload artifacts (on failure)
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: failed-artifacts
+          name: failed-artifacts-${{ github.run_attempt }}
           path: |
-            assets/audio/
-            assets/images/
-            assets/videos/
+            assets/downloads/
+            assets/clips/
             assets/thumbnails/
+            assets/logs/

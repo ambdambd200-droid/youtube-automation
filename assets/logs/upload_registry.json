@@ -1,0 +1,26 @@
+{
+  "videos": [
+    {
+      "video_id": "test_video_123",
+      "title": "Test Clip - Matrix",
+      "content_type": "movie",
+      "search_query": "iconic movie scene",
+      "seo_title": "This Scene is Art",
+      "critique_score": 82.5,
+      "critique_grade": "B",
+      "uploaded_at": "2026-06-24T10:50:55.640085",
+      "last_fetched": null
+    },
+    {
+      "video_id": "test_v1",
+      "title": "Test",
+      "content_type": "movie",
+      "search_query": "action",
+      "seo_title": "Test Title",
+      "critique_score": null,
+      "critique_grade": null,
+      "uploaded_at": "2026-06-24T11:21:29.759270",
+      "last_fetched": null
+    }
+  ]
+}

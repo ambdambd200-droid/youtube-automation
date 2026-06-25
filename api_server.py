@@ -4,20 +4,26 @@ Endpoints for the clip-based daily Shorts pipeline.
 Run: python api_server.py
 Runs on: http://localhost:5001
 """
-import json
 import os
 import sys
-import uuid
 import random
 from datetime import datetime
+
+# Fix Windows console encoding for Unicode characters
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 from flask import Flask, request, jsonify
 
 sys.path.insert(0, os.path.dirname(__file__))
 
 from config import (
-    CLIPS_DIR, THUMBNAILS_DIR, DOWNLOADS_DIR, LOG_DIR,
+    CLIPS_DIR, THUMBNAILS_DIR, DOWNLOADS_DIR, LOG_DIR, is_world_cup_active,
 )
-from modules.content_selector import select_today_content, load_used_scenes, save_used_scene
+from modules.content_selector import select_today_content, load_used_scenes
 from modules.clip_downloader import download_best_match
 from modules.clip_editor import create_clip
 from modules.thumbnail_generator import generate_thumbnails
@@ -238,6 +244,190 @@ def run_full_pipeline():
             "status": "failed",
             "error": str(ex),
         }), 500
+
+
+@app.route("/channel-info", methods=["GET"])
+def channel_info():
+    """Get current YouTube channel information."""
+    try:
+        from modules.channel_manager import get_channel_info
+        info = get_channel_info()
+        if info:
+            info["world_cup_active"] = is_world_cup_active()
+            return jsonify(info)
+        return jsonify({"error": "Could not fetch channel info"}), 500
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
+@app.route("/update-channel", methods=["POST"])
+def update_channel():
+    """Update channel branding (description, profile pic, banner)."""
+    try:
+        from modules.channel_manager import check_and_update_channel
+        result = check_and_update_channel()
+        return jsonify({
+            "status": "complete",
+            "result": result,
+        })
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
+@app.route("/generate-branding", methods=["POST"])
+def generate_branding():
+    """Generate channel profile picture and banner assets."""
+    try:
+        from modules.channel_branding_generator import generate_all_branding
+        result = generate_all_branding()
+        return jsonify({
+            "status": "generated",
+            "profile_picture": result.get("profile_picture"),
+            "banner": result.get("banner"),
+            "directory": result.get("directory"),
+        })
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
+# ── Critique & Evolution Endpoints ─────────────────────────
+
+
+@app.route("/critique-clip", methods=["POST"])
+def critique_clip_endpoint():
+    """Run critique analysis on a processed clip."""
+    data = request.get_json() or {}
+    video_path = data.get("video_path", "")
+    content_type = data.get("type", "movie")
+    source_title = data.get("title", "")
+    duration = data.get("duration", 0)
+
+    if not video_path or not os.path.exists(video_path):
+        return jsonify({"error": f"Video not found: {video_path}"}), 400
+
+    try:
+        from modules.clip_critique import critique_clip
+        result = critique_clip(video_path, content_type, source_title, duration)
+        if result:
+            return jsonify({
+                "status": "critiqued",
+                "compound_score": result["compound_score"],
+                "grade": result["grade"],
+                "axes": result["axes"],
+                "recommendations": result["recommendations"],
+            })
+        return jsonify({"error": "Critique returned no result"}), 500
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
+@app.route("/critique-history", methods=["GET"])
+def critique_history():
+    """Get critique history and trend summary."""
+    try:
+        from modules.clip_critique import load_critique_history, get_trend_summary
+        count = request.args.get("count", 50, type=int)
+        entries = load_critique_history(n=count)
+        trends = get_trend_summary(entries)
+        return jsonify({
+            "count": len(entries),
+            "trends": trends,
+        })
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
+@app.route("/evolution-status", methods=["GET"])
+def evolution_status():
+    """Get current evolution engine state."""
+    try:
+        from modules.evolution_engine import get_evolution_status
+        status = get_evolution_status()
+        return jsonify(status)
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
+@app.route("/evolution-run", methods=["POST"])
+def evolution_run():
+    """Run one evolution cycle manually."""
+    try:
+        from modules.evolution_engine import evolve
+        result = evolve()
+        return jsonify({
+            "status": "evolved" if result.get("evolved") else "no_change",
+            "generation": result.get("generation"),
+            "mutations": result.get("mutations", 0),
+            "trends": result.get("trends", {}),
+        })
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
+@app.route("/evolution-reset", methods=["POST"])
+def evolution_reset():
+    """Reset evolution engine to defaults."""
+    try:
+        from modules.evolution_engine import reset_evolution
+        reset_evolution()
+        return jsonify({"status": "reset"})
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
+# ── Performance Tracking Endpoints ─────────────────────────
+
+
+@app.route("/performance-summary", methods=["GET"])
+def performance_summary():
+    """Get performance tracking summary."""
+    try:
+        from modules.performance_tracker import get_performance_summary
+        summary = get_performance_summary()
+        return jsonify(summary)
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
+@app.route("/performance-poll", methods=["POST"])
+def performance_poll():
+    """Fetch performance data for all stale videos."""
+    try:
+        from modules.performance_tracker import poll_all_videos
+        results = poll_all_videos()
+        return jsonify({
+            "status": "polled",
+            "videos_updated": len(results),
+        })
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
+@app.route("/performance/video/<video_id>", methods=["GET"])
+def performance_video(video_id):
+    """Get performance data for a specific video."""
+    try:
+        from modules.performance_tracker import get_performance_for_video
+        data = get_performance_for_video(video_id)
+        if data:
+            return jsonify(data)
+        return jsonify({"error": "No data for this video"}), 404
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
+@app.route("/performance/videos", methods=["GET"])
+def performance_videos():
+    """Get all tracked videos."""
+    try:
+        from modules.performance_tracker import get_all_tracked_videos
+        videos = get_all_tracked_videos()
+        return jsonify({
+            "count": len(videos),
+            "videos": videos,
+        })
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
 
 
 if __name__ == "__main__":

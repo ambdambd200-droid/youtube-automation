@@ -13,9 +13,9 @@ from config import N8N_API_KEY, N8N_BASE_URL
 HEADERS = {"X-N8N-API-KEY": N8N_API_KEY}
 
 
-def make_node(id, name, node_type, tv, pos, params):
+def make_node(node_id, name, node_type, tv, pos, params):
     return {
-        "id": id,
+        "id": node_id,
         "name": name,
         "type": node_type,
         "typeVersion": tv,

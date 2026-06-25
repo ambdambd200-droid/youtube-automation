@@ -10,6 +10,7 @@ import random
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import THUMBNAILS_DIR, THUMBNAILS_VARIANTS_DIR, SHORTS_WIDTH, SHORTS_HEIGHT
+from modules.utils import get_font_path
 
 
 def extract_frame(video_path, output_path, at_time=None):
@@ -44,7 +45,7 @@ def extract_frame(video_path, output_path, at_time=None):
         subprocess.run(cmd, capture_output=True, timeout=30)
         if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
             return output_path
-    except:
+    except Exception:
         pass
     return None
 
@@ -54,10 +55,7 @@ def create_thumbnail_variant_1(frame_path, output_path, text, content_type):
     if not os.path.exists(frame_path):
         return None
 
-    font_path = "C\\:/Windows/Fonts/arialbd.ttf"
-    # Check if arialbd exists, else use arial
-    if not os.path.exists("C:/Windows/Fonts/arialbd.ttf"):
-        font_path = "C\\:/Windows/Fonts/arial.ttf"
+    font_path = get_font_path()
 
     overlay_text = text[:60].replace("'", "\\'").replace(":", "\\:")
 
@@ -79,7 +77,7 @@ def create_thumbnail_variant_1(frame_path, output_path, text, content_type):
         subprocess.run(cmd, capture_output=True, timeout=30)
         if os.path.exists(output_path):
             return output_path
-    except:
+    except Exception:
         pass
     return None
 
@@ -89,9 +87,7 @@ def create_thumbnail_variant_2(frame_path, output_path, text, content_type):
     if not os.path.exists(frame_path):
         return None
 
-    font_path = "C\\:/Windows/Fonts/arialbd.ttf"
-    if not os.path.exists("C:/Windows/Fonts/arialbd.ttf"):
-        font_path = "C\\:/Windows/Fonts/arial.ttf"
+    font_path = get_font_path()
 
     overlay_text = text[:40].replace("'", "\\'").replace(":", "\\:")
     icon = "🎬" if content_type == "movie" else "⚽"
@@ -113,7 +109,7 @@ def create_thumbnail_variant_2(frame_path, output_path, text, content_type):
         subprocess.run(cmd, capture_output=True, timeout=30)
         if os.path.exists(output_path):
             return output_path
-    except:
+    except Exception:
         pass
     return None
 
@@ -123,9 +119,7 @@ def create_thumbnail_variant_3(frame_path, output_path, text, content_type):
     if not os.path.exists(frame_path):
         return None
 
-    font_path = "C\\:/Windows/Fonts/arialbd.ttf"
-    if not os.path.exists("C:/Windows/Fonts/arialbd.ttf"):
-        font_path = "C\\:/Windows/Fonts/arial.ttf"
+    font_path = get_font_path()
 
     # Create a more dramatic version with gradients (via ffmpeg)
     overlay_text = text[:50].replace("'", "\\'").replace(":", "\\:")
@@ -148,7 +142,7 @@ def create_thumbnail_variant_3(frame_path, output_path, text, content_type):
         subprocess.run(cmd, capture_output=True, timeout=30)
         if os.path.exists(output_path):
             return output_path
-    except:
+    except Exception:
         pass
     return None
 
@@ -196,7 +190,7 @@ def generate_thumbnails(video_path, title, content_type):
     # Clean up the raw frame
     try:
         os.remove(frame_path)
-    except:
+    except Exception:
         pass
 
     if variants:

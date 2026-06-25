@@ -9,7 +9,7 @@ import random
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import LOG_DIR, CONTENT_WEIGHTS, WORLDCUP_KEYWORDS, MOVIE_KEYWORDS
+from config import LOG_DIR, WORLDCUP_KEYWORDS, MOVIE_KEYWORDS, get_content_weights, is_world_cup_active
 
 HISTORY_FILE = os.path.join(LOG_DIR, "content_history.json")
 USED_SCENES_FILE = os.path.join(LOG_DIR, "used_scenes.json")
@@ -74,15 +74,32 @@ def is_scene_used(content_type, identifier):
     return False
 
 
+def _load_evolution_weights():
+    """Load evolved content weights from the evolution engine (public API)."""
+    try:
+        from modules.evolution_engine import get_evolved_weights
+        return get_evolved_weights(active=is_world_cup_active())
+    except Exception:
+        return None
+
+
 def select_content_type():
-    """Randomly select content type based on weights, with variety enforcement."""
+    """Randomly select content type based on weights, with variety enforcement.
+    Automatically stops selecting World Cup content when the tournament is over.
+    Uses evolution engine weights if available (full autonomy).
+    """
     history = load_history()
     last_30 = history.get("last_30_days", [])
 
+    # Get appropriate weights — try evolved weights first
+    evolved = _load_evolution_weights()
+    if evolved:
+        weights = dict(evolved)
+    else:
+        weights = dict(get_content_weights())
+
     # Check last 5 days to avoid streaks
     last_5_types = [h.get("type") for h in last_30[-5:]]
-
-    weights = dict(CONTENT_WEIGHTS)
 
     # If we've had 3+ of same type in last 5, reduce its weight
     for ct in weights:
@@ -105,11 +122,23 @@ def select_content_type():
     return "movie"  # fallback
 
 
+def _load_evolved_keywords(content_type):
+    """Load evolved keyword preferences from evolution engine (public API)."""
+    try:
+        from modules.evolution_engine import get_evolved_keywords
+        return get_evolved_keywords(content_type)
+    except Exception:
+        return None
+
+
 def generate_search_query(content_type):
-    """Generate a search query for the selected content type."""
+    """Generate a search query for the selected content type.
+    Uses evolved keywords if available.
+    """
     if content_type == "worldcup_2026":
-        # Pick a random search keyword for World Cup
-        kw = random.choice(WORLDCUP_KEYWORDS)
+        # Use evolved keywords if available, else defaults
+        kws = _load_evolved_keywords(content_type) or WORLDCUP_KEYWORDS
+        kw = random.choice(kws)
 
         # Add variety: sometimes specify a region or team
         regions = ["", "USA", "Argentina", "Brazil", "France", "Germany",
@@ -125,8 +154,8 @@ def generate_search_query(content_type):
         }
 
     else:  # movie
-        # Pick a random movie keyword
-        kw = random.choice(MOVIE_KEYWORDS)
+        kws = _load_evolved_keywords(content_type) or MOVIE_KEYWORDS
+        kw = random.choice(kws)
 
         # Add variety: sometimes specify a genre
         genres = ["", "action", "drama", "comedy", "thriller", "sci-fi",
@@ -151,7 +180,11 @@ def select_today_content():
     if history.get("last_30_days"):
         last_type = history["last_30_days"][-1].get("type")
         if last_type == content_type and random.random() < 0.5:
-            content_type = "movie" if content_type == "worldcup_2026" else "worldcup_2026"
+            # Only re-roll between types if World Cup is active
+            if is_world_cup_active():
+                content_type = "movie" if content_type == "worldcup_2026" else "worldcup_2026"
+            else:
+                content_type = "movie"
 
     query_info = generate_search_query(content_type)
 

@@ -163,34 +163,6 @@ def upload_video(video_path, title, description, tags, category_id="22", privacy
 
     return video_id, response
 
-def generate_seo_metadata(script, title):
-    """Generate SEO metadata for YouTube upload."""
-    tags = [
-        "Depths", "dark history", "mystery", "historical stories", "true crime",
-        "psychology", "unsolved mysteries", "documentary", "creepy history",
-        "educational", "shorts", "history facts", "mind blowing",
-        "dark secrets", "ancient mysteries", "forgotten history",
-        "historical events", "conspiracy", "scary history", "shorts history"
-    ]
-    if title:
-        title_words = title.replace("|", "").replace("-", "").replace("#", "").split()
-        tags.extend(title_words[:5])
-    tags = list(dict.fromkeys(tags))
-
-    description = f"""{title}
-
-📌 In this video from Depths:
-{script[:2000] if script else ""}
-
-━━━━━━━━━━━━━━━━━━━━━━
-🔔 Subscribe to Depths and hit the bell for more dark history & mystery
-👍 Like if you enjoyed this video
-💬 What do you think? Drop a comment below
-━━━━━━━━━━━━━━━━━━━━━━
-
-#Depths #DarkHistory #Mystery #HistoryFacts #Educational #Documentary
-"""
-    return description, tags
 
 def main():
     parser = argparse.ArgumentParser()
@@ -200,7 +172,6 @@ def main():
     parser.add_argument("--tags", nargs="+", default=[])
     parser.add_argument("--thumbnail", default=None)
     parser.add_argument("--privacy", choices=["public", "unlisted", "private"], default="public")
-    parser.add_argument("--script", default=None)
     parser.add_argument("--auth-flow", action="store_true",
                         help="Run OAuth flow to get YouTube credentials")
     parser.add_argument("--verify", action="store_true",
@@ -225,11 +196,12 @@ def main():
     tags = list(args.tags)
 
     if not description or not tags:
-        desc, gen_tags = generate_seo_metadata(args.script or "", args.title)
+        from modules.seo_generator import generate_metadata
+        seo = generate_metadata(args.title, "movie")
         if not description:
-            description = desc
+            description = seo["description"]
         if not tags:
-            tags = gen_tags
+            tags = seo["tags"]
 
     video_id, response = upload_video(
         args.video,

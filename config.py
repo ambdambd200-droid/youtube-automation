@@ -3,6 +3,7 @@ VARY — Configuration for clip-based YouTube Shorts automation.
 Daily random clips from movies, matches, and the internet.
 """
 import os
+from datetime import datetime, timedelta, date
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -32,12 +33,27 @@ CLIP_MAX_DURATION = 60   # Max seconds for Shorts
 CLIP_MIN_DURATION = 15   # Min seconds
 
 # ── Content Selection Weights ────────────────────────────────
-CONTENT_WEIGHTS = {
-    "worldcup_2026": 0.40,   # 40% World Cup moments
-    "movie": 0.60,           # 60% random movie scenes
+# When the World Cup is active, 40% WC / 60% movie.
+# When it's over, 100% movie (auto-transition).
+CONTENT_WEIGHTS_ACTIVE = {
+    "worldcup_2026": 0.40,
+    "movie": 0.60,
+}
+CONTENT_WEIGHTS_POST_WC = {
+    "movie": 1.0,
 }
 
+def get_content_weights():
+    """Return appropriate weights based on whether the World Cup is active."""
+    if is_world_cup_active():
+        return CONTENT_WEIGHTS_ACTIVE
+    return CONTENT_WEIGHTS_POST_WC
+
 # ── World Cup Sources ────────────────────────────────────────
+# FIFA World Cup 2026 runs from June 8 to July 3, 2026
+WORLD_CUP_START_DATE = "2026-06-08"
+WORLD_CUP_END_DATE = "2026-07-03"
+
 WORLDCUP_KEYWORDS = [
     "world cup 2026 best moments",
     "world cup 2026 highlight",
@@ -45,6 +61,13 @@ WORLDCUP_KEYWORDS = [
     "world cup 2026 amazing goal",
     "world cup 2026 viral moment",
 ]
+
+def is_world_cup_active():
+    """Check if the FIFA World Cup 2026 is currently in progress."""
+    today = date.today()
+    start = datetime.strptime(WORLD_CUP_START_DATE, "%Y-%m-%d").date()
+    end = datetime.strptime(WORLD_CUP_END_DATE, "%Y-%m-%d").date()
+    return start <= today <= end + timedelta(days=2)  # 2-day grace period after final
 
 # ── Movie Keywords (for sourcing) ─────────────────────────────
 MOVIE_KEYWORDS = [
@@ -56,20 +79,35 @@ MOVIE_KEYWORDS = [
 
 # ── Channel Branding ─────────────────────────────────────────
 CHANNEL_NAME = "VARY"
-CHANNEL_TAGLINE = "Daily Clips. Infinite Variety."
-CHANNEL_DESCRIPTION = """VARY brings you daily short videos featuring the best moments from movies, sports, and the internet. Random. Curated. Never the same.
+CHANNEL_TAGLINE = "three times daily. one clip at a time."
 
-Every day, a new clip — from iconic movie scenes to viral World Cup moments. Natural sound only. No filler.
+CHANNEL_DESCRIPTION = """Welcome to VARY! ⚽🎬
 
-🎬 New Shorts every day
-🌍 Movies • World Cup • Internet
-🎯 No music, just pure moments"""
+Your ultimate destination where the thrill of football meets the magic of cinema. 🌍
+
+🔹 World Cup Highlights: Relive the most iconic moments, stunning goals, and dramatic saves from the FIFA World Cup. Experience the passion of the global game in short, electrifying clips. 🏆🥅
+
+🔸 Random Movie Scenes: Dive into a curated mix of unforgettable scenes from top foreign films. From action-packed sequences to emotional dramas, enjoy a random cinematic journey every time you tune in. 🎥🍿
+
+VARY – Where sports excitement and movie mastery collide. ✨"""
+
+def get_channel_description():
+    """Return the channel description."""
+    return CHANNEL_DESCRIPTION
 
 # ── SEO ──────────────────────────────────────────────────────
 DEFAULT_TAGS = [
     "VARY", "shorts", "YouTube shorts", "daily shorts",
     "movie clips", "movie scenes", "world cup 2026",
     "viral clips", "random clips", "daily video",
+]
+
+# ── Posting Schedule ────────────────────────────────────────
+# Three shorts per day at UTC times
+POSTING_TIMES_UTC = [
+    (7, 33),   # 07:33 UTC — morning
+    (17, 55),  # 17:55 UTC — afternoon
+    (22, 18),  # 22:18 UTC — night
 ]
 
 # Ensure directories exist

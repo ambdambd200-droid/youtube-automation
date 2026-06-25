@@ -1,6 +1,6 @@
 """
 VARY — Main Pipeline Runner.
-Daily clip-based pipeline: Select → Download → Edit → Thumbnail → Upload → Cleanup
+Daily clip-based pipeline: Select → Download → Edit → Critique → Thumbnail → SEO → Upload → Evolve → Cleanup
 
 Usage:
     python run_pipeline.py                     # Auto-select content (random daily)
@@ -15,10 +15,16 @@ import sys
 import random
 from datetime import datetime
 
+# Fix Windows console encoding for Unicode characters (em dashes, arrows, etc.)
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 from config import (
-    CHANNEL_NAME, CLIPS_DIR, CLIP_MIN_DURATION, CLIP_MAX_DURATION,
     LOG_DIR, WORLDCUP_KEYWORDS, MOVIE_KEYWORDS,
 )
 from modules.content_selector import select_today_content, load_used_scenes, save_used_scene
@@ -57,8 +63,21 @@ def run_pipeline(force_type=None, force_query=None):
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*60}\n")
 
+    # ── Channel Branding Check ────────────────────────────
+    print(f">>> Checking channel branding...")
+    try:
+        from modules.channel_manager import check_and_update_channel
+        channel_result = check_and_update_channel()
+        log_result("channel_check", "success", channel_result)
+        print(f"  World Cup: {'Active' if channel_result.get('world_cup_active') else 'Ended'}", flush=True)
+        if channel_result.get("description_updated"):
+            print(f"  Channel description updated", flush=True)
+    except Exception as e:
+        print(f"  [SKIP] Channel check failed: {e}", flush=True)
+        log_result("channel_check", "skipped", {"error": str(e)})
+
     # ── Step 1: Content Selection ────────────────────────
-    print(f">>> STEP 1/6: Selecting content...")
+    print(f">>> Step 1/9: Selecting content...")
     if force_type:
         content_info = {
             "type": force_type,
@@ -83,7 +102,7 @@ def run_pipeline(force_type=None, force_query=None):
     log_result("content_selection", "success", content_info)
 
     # ── Step 2: Download Clip ────────────────────────────
-    print(f"\n>>> STEP 2/6: Downloading clip...")
+    print(f"\n>>> Step 2/9: Downloading clip...")
     used = load_used_scenes()
     used_ids = set()
     for key in ["movie_scenes", "worldcup_matches"]:
@@ -111,7 +130,7 @@ def run_pipeline(force_type=None, force_query=None):
     log_result("download", "success", download_result)
 
     # ── Step 3: Edit Clip ────────────────────────────────
-    print(f"\n>>> STEP 3/6: Editing clip to Shorts format...")
+    print(f"\n>>> Step 3/9: Editing clip to Shorts format...")
     clip_result = create_clip(
         download_result["path"],
         content_info["type"],
@@ -125,7 +144,7 @@ def run_pipeline(force_type=None, force_query=None):
     log_result("editing", "success", clip_result)
 
     # ── Step 4: Generate Thumbnails (A/B variants) ──────
-    print(f"\n>>> STEP 4/6: Generating thumbnails...")
+    print(f"\n>>> Step 4/9: Generating thumbnails...")
     thumbnails = generate_thumbnails(
         clip_result["path"],
         download_result["title"][:50],
@@ -138,8 +157,8 @@ def run_pipeline(force_type=None, force_query=None):
 
     log_result("thumbnails", "success" if thumbnails else "skipped", {"variants": list(thumbnails.keys())})
 
-    # ── Step 5: Generate SEO & Upload ────────────────────
-    print(f"\n>>> STEP 5/6: Generating SEO metadata...")
+    # ── Step 5: Generate SEO ─────────────────────────────
+    print(f"\n>>> Step 5/9: Generating SEO metadata...")
     seo = generate_metadata(
         download_result["title"],
         content_info["type"],
@@ -149,8 +168,28 @@ def run_pipeline(force_type=None, force_query=None):
     print(f"  Title: {seo['title']}", flush=True)
     print(f"  Tags: {len(seo['tags'])} tags", flush=True)
 
-    # Upload to YouTube
-    print(f"\n>>> Uploading to YouTube...")
+    # ── Step 6: Critique the clip (pre-upload) ───────────
+    print(f"\n>>> Step 6/9: Critiquing clip quality...")
+    critique_result = None
+    try:
+        from modules.clip_critique import critique_clip
+        critique_result = critique_clip(
+            clip_result["path"],
+            content_info["type"],
+            source_title=download_result["title"],
+            source_duration=clip_result.get("duration", 0),
+        )
+        if critique_result:
+            log_result("critique", "success", {
+                "compound_score": critique_result["compound_score"],
+                "grade": critique_result["grade"],
+            })
+    except Exception as e:
+        print(f"  [SKIP] Critique error: {e}", flush=True)
+        log_result("critique", "skipped", {"error": str(e)})
+
+    # ── Step 7: Upload to YouTube ────────────────────────
+    print(f"\n>>> Step 7/9: Uploading to YouTube...")
     from modules.youtube_uploader import upload_video
 
     # Pick the best thumbnail (prefer v3, then v2, then v1)
@@ -181,8 +220,44 @@ def run_pipeline(force_type=None, force_query=None):
         video_id = None
         video_url = None
 
-    # ── Step 6: Space Cleanup ────────────────────────────
-    print(f"\n>>> STEP 6/6: Cleaning up source files...")
+    # ── Step 6a: Register upload for performance tracking ──
+    if video_id:
+        try:
+            from modules.performance_tracker import register_upload
+            register_upload(
+                video_id=video_id,
+                title=download_result["title"],
+                content_type=content_info["type"],
+                search_query=content_info["search_query"],
+                seo_title=seo["title"],
+                critique_score=critique_result["compound_score"] if critique_result else None,
+                critique_grade=critique_result["grade"] if critique_result else None,
+            )
+            print(f"  Registered for performance tracking: {video_id}", flush=True)
+            log_result("performance_register", "success", {"video_id": video_id})
+        except Exception as e:
+            print(f"  [SKIP] Performance register error: {e}", flush=True)
+            log_result("performance_register", "skipped", {"error": str(e)})
+
+    # ── Step 8: Evolution — self-improvement cycle ────────
+    print(f"\n>>> Step 8/9: Running evolution cycle...")
+    evolution_result = None
+    try:
+        from modules.evolution_engine import evolve
+        evolution_result = evolve()
+        log_result("evolution", "success", {
+            "generation": evolution_result.get("generation", 0),
+            "evolved": evolution_result.get("evolved", False),
+            "trends": evolution_result.get("trends", {}),
+        })
+        if evolution_result.get("evolved"):
+            print(f"  Parameters evolved to generation {evolution_result['generation']}", flush=True)
+    except Exception as e:
+        print(f"  [SKIP] Evolution error: {e}", flush=True)
+        log_result("evolution", "skipped", {"error": str(e)})
+
+    # ── Step 9: Space Cleanup ─────────────────────────────
+    print(f"\n>>> Step 9/9: Cleaning up source files...")
     source_paths = [download_result["path"]]
     space_info = full_cleanup(source_paths)
 
@@ -196,6 +271,10 @@ def run_pipeline(force_type=None, force_query=None):
     print(f"  Source: {download_result['title']}")
     if video_url:
         print(f"  Uploaded: {video_url}")
+    if critique_result:
+        print(f"  Critique: {critique_result['compound_score']}/100 ({critique_result['grade']})")
+    if evolution_result:
+        print(f"  Evolution gen: {evolution_result.get('generation', 'N/A')}")
     print(f"  Space: {space_info.get('size_mb', 0):.1f} MB used")
     print(f"{'='*60}\n")
 
@@ -208,6 +287,9 @@ def run_pipeline(force_type=None, force_query=None):
         "seo_title": seo["title"],
         "video_id": video_id,
         "video_url": video_url,
+        "critique_score": critique_result["compound_score"] if critique_result else None,
+        "critique_grade": critique_result["grade"] if critique_result else None,
+        "evolution_generation": evolution_result.get("generation") if evolution_result else None,
     }
 
 
