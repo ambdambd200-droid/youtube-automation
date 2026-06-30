@@ -79,6 +79,13 @@ jobs:
         run: |
           mkdir -p assets/downloads assets/clips assets/thumbnails/variants assets/logs assets/channel_art
 
+      - name: Verify bgutil POT provider is running
+        run: |
+          echo "Checking bgutil POT provider at http://127.0.0.1:4416..."
+          curl -s -o /dev/null -w "HTTP %{http_code}" http://127.0.0.1:4416 2>&1 || echo "  [WARN] bgutil server not reachable"
+          echo ""
+          yt-dlp --version 2>&1
+
       - name: Run weekly video pipeline (with auto-retry on crash)
         id: weekly
         run: |

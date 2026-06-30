@@ -47,6 +47,9 @@ _PLAYER_CLIENTS = [
     "web",               # POT via bgutil plugin (slowest, last resort)
 ]
 
+# bgutil-ytdlp-pot-provider HTTP server address (Docker container on port 4416)
+_BGUTIL_BASE_URL = "http://127.0.0.1:4416"
+
 
 def _get_random_user_agent():
     """Return a random desktop Chrome User-Agent string."""
@@ -63,9 +66,12 @@ def _get_info_args(player_client=None):
         player_client: Specific YouTube client to use. If None, uses 'android'.
     """
     client = player_client or "android"
+    # Combined extractor-args: player client + bgutil POT provider for bot bypass
+    # bgutil server runs on the default port 4416 at localhost
+    bgutil_base = "http://127.0.0.1:4416"
+    extractor_args = f"youtube:player_client={client}+youtubepot-bgutilhttp:base_url={_BGUTIL_BASE_URL}"
     args = [
-        "--no-warnings",
-        "--extractor-args", f"youtube:player_client={client}",
+        "--extractor-args", extractor_args,
         "--extractor-retries", "3",
         "--user-agent", _get_random_user_agent(),
     ]
@@ -84,9 +90,11 @@ def _get_download_args(player_client=None):
         player_client: Specific YouTube client to use. If None, uses 'android'.
     """
     client = player_client or "android"
+    # Combined extractor-args: player client + bgutil POT provider for bot bypass
+    bgutil_base = "http://127.0.0.1:4416"
+    extractor_args = f"youtube:player_client={client}+youtubepot-bgutilhttp:base_url={_BGUTIL_BASE_URL}"
     args = [
-        "--no-warnings",
-        "--extractor-args", f"youtube:player_client={client}",
+        "--extractor-args", extractor_args,
         "--extractor-retries", "3",
         "--retries", "10",
         "--fragment-retries", "10",
