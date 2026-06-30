@@ -103,7 +103,14 @@ jobs:
 
       - name: Decode YouTube cookies (for yt-dlp bot bypass)
         run: |
-          echo "${{ secrets.YT_COOKIES_B64 }}" | base64 --decode > cookies.txt 2>/dev/null || echo "  [SKIP] YT_COOKIES_B64 not set"
+          echo "${{ secrets.YT_COOKIES_B64 }}" | base64 --decode | tr -d '\r' > cookies.txt
+          if [ $? -ne 0 ] || [ ! -s cookies.txt ]; then
+            echo "  [ERROR] YT_COOKIES_B64 decode failed or produced empty file! Cookies need to be re-exported."
+            ls -la cookies.txt 2>/dev/null || echo "  No cookies.txt found"
+            exit 1
+          fi
+          echo "  [OK] Cookies decoded: $(wc -l < cookies.txt) lines, $(wc -c < cookies.txt) bytes"
+          head -c 200 cookies.txt
 
       - name: Create assets directories
         run: |

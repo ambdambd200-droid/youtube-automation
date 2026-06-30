@@ -32,19 +32,19 @@ _USER_AGENTS = [
 
 # Ordered list of player clients to try.
 # Priority order:
-#   1. android_vr — No PO token needed — works reliably in CI without bgutil
-#   2. android    — Works with bgutil-ytdlp-pot-provider for automatic PO token gen; broad format support
+#   1. web        — Works best with cookies; cookies-based auth most effective
+#   2. android    — POT via bgutil plugin; broad format support
 #   3. ios        — Alternative mobile client with POT support (bgutil plugin)
-#   4. web        — POT via bgutil plugin (slowest, last resort)
+#   4. android_vr — No PO token needed, but often blocked first (last resort)
 #
 # The bgutil-ytdlp-pot-provider plugin auto-generates Proof-of-Origin tokens for
-# android, ios, and web clients. android_vr is tried first because it doesn't
-# require a PO token, avoiding unnecessary failures in CI environments.
+# android, ios, and web clients. web is tried first because it works best with
+# cookie-based authentication from --cookies.
 _PLAYER_CLIENTS = [
-    "android_vr",        # No PO token needed — works in CI without bgutil
+    "web",               # Best with cookies — tries cookie auth first
     "android",           # POT via bgutil plugin
     "ios",               # POT via bgutil plugin
-    "web",               # POT via bgutil plugin (slowest, last resort)
+    "android_vr",        # No PO token needed, last resort
 ]
 
 # bgutil-ytdlp-pot-provider HTTP server address (Docker container on port 4416)
@@ -56,6 +56,19 @@ def _get_random_user_agent():
     return random.choice(_USER_AGENTS)
 
 
+def _log_cookie_status():
+    """Log whether cookies file is available and its size for debugging."""
+    if not YT_COOKIES_FILE:
+        print("  [downloader] No YT_COOKIES_FILE configured", flush=True)
+    elif not os.path.isfile(YT_COOKIES_FILE):
+        print(f"  [downloader] YT_COOKIES_FILE not found: {YT_COOKIES_FILE}", flush=True)
+    else:
+        size = os.path.getsize(YT_COOKIES_FILE)
+        print(f"  [downloader] Cookies file found: {size} bytes", flush=True)
+        if size < 50:
+            print(f"  [downloader] WARNING: Cookies file too small ({size} bytes) — likely empty/invalid", flush=True)
+
+
 def _get_info_args(player_client=None):
     """Return yt-dlp arguments for fast info-only operations (search, metadata).
 
@@ -65,6 +78,7 @@ def _get_info_args(player_client=None):
     Args:
         player_client: Specific YouTube client to use. If None, uses 'android'.
     """
+    _log_cookie_status()
     client = player_client or "android"
     # Combined extractor-args: player client + bgutil POT provider for bot bypass
     # bgutil server runs on the default port 4416 at localhost
