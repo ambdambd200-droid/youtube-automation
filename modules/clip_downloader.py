@@ -32,18 +32,18 @@ _USER_AGENTS = [
 
 # Ordered list of player clients to try.
 # Priority order:
-#   1. android    — Works with bgutil-ytdlp-pot-provider for automatic PO token gen; broad format support
-#   2. ios        — Alternative mobile client with POT support (bgutil plugin)
-#   3. web        — Last resort fallback with POT support
-#   4. android_vr — Previously worked without PO tokens (YouTube may have closed this loophole)
+#   1. android_vr — No PO token needed — works reliably in CI without bgutil
+#   2. android    — Works with bgutil-ytdlp-pot-provider for automatic PO token gen; broad format support
+#   3. ios        — Alternative mobile client with POT support (bgutil plugin)
+#   4. web        — POT via bgutil plugin (slowest, last resort)
 #
 # The bgutil-ytdlp-pot-provider plugin auto-generates Proof-of-Origin tokens for
-# android, ios, and web clients. When a client gets bot-blocked, we fall through
-# to the next one in the list.
+# android, ios, and web clients. android_vr is tried first because it doesn't
+# require a PO token, avoiding unnecessary failures in CI environments.
 _PLAYER_CLIENTS = [
+    "android_vr",        # No PO token needed — works in CI without bgutil
     "android",           # POT via bgutil plugin
     "ios",               # POT via bgutil plugin
-    "android_vr",        # May work without PO token in some regions
     "web",               # POT via bgutil plugin (slowest, last resort)
 ]
 

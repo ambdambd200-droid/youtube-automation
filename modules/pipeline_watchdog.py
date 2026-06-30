@@ -597,7 +597,7 @@ if __name__ == "__main__":
         pruned, remaining = prune_old_state(state, days=args.prune)
         _save_state(state)
         print(f"Pruned {pruned} old entries. {remaining} entries remaining.")
-        return
+        sys.exit(0)
 
     if args.notify:
         count = notify_exhausted_retries()
@@ -605,7 +605,7 @@ if __name__ == "__main__":
             print("No exhausted retries found. No alert sent.")
         else:
             print(f"Alert sent for {count} exhausted run(s).")
-        return
+        sys.exit(0)
 
     if args.status:
         summary = get_runs_summary()
