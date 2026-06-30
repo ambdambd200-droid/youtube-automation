@@ -41,6 +41,10 @@ jobs:
         run: |
           pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp bgutil-ytdlp-pot-provider
 
+      - name: Check Python syntax
+        run: |
+          python -m compileall . -q
+
       - name: Debug secrets
         run: |
           echo "YOUTUBE_CLIENT_ID set: ${{ secrets.YOUTUBE_CLIENT_ID != '' }}"
