@@ -430,6 +430,69 @@ def performance_videos():
         return jsonify({"error": str(ex)}), 500
 
 
+# ── Pipeline Watchdog Endpoints ────────────────────────────
+
+
+@app.route("/pipeline-health", methods=["GET"])
+def pipeline_health():
+    """Get the pipeline watchdog health summary.
+
+    Returns total runs, completed/failed/running counts,
+    recent failures, recovery retries, and recent activity.
+    """
+    try:
+        from modules.pipeline_watchdog import get_runs_summary
+        summary = get_runs_summary()
+        return jsonify(summary)
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
+@app.route("/pipeline-prune", methods=["POST"])
+def pipeline_prune():
+    """Prune old pipeline state entries.
+
+    Optional JSON body:
+      - days: entries older than this many days are pruned (default: 7)
+
+    Returns:
+      - pruned: number of entries removed
+      - remaining: number of entries left
+    """
+    try:
+        from modules.pipeline_watchdog import load_state, save_state, prune_old_state
+        data = request.get_json() or {}
+        days = data.get("days")
+        state = load_state()
+        pruned, remaining = prune_old_state(state, days=days)
+        save_state(state)
+        return jsonify({
+            "status": "pruned",
+            "pruned": pruned,
+            "remaining": remaining,
+        })
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
+# ── Dashboard Endpoint ─────────────────────────────────────
+
+
+@app.route("/dashboard", methods=["GET"])
+def dashboard():
+    """Return the full performance dashboard data as JSON.
+
+    Includes critique comparison (daily vs weekly), real YouTube metrics,
+    grade distribution, upload timeline, top performers, and evolution status.
+    """
+    try:
+        from run_performance_dashboard import build_dashboard_data
+        data = build_dashboard_data()
+        return jsonify(data)
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("API_PORT", 5001))
     print(f"Starting VARY API on port {port}...")

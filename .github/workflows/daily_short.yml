@@ -96,10 +96,6 @@ jobs:
         run: |
           echo "${{ secrets.YT_COOKIES_B64 }}" | base64 --decode > cookies.txt 2>/dev/null || echo "  [SKIP] YT_COOKIES_B64 not set"
 
-      - name: Start bgutil POT provider server (for yt-dlp bot bypass)
-        run: |
-          docker run --name bgutil-provider -d --init brainicism/bgutil-ytdlp-pot-provider 2>/dev/null && { sleep 3; echo "  bgutil POT provider started on port 4416"; } || echo "  [SKIP] bgutil provider not available — android_vr fallback will handle it"
-
       - name: Create assets directories
         run: |
           mkdir -p assets/downloads assets/clips assets/thumbnails/variants assets/logs assets/channel_art

@@ -200,8 +200,196 @@ def generate_thumbnails(video_path, title, content_type):
     return None
 
 
+# ── Landscape (16:9) Thumbnails for Weekly Videos ──────────
+
+LANDSCAPE_THUMB_WIDTH = 1280
+LANDSCAPE_THUMB_HEIGHT = 720
+
+
+def extract_landscape_frame(video_path, output_path, at_time=None):
+    """Extract a 16:9 frame from a landscape video for thumbnails."""
+    if at_time is None:
+        try:
+            duration_cmd = [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                video_path,
+            ]
+            result = subprocess.run(duration_cmd, capture_output=True, text=True, timeout=15)
+            duration = float(result.stdout.strip())
+            at_time = random.uniform(duration * 0.25, duration * 0.65)
+        except (ValueError, subprocess.TimeoutExpired):
+            at_time = 5.0
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", str(at_time),
+        "-i", video_path,
+        "-vframes", "1",
+        "-q:v", "2",
+        "-vf", f"scale={LANDSCAPE_THUMB_WIDTH}:{LANDSCAPE_THUMB_HEIGHT}:force_original_aspect_ratio=1,"
+                f"pad={LANDSCAPE_THUMB_WIDTH}:{LANDSCAPE_THUMB_HEIGHT}:(ow-iw)/2:(oh-ih)/2",
+        output_path,
+    ]
+
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=30)
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+            return output_path
+    except Exception:
+        pass
+    return None
+
+
+def create_landscape_thumbnail_v1(frame_path, output_path, movie_name):
+    """Landscape v1: Centered title over dark backdrop with film strip accent."""
+    if not os.path.exists(frame_path):
+        return None
+
+    font_path = get_font_path()
+    safe_text = movie_name[:50].replace("'", "\\'").replace(":", "\\:")
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", frame_path,
+        "-vf",
+        f"drawbox=x=0:y=h-100:w=iw:h=100:color=black@0.6:t=fill,"
+        f"drawtext=text='{safe_text}':fontcolor=white:fontsize=48:"
+        f"x=(w-text_w)/2:y=h-th+15:fontfile='{font_path}',"
+        f"drawtext=text='VARY Weekly':fontcolor=gold:fontsize=28:"
+        f"x=(w-text_w)/2:y=20:box=1:boxcolor=black@0.5:boxborderw=10:"
+        f"fontfile='{font_path}'",
+        "-q:v", "2",
+        output_path,
+    ]
+
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=30)
+        if os.path.exists(output_path):
+            return output_path
+    except Exception:
+        pass
+    return None
+
+
+def create_landscape_thumbnail_v2(frame_path, output_path, movie_name):
+    """Landscape v2: Left-aligned title with film strip icon on right."""
+    if not os.path.exists(frame_path):
+        return None
+
+    font_path = get_font_path()
+    safe_text = movie_name[:40].replace("'", "\\'").replace(":", "\\:")
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", frame_path,
+        "-vf",
+        f"drawtext=text='🎬':fontcolor=white:fontsize=72:"
+        f"x=(w-tw-40):y=(h-th)/2-60:fontfile='{font_path}',"
+        f"drawtext=text='{safe_text}':fontcolor=white:fontsize=42:"
+        f"x=40:y=(h-text_h)/2-50:box=1:boxcolor=black@0.5:boxborderw=14:"
+        f"fontfile='{font_path}',"
+        f"drawtext=text='Story Analysis':fontcolor=gold@0.8:fontsize=28:"
+        f"x=40:y=(h+text_h)/2-30:fontfile='{font_path}'",
+        "-q:v", "2",
+        output_path,
+    ]
+
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=30)
+        if os.path.exists(output_path):
+            return output_path
+    except Exception:
+        pass
+    return None
+
+
+def create_landscape_thumbnail_v3(frame_path, output_path, movie_name):
+    """Landscape v3: Minimal — semi-transparent bottom bar, clean text."""
+    if not os.path.exists(frame_path):
+        return None
+
+    font_path = get_font_path()
+    safe_text = movie_name[:50].replace("'", "\\'").replace(":", "\\:")
+
+    # Subtle top and bottom bars + centered text
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", frame_path,
+        "-vf",
+        f"drawbox=x=0:y=0:w=iw:h=80:color=black@0.4:t=fill,"
+        f"drawbox=x=0:y=h-90:w=iw:h=90:color=black@0.4:t=fill,"
+        f"drawtext=text='{safe_text}':fontcolor=white:fontsize=44:"
+        f"x=(w-text_w)/2:y=h-70:fontfile='{font_path}',"
+        f"drawtext=text='VARY':fontcolor=white@0.8:fontsize=30:"
+        f"x=20:y=25:fontfile='{font_path}'",
+        "-q:v", "2",
+        output_path,
+    ]
+
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=30)
+        if os.path.exists(output_path):
+            return output_path
+    except Exception:
+        pass
+    return None
+
+
+def generate_weekly_thumbnails(video_path, movie_name):
+    """Generate 3 landscape thumbnail variants for weekly videos.
+
+    Args:
+        video_path: Path to the processed weekly video.
+        movie_name: Name of the movie for text overlays.
+
+    Returns:
+        Dict with 3 thumbnail paths, or None.
+    """
+    os.makedirs(THUMBNAILS_DIR, exist_ok=True)
+    os.makedirs(THUMBNAILS_VARIANTS_DIR, exist_ok=True)
+
+    import uuid
+    frame_id = uuid.uuid4().hex[:8]
+    frame_path = os.path.join(THUMBNAILS_DIR, f"weekly_frame_{frame_id}.jpg")
+
+    if not extract_landscape_frame(video_path, frame_path):
+        print("  [thumbnail] Failed to extract landscape frame", flush=True)
+        return None
+
+    variants = {}
+
+    v1_path = os.path.join(THUMBNAILS_VARIANTS_DIR, f"weekly_thumb_{frame_id}_v1.jpg")
+    if create_landscape_thumbnail_v1(frame_path, v1_path, movie_name):
+        variants["v1"] = v1_path
+
+    v2_path = os.path.join(THUMBNAILS_VARIANTS_DIR, f"weekly_thumb_{frame_id}_v2.jpg")
+    if create_landscape_thumbnail_v2(frame_path, v2_path, movie_name):
+        variants["v2"] = v2_path
+
+    v3_path = os.path.join(THUMBNAILS_VARIANTS_DIR, f"weekly_thumb_{frame_id}_v3.jpg")
+    if create_landscape_thumbnail_v3(frame_path, v3_path, movie_name):
+        variants["v3"] = v3_path
+
+    try:
+        os.remove(frame_path)
+    except Exception:
+        pass
+
+    if variants:
+        print(f"  [thumbnail] Generated {len(variants)} landscape variants: {list(variants.keys())}", flush=True)
+        return variants
+
+    return None
+
+
 if __name__ == "__main__":
     # Test
     if len(sys.argv) > 1:
-        result = generate_thumbnails(sys.argv[1], "Test Clip", "movie")
+        import sys
+        if len(sys.argv) >= 3 and sys.argv[1] == "--weekly":
+            result = generate_weekly_thumbnails(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "Movie")
+        else:
+            result = generate_thumbnails(sys.argv[1], "Test Clip", "movie")
         print(json.dumps(result, indent=2, default=str) if result else "Failed")

@@ -7,11 +7,12 @@ import os
 import subprocess
 import sys
 import random
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (
     SHORTS_WIDTH, SHORTS_HEIGHT, FPS,
-    CLIPS_DIR, CLIP_MAX_DURATION, CLIP_MIN_DURATION,
+    CLIPS_DIR, CLIP_MAX_DURATION, CLIP_MIN_DURATION, LOG_DIR,
 )
 from modules.utils import get_font_path
 
@@ -34,13 +35,65 @@ def get_video_info(video_path):
     return {}
 
 
+def fallback_duration(video_path):
+    """Get video duration using a simple ffprobe command as fallback.
+
+    Sometimes ffprobe's JSON output fails to include duration (e.g. with
+    certain container formats). This tries a direct text format query.
+    """
+    try:
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            video_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        if result.returncode == 0:
+            val = result.stdout.strip()
+            if val:
+                return float(val)
+    except (ValueError, subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    return 0
+
+
 def get_video_duration(video_path):
-    """Get video duration in seconds."""
+    """Get video duration in seconds.
+
+    Tries JSON ffprobe first, then falls back to text-based ffprobe
+    for container formats that don't report duration in JSON.
+    """
     info = get_video_info(video_path)
     try:
-        return float(info.get("format", {}).get("duration", 0))
+        dur = float(info.get("format", {}).get("duration", 0))
+        if dur > 0:
+            return dur
     except (ValueError, TypeError):
-        return 0
+        pass
+
+    # Fallback: try text-based ffprobe (handles WebM/Opus better)
+    fb = fallback_duration(video_path)
+    if fb > 0:
+        return fb
+
+    # Last resort: try ffprobe with stream-level duration query
+    try:
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            video_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        val = result.stdout.strip()
+        if val:
+            return float(val)
+    except Exception:
+        pass
+
+    return 0
 
 
 def get_video_dimensions(video_path):
@@ -185,6 +238,7 @@ def crop_to_shorts(input_path, output_path, start_time=0, duration=None):
 
     target_ratio = SHORTS_WIDTH / SHORTS_HEIGHT  # 1080/1920 = 0.5625
 
+    # Build the video filter chain (without output label)
     if in_w > in_h:
         # Landscape video
         # Crop height = 100%, width = height * 0.5625
@@ -198,34 +252,29 @@ def crop_to_shorts(input_path, output_path, start_time=0, duration=None):
         x = (in_w - crop_width) // 2
         y = 0
 
-        filter_complex = (
+        video_chain = (
             f"[0:v]trim=start={start_time}:duration={duration},setpts=PTS-STARTPTS,"
             f"crop={crop_width}:{crop_height}:{x}:{y},"
-            f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=0[vout];"
-            f"[0:a]atrim=start={start_time}:duration={duration},asetpts=PTS-STARTPTS[aout]"
+            f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=0"
         )
     else:
         # Portrait or square video
-        filter_complex = (
+        video_chain = (
             f"[0:v]trim=start={start_time}:duration={duration},setpts=PTS-STARTPTS,"
             f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=1,"
-            f"pad={SHORTS_WIDTH}:{SHORTS_HEIGHT}:(ow-iw)/2:(oh-ih)/2[vout];"
-            f"[0:a]atrim=start={start_time}:duration={duration},asetpts=PTS-STARTPTS[aout]"
+            f"pad={SHORTS_WIDTH}:{SHORTS_HEIGHT}:(ow-iw)/2:(oh-ih)/2"
         )
 
-    # Add subtle text overlay with the content type label
-    text_overlay = ""
-    if random.random() < 0.3:  # 30% of videos get a title overlay
-        font_path = get_font_path()
-        text_overlay = (
-            f",drawtext=text='VARY':fontcolor=white:fontsize=36:"
-            f"x=w-tw-20:y=h-th-20:box=1:boxcolor=black@0.4:boxborderw=8:fontfile='{font_path}'"
-        )
+    # Assemble full filtergraph: video chain + audio chain, each with its own output label
+    filter_complex = (
+        f"{video_chain}[vout];"
+        f"[0:a]atrim=start={start_time}:duration={duration},asetpts=PTS-STARTPTS[aout]"
+    )
 
     cmd = [
         "ffmpeg", "-y",
         "-i", input_path,
-        "-filter_complex", filter_complex + text_overlay,
+        "-filter_complex", filter_complex,
         "-map", "[vout]",
         "-map", "[aout]",
         "-c:v", "libx264",
@@ -242,9 +291,14 @@ def crop_to_shorts(input_path, output_path, start_time=0, duration=None):
     ]
 
     try:
-        subprocess.run(cmd, capture_output=True, timeout=300)
+        result = subprocess.run(cmd, capture_output=True, timeout=300)
         if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
             actual_dur = get_video_duration(output_path)
+            # If ffprobe returns 0, use calculated duration as fallback
+            if actual_dur <= 0:
+                actual_dur = fallback_duration(output_path)
+            if actual_dur <= 0:
+                actual_dur = duration  # fallback: use the requested trim duration
             print(f"  [editor] Created Short: {output_path} ({actual_dur:.1f}s, {os.path.getsize(output_path)} bytes)", flush=True)
             return {
                 "path": output_path,
@@ -252,11 +306,130 @@ def crop_to_shorts(input_path, output_path, start_time=0, duration=None):
                 "trim_start": start_time,
                 "trim_end": start_time + duration,
             }
+        else:
+            # File too small or doesn't exist — print ffmpeg stderr for debugging
+            if result.returncode != 0:
+                print(f"  [editor] FFmpeg error: {result.stderr[-500:]}", flush=True)
+            else:
+                print(f"  [editor] Output file missing or too small: {output_path}", flush=True)
     except subprocess.TimeoutExpired:
         print("  [editor] FFmpeg timed out", flush=True)
     except Exception as e:
         print(f"  [editor] Error: {e}", flush=True)
 
+    return None
+
+
+def append_movie_end_card(video_path, output_path, movie_title=""):
+    """Append a 3-second end card to a movie short suggesting viewers watch the original film.
+
+    Generates a black frame with centered text ("Watch the original movie"),
+    then concatenates it to the end of the existing clip using ffmpeg.
+
+    Args:
+        video_path: Path to the existing processed Short.
+        output_path: Output path for the final video with end card appended.
+        movie_title: Optional source movie title shown on the end card.
+
+    Returns:
+        output_path on success, None on failure.
+    """
+    if not os.path.exists(video_path):
+        return None
+
+    import uuid
+    endcard_id = uuid.uuid4().hex[:8]
+    endcard_path = os.path.join(CLIPS_DIR, f"_endcard_{endcard_id}.mp4")
+    font_path = get_font_path()
+
+    # Build the end card text — primary message + optional movie title
+    # Escape special chars for ffmpeg drawtext compatibility
+    primary_text = "Watch the original movie"
+    subtitle_text = ""
+    if movie_title:
+        short_title = movie_title[:45].replace("'", "\\'").replace(":", "\\:")
+        subtitle_text = short_title
+
+    # Generate the 3-second black end card with text overlay
+    # Note: color source is video-only; anullsrc provides silent audio
+    # so the concat filter can pair both streams
+    drawtext_filters = (
+        f"drawtext=text='{primary_text}':fontcolor=white:fontsize=48:"
+        f"x=(w-text_w)/2:y=(h-text_h)/2-40:fontfile='{font_path}'"
+    )
+    if subtitle_text:
+        drawtext_filters += (
+            f",drawtext=text='{subtitle_text}':fontcolor=white@0.7:fontsize=32:"
+            f"x=(w-text_w)/2:y=(h-text_h)/2+30:fontfile='{font_path}'"
+        )
+
+    cmd_endcard = [
+        "ffmpeg", "-y",
+        "-f", "lavfi", "-i", f"color=c=black:s={SHORTS_WIDTH}x{SHORTS_HEIGHT}:d=3",
+        "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
+        "-shortest",
+        "-vf", drawtext_filters,
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", "23",
+        "-c:a", "aac",
+        "-b:a", "64k",
+        "-pix_fmt", "yuv420p",
+        "-profile:v", "high",
+        "-level", "4.1",
+        endcard_path,
+    ]
+
+    print(f"  [editor] Generating end card...", flush=True)
+    try:
+        subprocess.run(cmd_endcard, capture_output=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        print(f"  [editor] End card generation timed out", flush=True)
+        return None
+
+    if not os.path.exists(endcard_path) or os.path.getsize(endcard_path) < 1000:
+        print(f"  [editor] End card generation failed", flush=True)
+        return None
+
+    # Concatenate the main clip with the end card
+    print(f"  [editor] Appending end card to movie short...", flush=True)
+    cmd_concat = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-i", endcard_path,
+        "-filter_complex", "[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[vout][aout]",
+        "-map", "[vout]",
+        "-map", "[aout]",
+        "-c:v", "libx264",
+        "-preset", "medium",
+        "-crf", "23",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-pix_fmt", "yuv420p",
+        "-r", str(FPS),
+        "-movflags", "+faststart",
+        "-profile:v", "high",
+        "-level", "4.1",
+        output_path,
+    ]
+
+    try:
+        subprocess.run(cmd_concat, capture_output=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        print(f"  [editor] End card concat timed out", flush=True)
+        return None
+
+    # Clean up the temporary end card
+    try:
+        os.remove(endcard_path)
+    except Exception:
+        pass
+
+    if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
+        print(f"  [editor] End card appended: {output_path} ({os.path.getsize(output_path)} bytes)", flush=True)
+        return output_path
+
+    print(f"  [editor] End card concat produced invalid output", flush=True)
     return None
 
 
@@ -387,8 +560,536 @@ def create_clip(input_path, content_type, title=""):
         result["content_type"] = content_type
         result["source_title"] = title
         result["source_path"] = input_path
+
+        # Append end card for movie shorts (hint to watch the original film)
+        if content_type == "movie":
+            # Save original duration before overwriting
+            orig_duration = result.get("duration", 0)
+            endcard_output = output_path.replace(".mp4", "_final.mp4")
+            endcard_result = append_movie_end_card(
+                result["path"],
+                endcard_output,
+                movie_title=title,
+            )
+            if endcard_result:
+                # Remove the non-endcard version, replace with final
+                try:
+                    os.remove(result["path"])
+                except Exception:
+                    pass
+                result["path"] = endcard_result
+                new_duration = get_video_duration(endcard_result)
+                if new_duration > 0:
+                    result["duration"] = new_duration
+                else:
+                    result["duration"] = orig_duration + 3
+            else:
+                print(f"  [editor] End card skipped (non-critical)", flush=True)
+
         return result
 
+    return None
+
+
+# ── Weekly Video Pipeline ─────────────────────────────────
+
+WEEKLY_SEGMENT_DURATION = 20  # seconds per text segment
+WEEKLY_MAX_DURATION = 480      # 8 minutes max for weekly videos
+WEEKLY_MIN_DURATION = 90       # 1.5 minutes minimum
+
+WEEKLY_STORY_TEMPLATES = [
+    "A story of [theme].",
+    "This film explores [theme].",
+    "At its heart, this is a story about [theme].",
+    "What makes this film unforgettable is [theme].",
+    "The director crafts a tale of [theme].",
+]
+
+WEEKLY_THEMES = [
+    "ambition and its cost",
+    "love and loss",
+    "redemption",
+    "the human condition",
+    "sacrifice",
+    "identity",
+    "hope against all odds",
+    "the nature of truth",
+    "family and belonging",
+    "courage in darkness",
+]
+
+
+def _generate_story_texts(source_title=""):
+    """Generate storytelling text segments for the weekly video.
+
+    Creates a series of text overlays that tell the movie's story,
+    shown sequentially throughout the video.
+
+    Returns:
+        List of (text, start_time_ratio) tuples, where start_time_ratio
+        is 0.0 to 1.0 representing position in the video.
+    """
+    # Use the shared extraction helper to get the clean movie name
+    movie_name = _extract_movie_name(source_title)
+
+    theme = random.choice(WEEKLY_THEMES)
+    template = random.choice(WEEKLY_STORY_TEMPLATES)
+    opening = template.replace("[theme]", theme)
+
+    texts = [
+        (f"{movie_name}", 0.02),
+        (opening, 0.10),
+        (f"A cinematic journey through {theme}.", 0.25),
+        ("Every frame tells a story.", 0.40),
+        ("Silence speaks louder than words.", 0.55),
+        ("The director's vision unfolds.", 0.70),
+        ("This is why cinema matters.", 0.85),
+    ]
+    return texts
+
+
+# ── Weekly Video Intro Card ───────────────────────────────
+
+WEEKLY_INTRO_DURATION = 3.0  # seconds (all styles share this)
+WEEKLY_INTRO_CROSSFADE = 0.5  # seconds of smooth crossfade between intro and main content
+
+# Available intro animation styles — rotated each week for variety
+WEEKLY_INTRO_STYLES = ["cinematic", "split", "minimal"]
+
+
+def select_intro_style():
+    """Select an intro animation style for the weekly video.
+
+    Uses weighted random choice to ensure variety while avoiding
+    long streaks of the same style.
+
+    Returns:
+        A style name string from WEEKLY_INTRO_STYLES.
+    """
+    # Simple random selection with slight anti-repetition bias
+    # Tracks the last-used style via a small state file in LOG_DIR (never cleaned)
+    state_path = os.path.join(LOG_DIR, "_intro_style_state.json")
+    last_style = None
+    try:
+        if os.path.exists(state_path):
+            with open(state_path, "r") as f:
+                state = json.load(f)
+                last_style = state.get("last_style")
+    except Exception:
+        pass
+
+    # Weight: 40% chance of repeating last style, 60% chance of switching
+    if last_style and random.random() < 0.6:
+        choices = [s for s in WEEKLY_INTRO_STYLES if s != last_style]
+        chosen = random.choice(choices)
+    else:
+        chosen = random.choice(WEEKLY_INTRO_STYLES)
+
+    # Save chosen style for next run
+    try:
+        with open(state_path, "w") as f:
+            json.dump({"last_style": chosen, "updated": datetime.now().isoformat()}, f)
+    except Exception:
+        pass
+
+    return chosen
+
+
+def generate_weekly_intro(target_width, target_height, source_title=""):
+    """Generate an animated intro card for weekly videos.
+
+    Rotates between multiple animation styles each week for variety.
+    Currently available styles:
+      - cinematic: Deep blue, fading text, gold accents, movie name
+      - split: Two-tone background, VARY/WEEKLY on each side, gold divider
+      - minimal: Almost-black, scale-up VARY, understated underline
+
+    Returns:
+        Path to the generated intro MP4, or None on failure.
+    """
+    style = select_intro_style()
+    print(f"  [editor] Weekly intro style: {style}", flush=True)
+
+    style_map = {
+        "cinematic": _generate_intro_cinematic,
+        "split": _generate_intro_split,
+        "minimal": _generate_intro_minimal,
+    }
+
+    func = style_map.get(style, _generate_intro_cinematic)
+    return func(target_width, target_height, source_title)
+
+
+def _extract_movie_name(source_title):
+    """Extract the clean movie name from a YouTube video title."""
+    name = source_title
+    for prefix in ["Why ", "The Story of ", "Understanding ", "Analysis of ",
+                    "The Genius of ", "How ", "What Makes ", "The Art of "]:
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+            break
+    for suffix in [" is a masterpiece", " is brilliant", " works", " changed cinema",
+                    " — A Film Analysis", " explained"]:
+        if suffix in name:
+            name = name[:name.index(suffix)]
+            break
+    # Remove parenthetical notes and trailing punctuation
+    for sep in ["(", "[", " - ", " — ", " | "]:
+        if sep in name:
+            name = name[:name.index(sep)]
+    name = name.strip().strip(":;-,")
+    return name[:40] if name else ""
+
+
+def _generate_intro_cinematic(target_width, target_height, source_title=""):
+    """Style 1: Cinematic — deep blue background, fading VARY text,
+    gold WEEKLY subtitle, horizontal accent line, movie name at bottom.
+
+    The original intro style. Classic, elegant, brand-forward.
+    """
+    import uuid
+    intro_id = uuid.uuid4().hex[:8]
+    intro_path = os.path.join(CLIPS_DIR, f"_intro_{intro_id}.mp4")
+    font_path = get_font_path()
+    d = WEEKLY_INTRO_DURATION
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "lavfi", "-i", f"color=c=0x0A0E28:s={target_width}x{target_height}:d={d}",
+        "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
+        "-filter_complex", (
+            "[0:v]format=yuv420p[base];"
+            f"[base]drawbox=x='iw/2-100':y='ih/2-100':w=200:h=200:color=white@0.03:t=fill[base1];"
+            f"[base1]drawbox=x='(iw-300)/2':y='ih/2-25':"
+            f"w='if(gte(t,0.8),300,1)':h=2:color=gold@0.6:t=fill[base2];"
+            f"[base2]drawtext=text='VARY':fontcolor=white:"
+            f"alpha='if(lt(t,0.3),0,if(lt(t,1.0),(t-0.3)/0.7,1))':"
+            f"fontsize=80:x=(w-text_w)/2:y=(h-text_h)/2-60:fontfile='{font_path}'[base3];"
+            f"[base3]drawtext=text='WEEKLY':fontcolor=gold:"
+            f"alpha='if(lt(t,1.2),0,if(lt(t,1.8),(t-1.2)/0.6,0.9))':"
+            f"fontsize=44:x=(w-text_w)/2:y=(h+text_h)/2-40:fontfile='{font_path}'[base4];"
+            f"[base4]"
+        ) + (
+            f"drawtext=text='{_extract_movie_name(source_title)}':fontcolor=white:"
+            f"alpha='if(lt(t,2.0),0,if(lt(t,2.5),(t-2.0)/0.5,0.6))':"
+            f"fontsize=28:x=(w-text_w)/2:y=h-80:fontfile='{font_path}'[vout]"
+            if source_title else f"[vout]"
+        ),
+        "-map", "[vout]", "-map", "1:a",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-c:a", "aac", "-b:a", "64k",
+        "-pix_fmt", "yuv420p", "-r", str(FPS),
+        "-profile:v", "high", "-level", "4.1",
+        intro_path,
+    ]
+
+    print(f"  [editor] Generating cinematic intro...", flush=True)
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        print(f"  [editor] Intro generation timed out", flush=True)
+        return None
+    except Exception as e:
+        print(f"  [editor] Intro generation error: {e}", flush=True)
+        return None
+
+    if os.path.exists(intro_path) and os.path.getsize(intro_path) > 5000:
+        print(f"  [editor] Cinematic intro: {intro_path}", flush=True)
+        return intro_path
+    return None
+
+
+def _generate_intro_split(target_width, target_height, source_title=""):
+    """Style 2: Split Frame — two-tone background (navy + teal),
+    VARY on the left in white, WEEKLY on the right in gold,
+    with an animated vertical gold divider.
+    """
+    import uuid
+    intro_id = uuid.uuid4().hex[:8]
+    intro_path = os.path.join(CLIPS_DIR, f"_intro_{intro_id}.mp4")
+    font_path = get_font_path()
+    d = WEEKLY_INTRO_DURATION
+    hw = target_width // 2
+
+    cmd = [
+        "ffmpeg", "-y",
+        # Base: dark navy (left half)
+        "-f", "lavfi", "-i", f"color=c=0x0A1628:s={target_width}x{target_height}:d={d}",
+        "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
+        "-filter_complex", (
+            "[0:v]format=yuv420p[base];"
+            # Right half overlay (dark teal)
+            f"[base]drawbox=x={hw}:y=0:w={hw}:h=ih:color=0x0F2A3F:t=fill[split_bg];"
+            # Vertical divider line at center — draws from 0.2s to 0.7s
+            f"[split_bg]drawbox=x={hw - 1}:y=0:"
+            f"w=2:h='if(lt(t,0.2),1,if(lt(t,0.7),ih*(t-0.2)/0.5,ih))':color=gold@0.7:t=fill[center_line];"
+            # VARY on the left side — fades in from 0.3s
+            f"[center_line]drawtext=text='VARY':fontcolor=white:"
+            f"alpha='if(lt(t,0.3),0,if(lt(t,0.8),(t-0.3)/0.5,1))':"
+            f"fontsize=72:x=80:y=(h-text_h)/2:fontfile='{font_path}'[left_text];"
+            # WEEKLY on the right side — fades in from 0.8s
+            f"[left_text]drawtext=text='WEEKLY':fontcolor=gold:"
+            f"alpha='if(lt(t,0.8),0,if(lt(t,1.3),(t-0.8)/0.5,0.9))':"
+            f"fontsize=42:x={hw + 60}:y=(h-text_h)/2:fontfile='{font_path}'[right_text];"
+            f"[right_text]"
+        ) + (
+            # Movie name at bottom center
+            f"drawtext=text='{_extract_movie_name(source_title)}':fontcolor=white@0.55:"
+            f"alpha='if(lt(t,1.8),0,if(lt(t,2.5),(t-1.8)/0.7,0.55))':"
+            f"fontsize=24:x=(w-text_w)/2:y=h-60:fontfile='{font_path}'[vout]"
+            if source_title else f"[vout]"
+        ),
+        "-map", "[vout]", "-map", "1:a",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-c:a", "aac", "-b:a", "64k",
+        "-pix_fmt", "yuv420p", "-r", str(FPS),
+        "-profile:v", "high", "-level", "4.1",
+        intro_path,
+    ]
+
+    print(f"  [editor] Generating split-frame intro...", flush=True)
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        print(f"  [editor] Split intro timed out", flush=True)
+        return None
+    except Exception as e:
+        print(f"  [editor] Split intro error: {e}", flush=True)
+        return None
+
+    if os.path.exists(intro_path) and os.path.getsize(intro_path) > 5000:
+        print(f"  [editor] Split intro: {intro_path}", flush=True)
+        return intro_path
+    return None
+
+
+def _generate_intro_minimal(target_width, target_height, source_title=""):
+    """Style 3: Minimal — almost-black background, scale-up VARY with
+    underline animation, small WEEKLY text below. Clean and modern.
+    """
+    import uuid
+    intro_id = uuid.uuid4().hex[:8]
+    intro_path = os.path.join(CLIPS_DIR, f"_intro_{intro_id}.mp4")
+    font_path = get_font_path()
+    d = WEEKLY_INTRO_DURATION
+
+    cmd = [
+        "ffmpeg", "-y",
+        # Base: very dark gray (almost black)
+        "-f", "lavfi", "-i", f"color=c=0x080808:s={target_width}x{target_height}:d={d}",
+        "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
+        "-filter_complex", (
+            "[0:v]format=yuv420p[base];"
+            # Subtle vignette via a large drawbox with low opacity
+            f"[base]drawbox=x='(iw-400)/2':y='(ih-200)/2':w=400:h=200:color=white@0.02:t=fill[base1];"
+            # "VARY" with scale-up effect (fontsize grows from 48 to 80) + fade in
+            f"[base1]drawtext=text='VARY':fontcolor=white:"
+            f"alpha='if(lt(t,0.2),0,if(lt(t,0.9),(t-0.2)/0.7,1))':"
+            f"fontsize='if(lt(t,0.8),48+(t/0.8)*32,80)':"
+            f"x=(w-text_w)/2:y=(h-text_h)/2-30:fontfile='{font_path}'[base2];"
+            # Thin gold underline — draws from center from 0.6s to 1.3s
+            f"[base2]drawbox=x='(iw-280)/2':y='ih/2+15':"
+            f"w='if(lt(t,0.6),1,if(lt(t,1.3),280*(t-0.6)/0.7,280))'"
+            f":h=2:color=gold@0.6:t=fill[base3];"
+            # "WEEKLY" small caps — fades in from 1.4s
+            f"[base3]drawtext=text='WEEKLY':fontcolor=gold:"
+            f"alpha='if(lt(t,1.4),0,if(lt(t,2.0),(t-1.4)/0.6,0.8))':"
+            f"fontsize=30:x=(w-text_w)/2:y='ih/2+40':fontfile='{font_path}'[vout]"
+        ),
+        "-map", "[vout]", "-map", "1:a",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-c:a", "aac", "-b:a", "64k",
+        "-pix_fmt", "yuv420p", "-r", str(FPS),
+        "-profile:v", "high", "-level", "4.1",
+        intro_path,
+    ]
+
+    print(f"  [editor] Generating minimal intro...", flush=True)
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        print(f"  [editor] Minimal intro timed out", flush=True)
+        return None
+    except Exception as e:
+        print(f"  [editor] Minimal intro error: {e}", flush=True)
+        return None
+
+    if os.path.exists(intro_path) and os.path.getsize(intro_path) > 5000:
+        print(f"  [editor] Minimal intro: {intro_path}", flush=True)
+        return intro_path
+    return None
+
+
+def create_weekly_video(input_path, output_path, source_title=""):
+    """Create a weekly landscape video with silent text storytelling.
+
+    Prepends an animated 3-second "VARY Weekly" intro card.
+    Keeps the original landscape aspect ratio (no 9:16 crop).
+    Adds timed text overlays at the bottom that tell the movie story.
+    Preserves original audio — no voiceover or spoken words.
+    No watermark or shorts-style branding (outside the intro).
+
+    Args:
+        input_path: Path to downloaded source video
+        output_path: Output path for the weekly video
+        source_title: Title of the source video for context
+
+    Returns:
+        Dict with path, duration on success, or None on failure
+    """
+    if not os.path.exists(input_path):
+        print(f"  [weekly] Input not found: {input_path}", flush=True)
+        return None
+
+    video_duration = get_video_duration(input_path)
+    if video_duration <= 0:
+        video_duration = WEEKLY_MIN_DURATION
+
+    # Use the full video if it's under max duration
+    if video_duration > WEEKLY_MAX_DURATION:
+        print(f"  [weekly] Video too long ({video_duration:.0f}s), truncating to {WEEKLY_MAX_DURATION}s", flush=True)
+        video_duration = WEEKLY_MAX_DURATION
+
+    # Get original dimensions (keep landscape)
+    in_w, in_h = get_video_dimensions(input_path)
+
+    # Get font path
+    font_path = get_font_path()
+
+    # Generate story text segments
+    story_texts = _generate_story_texts(source_title)
+
+    # Determine target dimensions enforcing minimum 720p
+    target_width = min(in_w, 1920)
+    if in_w > 0:
+        # Scale by width first
+        scale_factor = target_width / in_w
+        target_height = int(in_h * scale_factor)
+        # Enforce minimum 720p height — if scaling to 1920w gives <720h,
+        # scale based on height instead to maintain quality
+        if target_height < 720:
+            target_height = 720
+            target_width = int(in_w * (720 / in_h))
+            # Clamp to original width and reasonable max
+            target_width = min(target_width, in_w)
+        # Ensure even dimensions (required by libx264)
+        target_height = target_height if target_height % 2 == 0 else target_height + 1
+        target_width = target_width if target_width % 2 == 0 else target_width + 1
+    else:
+        target_width, target_height = 1280, 720  # Minimum 720p fallback
+
+    # ── Generate animated intro card ─────────────────────
+    intro_path = generate_weekly_intro(target_width, target_height, source_title)
+    has_intro = intro_path is not None
+
+    # ── Process main video ───────────────────────────────
+    # Base video filter: trim and scale (enforce min 720p)
+    video_chain = (
+        f"[0:v]trim=0:{video_duration},setpts=PTS-STARTPTS,"
+        f"scale={target_width}:{target_height}:force_original_aspect_ratio=1,"
+        f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2,format=yuv420p"
+    )
+
+    # Add timed text overlays using drawtext with enable=between(t,start,end)
+    # Each text segment appears for WEEKLY_SEGMENT_DURATION seconds
+    texts_added = 0
+    for text, start_ratio in story_texts:
+        text_start = video_duration * start_ratio
+        text_end = min(text_start + WEEKLY_SEGMENT_DURATION, video_duration)
+
+        if text_end <= text_start:
+            continue
+
+        # Escape special characters for ffmpeg
+        safe_text = text.replace("'", "\\'").replace(":", "\\:").replace("[", "\\[").replace("]", "\\]")
+
+        # Bottom-aligned text overlay with semi-transparent background box
+        video_chain += (
+            f",drawtext=text='{safe_text}':fontcolor=white:fontsize=38:"
+            f"x=(w-text_w)/2:y=h-th-80:"
+            f"box=1:boxcolor=black@0.55:boxborderw=14:"
+            f"fontfile='{font_path}':"
+            f"enable='between(t,{text_start},{text_end})'"
+        )
+        texts_added += 1
+
+    print(f"  [weekly] Added {texts_added} story text overlays", flush=True)
+
+    # Audio chain: trim to match video duration
+    audio_chain = f"[0:a]atrim=0:{video_duration},asetpts=PTS-STARTPTS[aout]"
+
+    # ── Concatenate intro + main video with smooth crossfade ──
+    if has_intro:
+        crossfade_dur = WEEKLY_INTRO_CROSSFADE
+        xfade_offset = WEEKLY_INTRO_DURATION - crossfade_dur
+        # Video crossfade: last 0.5s of intro fades into first 0.5s of main
+        # Audio crossfade: intro silence crossfades into main audio
+        filter_complex = (
+            f"{video_chain}[vmain];{audio_chain};"
+            f"[1:v]format=yuv420p[intro_v];"
+            f"[intro_v][vmain]xfade=transition=fade:"
+            f"duration={crossfade_dur}:offset={xfade_offset}[vout];"
+            f"[1:a][aout]acrossfade=d={crossfade_dur}[aout2]"
+        )
+        input_files = ["-i", input_path, "-i", intro_path]
+        audio_map = "[aout2]"
+    else:
+        filter_complex = f"{video_chain}[vout];{audio_chain}"
+        input_files = ["-i", input_path]
+        audio_map = "[aout]"
+
+    # Build ffmpeg command
+    cmd = [
+        "ffmpeg", "-y",
+    ] + input_files + [
+        "-filter_complex", filter_complex,
+        "-map", "[vout]",
+        "-map", audio_map,
+        "-c:v", "libx264",
+        "-preset", "medium",
+        "-crf", "22",  # Slightly better quality for longer content
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-pix_fmt", "yuv420p",
+        "-r", str(FPS),
+        "-movflags", "+faststart",
+        "-profile:v", "high",
+        "-level", "4.1",
+        output_path,
+    ]
+
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        print(f"  [weekly] FFmpeg timed out (600s)", flush=True)
+        return None
+    except Exception as e:
+        print(f"  [weekly] Error: {e}", flush=True)
+        return None
+
+    # Clean up the intro temp file
+    if has_intro and os.path.exists(intro_path):
+        try:
+            os.remove(intro_path)
+        except Exception:
+            pass
+
+    # Calculate final duration including intro minus crossfade overlap
+    final_duration = video_duration + (WEEKLY_INTRO_DURATION - (WEEKLY_INTRO_CROSSFADE if has_intro else 0))
+
+    if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
+        actual_dur = get_video_duration(output_path)
+        if actual_dur <= 0:
+            actual_dur = fallback_duration(output_path)
+        if actual_dur <= 0:
+            actual_dur = final_duration
+        print(f"  [weekly] Created weekly video: {output_path} ({actual_dur:.1f}s, {os.path.getsize(output_path)} bytes)", flush=True)
+        return {
+            "path": output_path,
+            "duration": actual_dur,
+        }
+
+    print(f"  [weekly] Output invalid", flush=True)
     return None
 
 

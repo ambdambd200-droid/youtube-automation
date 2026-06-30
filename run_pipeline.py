@@ -13,6 +13,7 @@ import json
 import os
 import sys
 import random
+import traceback
 from datetime import datetime
 
 # Fix Windows console encoding for Unicode characters (em dashes, arrows, etc.)
@@ -33,6 +34,9 @@ from modules.clip_editor import create_clip
 from modules.thumbnail_generator import generate_thumbnails
 from modules.seo_generator import generate_metadata
 from modules.space_manager import full_cleanup
+from modules.pipeline_watchdog import (
+    register_run_start, register_stage, register_run_complete, register_run_failure,
+)
 
 
 def log_result(stage, status, details=None):
@@ -48,7 +52,7 @@ def log_result(stage, status, details=None):
     return entry
 
 
-def run_pipeline(force_type=None, force_query=None):
+def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
     """Run the full daily pipeline.
 
     Args:
@@ -58,9 +62,13 @@ def run_pipeline(force_type=None, force_query=None):
     Returns:
         Dict with results, or raises on failure
     """
+    # ── Register with watchdog ─────────────────────────────
+    pipeline_id = pipeline_id or register_run_start("daily")
+
     print(f"\n{'='*60}")
     print(f"  VARY — Daily Clip Pipeline")
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"  Run: {pipeline_id}")
     print(f"{'='*60}\n")
 
     # ── Channel Branding Check ────────────────────────────
@@ -77,6 +85,7 @@ def run_pipeline(force_type=None, force_query=None):
         log_result("channel_check", "skipped", {"error": str(e)})
 
     # ── Step 1: Content Selection ────────────────────────
+    register_stage(pipeline_id, "content_selection")
     print(f">>> Step 1/9: Selecting content...")
     if force_type:
         content_info = {
@@ -102,6 +111,7 @@ def run_pipeline(force_type=None, force_query=None):
     log_result("content_selection", "success", content_info)
 
     # ── Step 2: Download Clip ────────────────────────────
+    register_stage(pipeline_id, "download")
     print(f"\n>>> Step 2/9: Downloading clip...")
     used = load_used_scenes()
     used_ids = set()
@@ -130,6 +140,7 @@ def run_pipeline(force_type=None, force_query=None):
     log_result("download", "success", download_result)
 
     # ── Step 3: Edit Clip ────────────────────────────────
+    register_stage(pipeline_id, "editing")
     print(f"\n>>> Step 3/9: Editing clip to Shorts format...")
     clip_result = create_clip(
         download_result["path"],
@@ -144,6 +155,7 @@ def run_pipeline(force_type=None, force_query=None):
     log_result("editing", "success", clip_result)
 
     # ── Step 4: Generate Thumbnails (A/B variants) ──────
+    register_stage(pipeline_id, "thumbnails")
     print(f"\n>>> Step 4/9: Generating thumbnails...")
     thumbnails = generate_thumbnails(
         clip_result["path"],
@@ -158,6 +170,7 @@ def run_pipeline(force_type=None, force_query=None):
     log_result("thumbnails", "success" if thumbnails else "skipped", {"variants": list(thumbnails.keys())})
 
     # ── Step 5: Generate SEO ─────────────────────────────
+    register_stage(pipeline_id, "seo")
     print(f"\n>>> Step 5/9: Generating SEO metadata...")
     seo = generate_metadata(
         download_result["title"],
@@ -169,6 +182,7 @@ def run_pipeline(force_type=None, force_query=None):
     print(f"  Tags: {len(seo['tags'])} tags", flush=True)
 
     # ── Step 6: Critique the clip (pre-upload) ───────────
+    register_stage(pipeline_id, "critique")
     print(f"\n>>> Step 6/9: Critiquing clip quality...")
     critique_result = None
     try:
@@ -189,6 +203,7 @@ def run_pipeline(force_type=None, force_query=None):
         log_result("critique", "skipped", {"error": str(e)})
 
     # ── Step 7: Upload to YouTube ────────────────────────
+    register_stage(pipeline_id, "upload")
     print(f"\n>>> Step 7/9: Uploading to YouTube...")
     from modules.youtube_uploader import upload_video
 
@@ -240,6 +255,7 @@ def run_pipeline(force_type=None, force_query=None):
             log_result("performance_register", "skipped", {"error": str(e)})
 
     # ── Step 8: Evolution — self-improvement cycle ────────
+    register_stage(pipeline_id, "evolution")
     print(f"\n>>> Step 8/9: Running evolution cycle...")
     evolution_result = None
     try:
@@ -257,18 +273,29 @@ def run_pipeline(force_type=None, force_query=None):
         log_result("evolution", "skipped", {"error": str(e)})
 
     # ── Step 9: Space Cleanup ─────────────────────────────
-    print(f"\n>>> Step 9/9: Cleaning up source files...")
-    source_paths = [download_result["path"]]
-    space_info = full_cleanup(source_paths)
+    register_stage(pipeline_id, "cleanup")
+    print(f"\n>>> Step 9/9: Cleaning up all downloaded files...")
+    # Build list of everything to delete: source download + processed clip + thumbnails
+    paths_to_clean = [download_result["path"]]
+    if clip_result:
+        paths_to_clean.append(clip_result["path"])
+    for variant in thumbnails.values():
+        if variant and os.path.exists(variant):
+            paths_to_clean.append(variant)
+    space_info = full_cleanup(paths_to_clean)
 
     # Mark as used to avoid repeat
     save_used_scene(content_info["type"], download_result["video_id"])
+
+    # ── Mark complete in watchdog ─────────────────────────
+    register_run_complete(pipeline_id)
 
     # ── Summary ──────────────────────────────────────────
     print(f"\n{'='*60}")
     print(f"  ✅ PIPELINE COMPLETE")
     print(f"  Content: {content_info['type']}")
     print(f"  Source: {download_result['title']}")
+    print(f"  Run ID: {pipeline_id}")
     if video_url:
         print(f"  Uploaded: {video_url}")
     if critique_result:
@@ -307,5 +334,13 @@ if __name__ == "__main__":
     elif args.type == "movie":
         force_type = "movie"
 
-    result = run_pipeline(force_type=force_type, force_query=args.query)
-    print(json.dumps(result, indent=2, default=str))
+    from modules.pipeline_watchdog import register_run_start, register_run_failure
+    pipeline_id = register_run_start("daily")
+    try:
+        result = run_pipeline(force_type=force_type, force_query=args.query, pipeline_id=pipeline_id)
+        print(json.dumps(result, indent=2, default=str))
+    except Exception as e:
+        print(f"\n  ❌ PIPELINE CRASHED: {e}", flush=True)
+        traceback.print_exc()
+        register_run_failure(pipeline_id, str(e))
+        sys.exit(1)

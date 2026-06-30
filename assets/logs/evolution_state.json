@@ -1,6 +1,6 @@
 {
-  "generation": 1,
-  "last_updated": "2026-06-24T12:00:00.526254",
+  "generation": 3,
+  "last_updated": "2026-06-27T19:33:13.299801",
   "parameters": {
     "content_weights_active": {
       "worldcup_2026": 0.4,
@@ -24,21 +24,69 @@
     ],
     "clip_min_duration": 15,
     "clip_max_duration": 60,
-    "scene_threshold": 0.3,
-    "title_style_preference": "balanced",
+    "scene_threshold": 0.2,
+    "title_style_preference": "poetic",
     "thumbnail_variant_preference": "v2"
   },
   "performance": {
-    "average_score": 50.0,
-    "peak_score": 0.0,
-    "total_clips_analyzed": 0,
-    "total_evolutions": 0,
-    "history_by_type": {},
-    "history_by_hour": {},
+    "average_score": 37.3,
+    "peak_score": 37.5,
+    "total_clips_analyzed": 6,
+    "total_evolutions": 2,
+    "history_by_type": {
+      "worldcup_2026": 37.5,
+      "movie": 37.1
+    },
+    "history_by_hour": {
+      "13": 37.5,
+      "23": 37.5,
+      "14": 37.5,
+      "16": 36.8
+    },
     "real_performance_average": null,
     "real_performance_best_type": null,
     "real_videos_tracked": 0,
     "critique_vs_real_delta": 0.0
   },
-  "mutations": []
+  "mutations": [
+    {
+      "timestamp": "2026-06-26T13:53:47.673261",
+      "axis": "keywords",
+      "change": "Top keyword: 'world cup 2026 best moments' (37.5)",
+      "keyword_scores": {
+        "world cup 2026 best moments": 37.5,
+        "world cup 2026 highlight": 37.5,
+        "world cup 2026 controversial": 37.5,
+        "world cup 2026 amazing goal": 37.5,
+        "world cup 2026 viral moment": 37.5
+      }
+    },
+    {
+      "timestamp": "2026-06-26T13:53:47.673261",
+      "axis": "scene_threshold",
+      "change": "Lowered from 0.3 to 0.25 (pacing was 25.0)"
+    },
+    {
+      "timestamp": "2026-06-26T13:53:47.674261",
+      "axis": "title_style",
+      "change": "Switched from balanced to poetic (avg score was 37.5)"
+    },
+    {
+      "timestamp": "2026-06-27T19:33:13.295802",
+      "axis": "keywords",
+      "change": "Top keyword: 'world cup 2026 best moments' (37.5)",
+      "keyword_scores": {
+        "world cup 2026 best moments": 37.5,
+        "world cup 2026 highlight": 37.5,
+        "world cup 2026 controversial": 37.5,
+        "world cup 2026 amazing goal": 37.5,
+        "world cup 2026 viral moment": 37.5
+      }
+    },
+    {
+      "timestamp": "2026-06-27T19:33:13.296805",
+      "axis": "scene_threshold",
+      "change": "Lowered from 0.25 to 0.2 (pacing was 23.8)"
+    }
+  ]
 }

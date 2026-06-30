@@ -9,7 +9,7 @@ import sys
 import random
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import DEFAULT_TAGS, is_world_cup_active
+from config import DEFAULT_TAGS, is_world_cup_active, get_posting_times_formatted
 
 
 # ── Title Templates ─────────────────────────────────────────
@@ -111,34 +111,36 @@ DIRECT_MOVIE_TITLES = [
 
 # ── Description Templates (minimalist restraint) ────────────
 
-WORLDCUP_DESCRIPTION = """a moment.
+def _get_daily_posting_str():
+    """Get the posting schedule string for today's description."""
+    times_str = get_posting_times_formatted()
+    return f"vary.\n{times_str}"
+
+WORLDCUP_DESCRIPTION_TEMPLATE = """a moment.
 
 natural sound. no music. one clip.
 
 ━━━━━━━━━━━━━━━━━━━━━━━
-vary.
-07:33 · 17:55 · 22:18 utc
+{posting}
 daily.
 ━━━━━━━━━━━━━━━━━━━━━━━"""
 
-MOVIE_DESCRIPTION = """a frame.
+MOVIE_DESCRIPTION_TEMPLATE = """a frame.
 
 natural sound. no music. one clip.
 
 ━━━━━━━━━━━━━━━━━━━━━━━
-vary.
-07:33 · 17:55 · 22:18 utc
+{posting}
 daily.
 ━━━━━━━━━━━━━━━━━━━━━━━"""
 
 # Description used after the World Cup ends (no football/sports references)
-MOVIE_DESCRIPTION_POST_WC = """a frame.
+MOVIE_DESCRIPTION_POST_WC_TEMPLATE = """a frame.
 
 natural sound. no music. one clip.
 
 ━━━━━━━━━━━━━━━━━━━━━━━
-vary.
-07:33 · 17:55 · 22:18 utc
+{posting}
 daily.
 ━━━━━━━━━━━━━━━━━━━━━━━"""
 
@@ -216,15 +218,19 @@ def generate_metadata(source_title, content_type, source_url=None):
             if short_source:
                 title = f"{title} - {short_source}"
 
+    # Generate posting schedule string for today
+    posting_str = _get_daily_posting_str()
+
     # Generate description — use post-WC descriptions if WC is over
     wc_active = is_world_cup_active()
 
     if content_type == "worldcup_2026":
-        description = WORLDCUP_DESCRIPTION
+        description = WORLDCUP_DESCRIPTION_TEMPLATE.format(posting=posting_str)
         if source_title:
             description = f"Source: {source_title}\n\n" + description
     else:
-        description = MOVIE_DESCRIPTION_POST_WC if not wc_active else MOVIE_DESCRIPTION
+        template = MOVIE_DESCRIPTION_POST_WC_TEMPLATE if not wc_active else MOVIE_DESCRIPTION_TEMPLATE
+        description = template.format(posting=posting_str)
         if source_title:
             description = f"Scene from: {source_title}\n\n" + description
 
@@ -237,7 +243,7 @@ def generate_metadata(source_title, content_type, source_url=None):
         description += (
             f"\n\n━━━━━━━━━━━━━━━━━━━━━━\n"
             f"vary.\n"
-            f"07:33 · 17:55 · 22:18 utc\n"
+            f"{posting_str}\n"
             f"\n"
             f"not content. moments.\n"
             f"━━━━━━━━━━━━━━━━━━━━━━"
@@ -281,9 +287,118 @@ def generate_metadata(source_title, content_type, source_url=None):
     }
 
 
+# ── Weekly Video SEO ───────────────────────────────────────
+
+WEEKLY_MOVIE_TITLES = [
+    "The Story of [movie] — A Film Analysis",
+    "Understanding [movie]: A Cinematic Journey",
+    "Why [movie] is a Masterpiece of Cinema",
+    "[movie]: The Story Behind the Masterpiece",
+    "What Makes [movie] Unforgettable",
+    "The Art of [movie] — A Deep Dive",
+    "[movie] Explained: Themes and Symbolism",
+    "The Genius of [movie]",
+    "[movie] — A Story of [theme]",
+    "How [movie] Changed Cinema Forever",
+]
+
+WEEKLY_THEMES = [
+    "Ambition", "Love", "Loss", "Redemption", "Hope",
+    "Sacrifice", "Identity", "Truth", "Courage", "Fate",
+]
+
+WEEKLY_MOVIE_TAGS = [
+    "movie analysis", "film analysis", "movie explained",
+    "cinema", "film criticism", "movie breakdown",
+    "film essay", "movie review", "story explained",
+    "weekly video", "VARY weekly", "film storytelling",
+    "movie story", "masterpiece", "cinematic analysis",
+]
+
+WEEKLY_DESCRIPTION_TEMPLATE = """{movie} — A Story of {theme}
+
+A cinematic journey through one of film's greatest achievements.
+Every frame. Every silence. Every choice.
+
+━━━━━━━━━━━━━━━━━━━━━━━
+🎬 VARY Weekly — every Sunday
+👍 one story at a time
+━━━━━━━━━━━━━━━━━━━━━━━
+#VARY #FilmAnalysis #{movie_tag}"""
+
+
+def generate_weekly_metadata(source_title, source_url=None):
+    """Generate SEO metadata for weekly videos (movie story analysis).
+
+    Weekly videos have different SEO than daily shorts:
+    - Longer, essay-style titles
+    - Film analysis description
+    - Different tags (no shorts tags)
+    - No daily posting schedule in description
+
+    Args:
+        source_title: Title of the source video/content
+        source_url: Original source URL (optional)
+
+    Returns:
+        Dict with title, description, tags
+    """
+    # Extract movie name from title (remove common prefixes/suffixes)
+    movie_name = source_title
+    for prefix in ["Why ", "The Story of ", "Understanding ", "Analysis of ",
+                    "The Genius of ", "How ", "What Makes "]:
+        if movie_name.startswith(prefix):
+            movie_name = movie_name[len(prefix):]
+            break
+    for suffix in [" is a masterpiece", " is brilliant", " works", " changed cinema"]:
+        if suffix in movie_name:
+            movie_name = movie_name[:movie_name.index(suffix)]
+            break
+    # Clean up
+    movie_name = movie_name.strip().strip(":;-,")
+    if not movie_name:
+        movie_name = source_title[:30]
+
+    # Pick a theme and title template
+    theme = random.choice(WEEKLY_THEMES)
+    title_template = random.choice(WEEKLY_MOVIE_TITLES)
+
+    title = title_template.replace("[movie]", movie_name).replace("[theme]", theme)
+
+    # Generate movie tag from movie name
+    movie_tag = movie_name.split(":")[0].split("(")[0].strip().replace(" ", "")[:20]
+
+    # Build description
+    description = WEEKLY_DESCRIPTION_TEMPLATE.format(
+        movie=movie_name,
+        theme=theme,
+        movie_tag=movie_tag,
+    )
+
+    if source_url:
+        description = f"Original footage: {source_url}\n\n" + description
+
+    # Build tags
+    tags = list(WEEKLY_MOVIE_TAGS)
+    # Add movie-specific tags
+    for word in movie_name.split()[:5]:
+        word = word.strip(",.!?-:;\"'()[]{}")
+        if word and len(word) > 3 and word.lower() not in [t.lower() for t in tags]:
+            tags.append(word)
+
+    return {
+        "title": truncate_title(title, max_chars=100),
+        "description": description,
+        "tags": tags,
+    }
+
+
 if __name__ == "__main__":
     import sys
     ct = sys.argv[1] if len(sys.argv) > 1 else "movie"
     title = sys.argv[2] if len(sys.argv) > 2 else ""
-    result = generate_metadata(title, ct)
+    if ct == "weekly":
+        result = generate_weekly_metadata(title)
+    else:
+        result = generate_metadata(title, ct)
     print(json.dumps(result, indent=2, ensure_ascii=False))

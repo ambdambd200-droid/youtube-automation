@@ -49,6 +49,7 @@ DEFAULT_EVOLUTION_STATE = {
         "scene_threshold": 0.3,
         "title_style_preference": "balanced",  # poetic | direct | balanced
         "thumbnail_variant_preference": "v2",  # which variant to use as primary
+        "posting_times_by_day": {},  # Day->hour list, filled by real perf data
     },
     "performance": {
         "average_score": 50.0,
@@ -105,13 +106,19 @@ def _log_evolution(action, details=None):
 
 
 def _load_recent_critiques(hours=48):
-    """Load critiques from the last N hours."""
+    """Load critiques from the last N hours — includes both daily and weekly.
+
+    Merges daily Shorts critiques with weekly video critiques so the
+    evolution engine learns from both content streams.
+    Weekly critiques have content_type "weekly_movie" and flow through
+    naturally into _calculate_performance_trends() per-type averages.
+    """
     try:
-        from modules.clip_critique import load_critique_history
+        from modules.clip_critique import load_all_critiques
     except ImportError:
         return []
 
-    all_critiques = load_critique_history(n=200)
+    all_critiques = load_all_critiques(n=200)
     cutoff = datetime.now() - timedelta(hours=hours)
 
     recent = []
@@ -424,6 +431,127 @@ def _mutate_from_real_performance(state):
 # ── Main Evolution Entry Point ─────────────────────────────
 
 
+# ── Posting Time Evolution ────────────────────────────────
+
+def _mutate_posting_times(state):
+    """Evolve posting time slots based on real YouTube view velocity.
+
+    Analyzes real performance data to find which hours of the day
+    yield the highest view velocity and engagement. Updates the
+    posting_times_by_day map in evolution state so the config
+    can read optimized times per weekday.
+
+    This is a slow-evolving parameter — needs at least 10 tracked
+    videos across different hours before it starts shifting.
+    """
+    # Use the upload registry from the upload_registry.json file directly.
+    # (No public getter exists for the raw registry yet.)
+    from modules.performance_tracker import load_performance_history
+    from config import LOG_DIR
+    upload_registry_path = os.path.join(LOG_DIR, "upload_registry.json")
+    registry = {"videos": []}
+    if os.path.exists(upload_registry_path):
+        try:
+            with open(upload_registry_path, "r") as f:
+                registry = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+
+    params = state["parameters"]
+    current_times = params.get("posting_times_by_day", {})
+
+    # Load real performance data (last 7 days)
+    entries = load_performance_history(hours=168)
+    if len(entries) < 10:
+        return  # Not enough data yet
+
+    registry = _load_registry()
+    registry_by_id = {v["video_id"]: v for v in registry.get("videos", [])}
+
+    # Group by hour of upload time and calculate avg view_velocity
+    hour_performance = {}  # hour -> [view_velocity]
+    for entry in entries:
+        vid = entry.get("video_id", "")
+        reg = registry_by_id.get(vid, {})
+        upload_str = reg.get("uploaded_at", "")
+        if not upload_str:
+            continue
+        try:
+            upload_hour = datetime.fromisoformat(upload_str).hour
+        except (ValueError, TypeError):
+            continue
+
+        vv = entry.get("signals", {}).get("view_velocity", 0)
+        if vv > 0:
+            hour_performance.setdefault(upload_hour, []).append(vv)
+
+    if len(hour_performance) < 3:
+        return  # Need data across at least 3 different hours
+
+    # Calculate average per hour and sort
+    hour_avgs = {h: round(sum(vals) / len(vals), 1) for h, vals in hour_performance.items()}
+    best_hours = sorted(hour_avgs, key=hour_avgs.get, reverse=True)[:5]
+
+    # Group best hours by day of week
+    from config import POSTING_TIMES_BY_DAY
+    day_hour_perf = {}  # {our_day: {hour: [view_velocities]}}
+    for entry in entries:
+        vid = entry.get("video_id", "")
+        reg = registry_by_id.get(vid, {})
+        upload_str = reg.get("uploaded_at", "")
+        if not upload_str:
+            continue
+        try:
+            dt = datetime.fromisoformat(upload_str)
+            day = dt.weekday()
+            our_day = (day + 1) % 7
+            hour = dt.hour
+        except (ValueError, TypeError):
+            continue
+
+        vv = entry.get("signals", {}).get("view_velocity", 0)
+        if vv > 0:
+            day_hour_perf.setdefault(our_day, {}).setdefault(hour, []).append(vv)
+
+    # For each day, pick top 3 hours
+    evolved = {}
+    for day in range(7):
+        hour_data = day_hour_perf.get(day, {})
+        if not hour_data:
+            continue
+        avgs = {h: round(sum(vals) / len(vals), 1) for h, vals in hour_data.items()}
+        top_3 = sorted(avgs, key=avgs.get, reverse=True)[:3]
+        if len(top_3) >= 2:
+            evolved[day] = [(h, 0) for h in sorted(top_3)]
+
+    if len(evolved) >= 3:  # Only mutate if we have data for at least 3 days
+        # Merge evolved times with existing defaults (evolved wins)
+        merged = dict(POSTING_TIMES_BY_DAY)
+        for day, times in evolved.items():
+            merged[day] = times
+        params["posting_times_by_day"] = merged
+
+        state["mutations"].append({
+            "timestamp": datetime.now().isoformat(),
+            "axis": "posting_times",
+            "change": f"Adjusted posting times from real view velocity data ({len(evolved)} days updated)",
+            "hour_performance": {str(h): hour_avgs[h] for h in best_hours[:3]},
+        })
+        print(f"  [evolution] Posting times evolved: best hours = {best_hours[:3]}", flush=True)
+
+
+def get_evolved_posting_times():
+    """Public getter for evolved posting times.
+
+    Returns evolved posting_times_by_day dict, or None if not evolved.
+    """
+    state = _load_state()
+    pts = state.get("parameters", {}).get("posting_times_by_day", {})
+    if pts and len(pts) >= 3:
+        return dict(pts)
+    return None
+
+
 def evolve():
     """Run one evolution cycle.
 
@@ -454,6 +582,7 @@ def evolve():
             "generation": generation,
             "evolved": False,
             "reason": "no_data",
+            "mutations": 0,
             "parameters": state["parameters"],
         }
 
@@ -466,6 +595,7 @@ def evolve():
             "generation": generation,
             "evolved": False,
             "reason": "trend_error",
+            "mutations": 0,
         }
 
     print(f"  Trends: avg={trends['average_score']}, peak={trends['peak_score']}, "
@@ -485,6 +615,10 @@ def evolve():
     # The performance tracker's trends provide ground-truth signals that
     # can override or amplify the critique-based mutations above.
     _mutate_from_real_performance(state)
+
+    # ── Posting time evolution ──────────────────────────
+    # Learn when viewers are most active from real view velocity data
+    _mutate_posting_times(state)
 
     # Update performance metrics
     state["performance"]["average_score"] = trends["average_score"]
@@ -612,6 +746,12 @@ def reset_evolution():
 
 if __name__ == "__main__":
     import sys
+    # Fix Windows console encoding for Unicode characters
+    if hasattr(sys.stdout, 'reconfigure'):
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
     if len(sys.argv) > 1 and sys.argv[1] == "--reset":
         reset_evolution()
         print("Evolution reset.")
