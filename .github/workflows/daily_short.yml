@@ -48,6 +48,11 @@ jobs:
   create-and-upload:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    services:
+      pot-provider:
+        image: brainicism/bgutil-ytdlp-pot-provider
+        ports:
+          - 4416:4416
     # Auto-retry on failure (watchdog: 1 automatic retry)
     strategy:
       max-parallel: 1  # ensure sequential runs (avoid download conflicts)

@@ -32,6 +32,11 @@ jobs:
   recover:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    services:
+      pot-provider:
+        image: brainicism/bgutil-ytdlp-pot-provider
+        ports:
+          - 4416:4416
 
     steps:
       - name: Checkout repo
