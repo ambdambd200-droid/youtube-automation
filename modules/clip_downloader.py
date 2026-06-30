@@ -8,64 +8,237 @@ import subprocess
 import sys
 import random
 
+# Fix Windows console encoding for Unicode characters
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import DOWNLOADS_DIR
+from config import DOWNLOADS_DIR, YT_COOKIES_FILE
+
+
+# ── Anti-bot helpers ────────────────────────────────────────
+
+_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/127.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+]
+
+# Ordered list of player clients to try, most likely to succeed first.
+# Priority order:
+#   1. android_vr — Does NOT require PO token per yt-dlp PO Token Guide; works without bgutil server.
+#   2. android    — Works with bgutil-ytdlp-pot-provider for automatic PO token gen; broad format support.
+#   3. ios        — Alternative mobile client with POT support (bgutil plugin).
+#   4. web        — Last resort fallback with POT support (slowest).
+#
+# The bgutil-ytdlp-pot-provider plugin auto-generates Proof-of-Origin tokens for
+# android, ios, and web clients. When a client gets bot-blocked, we fall through
+# to the next one in the list. android_vr is tried first because it does not
+# require the bgutil POT server to be running.
+_PLAYER_CLIENTS = [
+    "android_vr",        # Does NOT require PO token per yt-dlp PO Token Guide — try first
+    "android",           # POT via bgutil plugin
+    "ios",               # POT via bgutil plugin
+    "web",               # POT via bgutil plugin (slowest, last resort)
+]
+
+
+def _get_random_user_agent():
+    """Return a random desktop Chrome User-Agent string."""
+    return random.choice(_USER_AGENTS)
+
+
+def _get_info_args(player_client=None):
+    """Return yt-dlp arguments for fast info-only operations (search, metadata).
+
+    Lightweight — no throttling or extra delays so info fetches stay fast.
+    Still has retries and cookies for bot bypass.
+
+    Args:
+        player_client: Specific YouTube client to use. If None, uses 'android'.
+    """
+    client = player_client or "android"
+    args = [
+        "--no-warnings",
+        "--extractor-args", f"youtube:player_client={client}",
+        "--extractor-retries", "3",
+        "--user-agent", _get_random_user_agent(),
+    ]
+    if YT_COOKIES_FILE and os.path.isfile(YT_COOKIES_FILE):
+        args.extend(["--cookies", YT_COOKIES_FILE])
+    return args
+
+
+def _get_download_args(player_client=None):
+    """Return yt-dlp arguments for video downloads with full anti-bot mitigations.
+
+    Includes throttling, delays, and retries to avoid rate limiting and bot
+    detection during the actual download.
+
+    Args:
+        player_client: Specific YouTube client to use. If None, uses 'android'.
+    """
+    client = player_client or "android"
+    args = [
+        "--no-warnings",
+        "--extractor-args", f"youtube:player_client={client}",
+        "--extractor-retries", "3",
+        "--retries", "10",
+        "--fragment-retries", "10",
+        "--throttled-rate", "100K",
+        "--sleep-requests", "1",
+        "--sleep-interval", "3",
+        "--max-sleep-interval", "10",
+        "--geo-bypass",
+        "--user-agent", _get_random_user_agent(),
+    ]
+    if YT_COOKIES_FILE and os.path.isfile(YT_COOKIES_FILE):
+        args.extend(["--cookies", YT_COOKIES_FILE])
+    return args
+
+
+def _try_with_client_fallback(operation_fn, timeout=30):
+    """Try an operation with multiple player clients in sequence.
+
+    Tries all clients in _PLAYER_CLIENTS order.
+    Retries ALL errors (bot and non-bot) with the next client —
+    any single client failure is treated as potentially transient.
+
+    Args:
+        operation_fn: Callable(client, timeout) -> (success_bool, result_or_error_msg)
+        timeout: Per-attempt timeout in seconds
+
+    Returns:
+        result on success, or None if all clients fail
+    """
+    for client in _PLAYER_CLIENTS:
+        print(f"  [downloader] Trying {client}...", flush=True)
+
+        success, payload = operation_fn(client, timeout)
+
+        if success:
+            return payload
+
+        # Log the error, but always try the next client
+        err_msg = str(payload) if payload else "unknown error"
+        bot_hint = ""
+        err_lower = err_msg.lower()
+        if "sign in" in err_lower or "bot" in err_lower or "login" in err_lower:
+            bot_hint = " (bot detection)"
+
+        print(f"  [downloader] Client {client} failed{bot_hint}: {err_msg[:200]}", flush=True)
+
+    return None
 
 
 def search_youtube(query, max_results=10):
-    """Search YouTube for videos matching the query using yt-dlp."""
-    try:
+    """Search YouTube for videos matching the query using yt-dlp.
+
+    Tries multiple player clients to bypass bot detection.
+    """
+    def _search(client, timeout):
         cmd = [
             "yt-dlp",
             "--flat-playlist",
             "-J",
             f"ytsearch{max_results}:{query}",
-            "--no-warnings",
-        ]
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=30
-        )
+        ] + _get_info_args(player_client=client)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return False, "timed out"
+
         if result.returncode != 0:
-            print(f"  [downloader] Search error: {result.stderr[:200]}", flush=True)
-            return []
+            return False, result.stderr[:300]
 
-        data = json.loads(result.stdout)
-        entries = data.get("entries", [])
-        videos = []
-        for entry in entries:
-            video_id = entry.get("id", "")
-            title = entry.get("title", "")
-            duration = entry.get("duration", 0)
-            url = entry.get("webpage_url", f"https://youtu.be/{video_id}")
+        try:
+            data = json.loads(result.stdout)
+            entries = data.get("entries", [])
+            videos = []
+            for entry in entries:
+                video_id = entry.get("id", "")
+                title = entry.get("title", "")
+                duration = entry.get("duration", 0)
+                url = entry.get("webpage_url", f"https://youtu.be/{video_id}")
 
-            # Filter: only short-ish videos (under 10 min) or any if labeled as short
-            if duration and duration > 600:  # Skip videos longer than 10 min
-                continue
+                if duration and duration > 600:
+                    continue
 
-            videos.append({
-                "id": video_id,
-                "title": title,
-                "url": url,
-                "duration": duration,
-            })
+                videos.append({
+                    "id": video_id,
+                    "title": title,
+                    "url": url,
+                    "duration": duration,
+                })
 
-        return videos
+            if videos:
+                return True, videos
+            return False, "no matching videos in results"
+        except (json.JSONDecodeError, KeyError) as e:
+            return False, f"parse error: {e}"
 
-    except subprocess.TimeoutExpired:
-        print("  [downloader] Search timed out", flush=True)
-        return []
-    except (json.JSONDecodeError, KeyError) as e:
-        print(f"  [downloader] Parse error: {e}", flush=True)
-        return []
+    result = _try_with_client_fallback(_search, timeout=30)
+    if result:
+        return result
+
+    print("  [downloader] All search clients exhausted, no results", flush=True)
+    return []
 
 
-def download_clip(video_url, output_template=None, max_duration=60):
-    """Download a video clip from YouTube.
+def _extract_video_info(video_url):
+    """Get video metadata, trying multiple player clients.
+
+    Returns:
+        Tuple of (info_dict, video_id, duration) or (None, None, 0)
+    """
+    def _get_info(client, timeout):
+        info_cmd = [
+            "yt-dlp",
+            "-J",
+            video_url,
+        ] + _get_info_args(player_client=client)
+        try:
+            info_result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return False, "timed out"
+
+        if info_result.returncode != 0:
+            return False, info_result.stderr[:300]
+
+        try:
+            info = json.loads(info_result.stdout)
+            return True, (
+                info,
+                info.get("id", "unknown"),
+                info.get("duration", 0),
+            )
+        except json.JSONDecodeError as e:
+            return False, f"parse error: {e}"
+
+    result = _try_with_client_fallback(_get_info, timeout=30)
+    if result:
+        return result
+
+    print("  [downloader] All clients blocked for info fetch", flush=True)
+    return None, None, 0
+
+
+def download_clip(video_url, output_template=None):
+    """Download a full video from YouTube.
+
+    Tries multiple player clients sequentially if bot detection blocks one.
+    Uses random User-Agent per attempt.
+    Trimming is handled later by clip_editor.py's crop_to_shorts.
 
     Args:
         video_url: YouTube URL to download
         output_template: Output file template (default: downloads dir)
-        max_duration: Maximum duration in seconds to download
 
     Returns:
         Path to downloaded file, or None on failure
@@ -74,78 +247,54 @@ def download_clip(video_url, output_template=None, max_duration=60):
         os.makedirs(DOWNLOADS_DIR, exist_ok=True)
         output_template = os.path.join(DOWNLOADS_DIR, "%(id)s.%(ext)s")
 
-    # First, get info about the video
     try:
-        info_cmd = [
-            "yt-dlp",
-            "-J",
-            video_url,
-            "--no-warnings",
-        ]
-        info_result = subprocess.run(
-            info_cmd, capture_output=True, text=True, timeout=30
-        )
-        if info_result.returncode != 0:
-            print(f"  [downloader] Info error: {info_result.stderr[:200]}", flush=True)
+        info, video_id, duration = _extract_video_info(video_url)
+        if info is None:
             return None
 
-        info = json.loads(info_result.stdout)
-        duration = info.get("duration", 0)
-        video_id = info.get("id", "unknown")
-        title = info.get("title", "unknown")
-
-        # For long videos, we'll download only a segment
-        # For short videos (< 2 min), download the whole thing
-        if duration and duration > 120:
-            # Pick a random 60-second segment from the video
-            start_time = random.randint(0, max(0, int(duration) - max_duration))
-            print(f"  [downloader] Video is {duration}s long, extracting {max_duration}s from {start_time}s", flush=True)
-
-            download_cmd = [
+        def _download(client, timeout):
+            client_args = _get_download_args(player_client=client)
+            # NOTE: We download the full video and let clip_editor.py handle
+            # trimming. yt-dlp's --download-sections with DASH formats is
+            # extremely slow on Windows (ffmpeg re-encode bottleneck).
+            # The clip editor already uses ffmpeg trim/crop for Shorts.
+            cmd = [
                 "yt-dlp",
                 "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
-                "--download-sections", f"*{start_time}-{start_time + max_duration}",
-                "--force-keyframes-at-cuts",
-                "--no-warnings",
-                "-o", output_template,
-                video_url,
-            ]
-        else:
-            # Short video — download full
-            download_cmd = [
-                "yt-dlp",
-                "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
-                "--no-warnings",
+            ] + client_args + [
                 "-o", output_template,
                 video_url,
             ]
 
-        result = subprocess.run(
-            download_cmd, capture_output=True, text=True, timeout=300
-        )
+            try:
+                download_result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            except subprocess.TimeoutExpired:
+                return False, "timed out"
 
-        if result.returncode != 0:
-            print(f"  [downloader] Download error: {result.stderr[:300]}", flush=True)
+            if download_result.returncode != 0:
+                return False, download_result.stderr[:300]
+
+            return True, download_result
+
+        download_result = _try_with_client_fallback(_download, timeout=300)
+
+        if download_result is None:
+            print("  [downloader] Download failed: all clients exhausted", flush=True)
             return None
 
         # Find the downloaded file
         base = os.path.splitext(output_template.split("%(ext)s")[0])[0]
         for ext in [".mp4", ".webm", ".mkv"]:
             fname = f"{base}{ext}".replace("%(id)s", video_id)
-            # Also check with the video id pattern from yt-dlp
             fname2 = os.path.join(DOWNLOADS_DIR, f"{video_id}{ext}")
             for path_candidate in [fname, fname2]:
                 if os.path.exists(path_candidate):
                     print(f"  [downloader] Downloaded: {path_candidate} ({os.path.getsize(path_candidate)} bytes)", flush=True)
                     return path_candidate
 
-        # If we couldn't find the file, list the downloads dir
-        print(f"  [downloader] Downloaded but file not found at expected paths", flush=True)
+        print("  [downloader] Downloaded but file not found at expected paths", flush=True)
         return None
 
-    except subprocess.TimeoutExpired:
-        print("  [downloader] Download timed out", flush=True)
-        return None
     except Exception as e:
         print(f"  [downloader] Error: {e}", flush=True)
         return None
@@ -170,7 +319,6 @@ def download_best_match(search_query, used_ids=None):
     fresh_videos = [v for v in videos if v["id"] not in used_ids]
 
     if not fresh_videos:
-        # If all used, try with a broader query
         if videos:
             print("  [downloader] All recent videos used, picking best available", flush=True)
             fresh_videos = videos

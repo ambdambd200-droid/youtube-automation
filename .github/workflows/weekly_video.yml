@@ -1,43 +1,13 @@
-name: VARY — Daily Shorts (×3)
+name: VARY — Weekly Video (Sunday)
 
 on:
   schedule:
-    # Saturday (6) — 11:00, 14:00, 19:00 UTC
-    - cron: "0 11 * * 6"
-    - cron: "0 14 * * 6"
-    - cron: "0 19 * * 6"
-    # Sunday (0) — 10:00, 13:00, 18:00 UTC
-    - cron: "0 10 * * 0"
-    - cron: "0 13 * * 0"
-    - cron: "0 18 * * 0"
-    # Monday (1) — 12:00, 15:00, 19:00 UTC
-    - cron: "0 12 * * 1"
-    - cron: "0 15 * * 1"
-    - cron: "0 19 * * 1"
-    # Tuesday (2) — 12:00, 16:00, 20:00 UTC
-    - cron: "0 12 * * 2"
-    - cron: "0 16 * * 2"
-    - cron: "0 20 * * 2"
-    # Wednesday (3) — 12:00, 14:00, 18:00 UTC
-    - cron: "0 12 * * 3"
-    - cron: "0 14 * * 3"
-    - cron: "0 18 * * 3"
-    # Thursday (4) — 12:00, 15:00, 20:00 UTC
-    - cron: "0 12 * * 4"
-    - cron: "0 15 * * 4"
-    - cron: "0 20 * * 4"
-    # Friday (5) — 10:00, 13:00, 21:00 UTC
-    - cron: "0 10 * * 5"
-    - cron: "0 13 * * 5"
-    - cron: "0 21 * * 5"
+    # Sunday (0) — 12:00 UTC — one weekly story analysis video
+    - cron: "0 12 * * 0"
   workflow_dispatch:
     inputs:
-      type:
-        description: 'Content type (movie, worldcup, or auto)'
-        required: false
-        default: ''
       query:
-        description: 'Custom search query'
+        description: 'Custom search query for weekly video source'
         required: false
         default: ''
 
@@ -50,7 +20,7 @@ jobs:
     timeout-minutes: 180
     # Auto-retry on failure (watchdog: 1 automatic retry)
     strategy:
-      max-parallel: 1  # ensure sequential runs (avoid download conflicts)
+      max-parallel: 1
     continue-on-error: false
 
     steps:
@@ -104,8 +74,8 @@ jobs:
         run: |
           mkdir -p assets/downloads assets/clips assets/thumbnails/variants assets/logs assets/channel_art
 
-      - name: Run clip pipeline (with auto-retry on crash)
-        id: pipeline
+      - name: Run weekly video pipeline (with auto-retry on crash)
+        id: weekly
         run: |
           MAX_RETRIES=1
           RETRY_DELAY=60  # seconds
@@ -114,12 +84,11 @@ jobs:
               echo "Retry attempt $attempt/$MAX_RETRIES after $RETRY_DELAY seconds..."
               sleep $RETRY_DELAY
             fi
-            python run_pipeline.py \
-              ${{ github.event.inputs.type && format('--type {0}', github.event.inputs.type) || '' }} \
+            python run_weekly_pipeline.py \
               ${{ github.event.inputs.query && format('--query \"{0}\"', github.event.inputs.query) || '' }} \
             && break
             EXIT_CODE=$?
-            echo "Pipeline failed (exit code: $EXIT_CODE) on attempt $attempt"
+            echo "Weekly pipeline failed (exit code: $EXIT_CODE) on attempt $attempt"
             if [ $attempt -eq $MAX_RETRIES ]; then
               echo "All retries exhausted. Reporting failure."
               exit $EXIT_CODE
@@ -130,9 +99,8 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: failed-artifacts-${{ github.run_attempt }}
+          name: failed-weekly-artifacts-${{ github.run_attempt }}
           path: |
             assets/downloads/
             assets/clips/
-            assets/thumbnails/
             assets/logs/

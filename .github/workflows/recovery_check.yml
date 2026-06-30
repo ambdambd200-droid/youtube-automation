@@ -1,0 +1,137 @@
+name: VARY — Pipeline Recovery Check
+
+on:
+  schedule:
+    # Every 4 hours — check for failed runs and retry them automatically
+    - cron: "15 */4 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Recovery mode'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - check
+          - force
+      pipeline:
+        description: 'Pipeline type'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - daily
+          - weekly
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+
+      - name: Install Python dependencies
+        run: |
+          pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp bgutil-ytdlp-pot-provider
+
+      - name: Create .env file
+        run: |
+          echo "N8N_API_KEY=dummy" > .env
+          echo "YOUTUBE_CLIENT_ID=${{ secrets.YOUTUBE_CLIENT_ID }}" >> .env
+          echo "YOUTUBE_CLIENT_SECRET=${{ secrets.YOUTUBE_CLIENT_SECRET }}" >> .env
+          echo "YOUTUBE_REFRESH_TOKEN=${{ secrets.YOUTUBE_REFRESH_TOKEN }}" >> .env
+          echo "OUTPUT_DIR=./assets" >> .env
+          echo "ALERT_WEBHOOK_URL=${{ secrets.ALERT_WEBHOOK_URL }}" >> .env
+          echo "YT_COOKIES_FILE=./cookies.txt" >> .env
+
+      - name: Decode YouTube token
+        run: |
+          echo "${{ secrets.YOUTUBE_TOKEN_B64 }}" | base64 --decode > youtube_token.pickle
+
+      - name: Decode YouTube cookies (for yt-dlp)
+        run: |
+          echo "${{ secrets.YT_COOKIES_B64 }}" | base64 --decode > cookies.txt 2>/dev/null || echo "  [SKIP] YT_COOKIES_B64 not set"
+
+      - name: Start bgutil POT provider server (for yt-dlp bot bypass)
+        run: |
+          docker run --name bgutil-provider -d --init brainicism/bgutil-ytdlp-pot-provider 2>/dev/null && { sleep 3; echo "  bgutil POT provider started on port 4416"; } || echo "  [SKIP] bgutil provider not available — android_vr fallback will handle it"
+
+      - name: Create assets directories
+        run: |
+          mkdir -p assets/downloads assets/clips assets/thumbnails/variants assets/logs assets/channel_art
+
+      - name: Report pipeline state
+        id: check_state
+        run: |
+          echo "### Pipeline State Report" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          python -m modules.pipeline_watchdog --status >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          python -m modules.pipeline_watchdog --missed >> $GITHUB_STEP_SUMMARY
+
+      - name: Prune old pipeline state entries
+        id: prune_state
+        run: |
+          PRUNE_OUTPUT=$(python -m modules.pipeline_watchdog --prune 2>&1)
+          echo "$PRUNE_OUTPUT"
+          echo "### State Pruning" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "$PRUNE_OUTPUT" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Run recovery (auto mode for schedule + manual dispatch)
+        run: |
+          # Determine mode: schedule is always auto; dispatch uses user input
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            MODE="auto"
+          else
+            MODE="${{ github.event.inputs.mode }}"
+          fi
+
+          # Build pipeline filter flags
+          FILTER=""
+          if [ "${{ github.event.inputs.pipeline }}" = "daily" ]; then FILTER="--daily"; fi
+          if [ "${{ github.event.inputs.pipeline }}" = "weekly" ]; then FILTER="--weekly"; fi
+
+          # Execute based on mode
+          case "$MODE" in
+            check)
+              echo "Running in CHECK mode (dry-run, no retries)"
+              python run_recovery.py --check $FILTER
+              ;;
+            force)
+              echo "Running in FORCE mode (retry even if max exceeded)"
+              python run_recovery.py --force $FILTER
+              ;;
+            *)
+              echo "Running in AUTO mode (retry eligible failures)"
+              python run_recovery.py $FILTER
+              ;;
+          esac
+
+      - name: Upload recovery artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recovery-artifacts-${{ github.run_attempt }}
+          path: |
+            assets/logs/pipeline_state.json
+            assets/logs/pipeline_log.jsonl
+            assets/logs/weekly_pipeline_log.jsonl
