@@ -4,6 +4,7 @@ Handles both World Cup match highlights and movie scenes.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import random
@@ -16,7 +17,7 @@ if hasattr(sys.stdout, 'reconfigure'):
         pass
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import DOWNLOADS_DIR, YT_COOKIES_FILE
+from config import DOWNLOADS_DIR, YT_COOKIES_FILE, BASE_DIR
 
 
 # ── Anti-bot helpers ────────────────────────────────────────
@@ -54,6 +55,58 @@ _BGUTIL_BASE_URL = "http://127.0.0.1:4416"
 def _get_random_user_agent():
     """Return a random desktop Chrome User-Agent string."""
     return random.choice(_USER_AGENTS)
+
+
+def _get_clean_cookies():
+    """Return path to a cookies file with auth tokens stripped and restricted mode off.
+
+    The original cookies (from browser export) include auth tokens (SID, SSID, etc.)
+    that trigger YouTube's Restricted Mode, limiting formats to storyboard only.
+    This function creates a sanitized copy with:
+      - Auth tokens removed (LOGIN_INFO, SAPISID, SSID, HSID, SID, etc.)
+      - PREF f6 parameter set to 0 (restricted mode off)
+      - Essential visitor/cookies tokens preserved (VISITOR_INFO1_LIVE, PREF, etc.)
+    """
+    if not YT_COOKIES_FILE or not os.path.isfile(YT_COOKIES_FILE):
+        return None
+
+    clean_path = os.path.join(BASE_DIR, "cookies_clean.txt")
+    raw = ""
+    try:
+        with open(YT_COOKIES_FILE, "r", encoding="utf-8") as f:
+            raw = f.read()
+    except Exception:
+        return YT_COOKIES_FILE
+
+    # Remove restricted mode from PREF cookie
+    raw = re.sub(r'f6=[^&\t]*', 'f6=0', raw)
+
+    # Filter out auth/secure cookies that trigger Restricted Mode
+    auth_patterns = [
+        "LOGIN_INFO", "__Secure-1P", "__Secure-3P",
+        "SAPISID", "SSID", "HSID", "YSC", "__Secure-YNID",
+    ]
+    auth_re = re.compile("|".join(auth_patterns))
+    lines = raw.splitlines()
+    keep = []
+    for line in lines:
+        if line.startswith("#") or line.strip() == "":
+            keep.append(line)
+            continue
+        if auth_re.search(line):
+            continue
+        keep.append(line)
+
+    result = "\n".join(keep)
+    try:
+        with open(clean_path, "w", encoding="utf-8") as f:
+            f.write(result)
+    except Exception:
+        return YT_COOKIES_FILE
+
+    if os.path.getsize(clean_path) > 100:
+        return clean_path
+    return YT_COOKIES_FILE
 
 
 def _log_cookie_status():
@@ -263,38 +316,41 @@ def download_clip(video_url, output_template=None, video_id=None):
         output_template = os.path.join(DOWNLOADS_DIR, "%(id)s.%(ext)s")
 
     try:
-        def _try_download(use_cookies=False):
+        # Use clean cookies (auth tokens stripped) to avoid Restricted Mode
+        clean_cookies_path = _get_clean_cookies()
+
+        cmd = [
+            "yt-dlp",
+            "--no-warnings",
+            "--extractor-args", "youtube:player_client=android_vr",
+            "-f", "best[height<=1080]",
+        ]
+        if clean_cookies_path:
+            cmd += ["--cookies", clean_cookies_path]
+        cmd += ["-o", output_template, video_url]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        except subprocess.TimeoutExpired:
+            print("  [downloader] Download timed out", flush=True)
+            return None
+
+        # Fallback: if bot detected, try with original cookies (limited formats)
+        if result.returncode != 0 and ("sign in" in (result.stderr or "").lower() or "bot" in (result.stderr or "").lower()):
+            print("  [downloader] Bot detected with clean cookies, trying original cookies...", flush=True)
             cmd = [
                 "yt-dlp",
                 "--no-warnings",
                 "-f", "best[height<=1080]",
             ]
-            if use_cookies:
-                # Fallback: try with cookies + web client (limited formats)
-                cmd += ["--cookies", YT_COOKIES_FILE] if YT_COOKIES_FILE and os.path.isfile(YT_COOKIES_FILE) else []
-                cmd += ["--extractor-args", "youtube:player_client=web"]
-            else:
-                # Primary: android_vr without cookies (full formats)
-                cmd += ["--extractor-args", "youtube:player_client=android_vr"]
+            if YT_COOKIES_FILE and os.path.isfile(YT_COOKIES_FILE):
+                cmd += ["--cookies", YT_COOKIES_FILE]
             cmd += ["-o", output_template, video_url]
-
             try:
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             except subprocess.TimeoutExpired:
-                return None, "timed out"
-            return result, None
-
-        # Primary attempt: android_vr without cookies
-        result, err = _try_download(use_cookies=False)
-
-        # If bot detection, retry with cookies
-        if result is None or (result.returncode != 0 and ("sign in" in (result.stderr or "").lower() or "bot" in (result.stderr or "").lower())):
-            print("  [downloader] Bot detected without cookies, retrying with cookies...", flush=True)
-            result, err = _try_download(use_cookies=True)
-
-        if result is None:
-            print("  [downloader] Download timed out", flush=True)
-            return None
+                print("  [downloader] Download timed out", flush=True)
+                return None
 
         if result.returncode != 0:
             print(f"  [downloader] ERROR: {result.stderr[:300]}", flush=True)
