@@ -89,7 +89,7 @@ def _get_clean_cookies():
 
     auth_patterns = re.compile(
         r'\t(SAPISID|LOGIN_INFO|SID[^\t]*|SSID|HSID|APISID|LSID|'
-        r'__Secure-[^\t]*|__Host-[^\t]*)\t'
+        r'__Secure-[123]PSID[^\t]*|__Host-[^\t]*)\t'
     )
 
     kept = []
