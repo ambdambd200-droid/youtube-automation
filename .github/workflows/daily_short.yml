@@ -2,31 +2,24 @@ name: VARY — Daily Shorts (×3)
 
 on:
   schedule:
-    # Saturday (6) — 11:00, 14:00, 19:00 UTC
     - cron: "0 11 * * 6"
     - cron: "0 14 * * 6"
     - cron: "0 19 * * 6"
-    # Sunday (0) — 10:00, 13:00, 18:00 UTC
     - cron: "0 10 * * 0"
     - cron: "0 13 * * 0"
     - cron: "0 18 * * 0"
-    # Monday (1) — 12:00, 15:00, 19:00 UTC
     - cron: "0 12 * * 1"
     - cron: "0 15 * * 1"
     - cron: "0 19 * * 1"
-    # Tuesday (2) — 12:00, 16:00, 20:00 UTC
     - cron: "0 12 * * 2"
     - cron: "0 16 * * 2"
     - cron: "0 20 * * 2"
-    # Wednesday (3) — 12:00, 14:00, 18:00 UTC
     - cron: "0 12 * * 3"
     - cron: "0 14 * * 3"
     - cron: "0 18 * * 3"
-    # Thursday (4) — 12:00, 15:00, 20:00 UTC
     - cron: "0 12 * * 4"
     - cron: "0 15 * * 4"
     - cron: "0 20 * * 4"
-    # Friday (5) — 10:00, 13:00, 21:00 UTC
     - cron: "0 10 * * 5"
     - cron: "0 13 * * 5"
     - cron: "0 21 * * 5"
@@ -41,17 +34,10 @@ on:
         required: false
         default: ''
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   create-and-upload:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 180
-    # Auto-retry on failure (watchdog: 1 automatic retry)
-    strategy:
-      max-parallel: 1  # ensure sequential runs (avoid download conflicts)
-    continue-on-error: false
 
     steps:
       - name: Checkout repo
@@ -62,84 +48,71 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install system dependencies (including Node.js for yt-dlp n-challenge)
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core nodejs
-
       - name: Install Python dependencies
+        shell: powershell
         run: |
-          pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
+          pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp 2>&1 | Select-Object -Last 5
 
       - name: Check Python syntax
+        shell: powershell
         run: |
-          python -m compileall . -q
-
-      - name: Debug secrets
-        run: |
-          echo "YOUTUBE_CLIENT_ID set: ${{ secrets.YOUTUBE_CLIENT_ID != '' }}"
-          echo "YOUTUBE_CLIENT_SECRET set: ${{ secrets.YOUTUBE_CLIENT_SECRET != '' }}"
-          echo "YOUTUBE_REFRESH_TOKEN set: ${{ secrets.YOUTUBE_REFRESH_TOKEN != '' }}"
-          echo "YOUTUBE_TOKEN_B64 set: ${{ secrets.YOUTUBE_TOKEN_B64 != '' }}"
-          echo "YT_COOKIES_B64 set: ${{ secrets.YT_COOKIES_B64 != '' }}"
+          python -m compileall . -q 2>&1
 
       - name: Create .env file
+        shell: powershell
         run: |
-          echo "N8N_API_KEY=dummy" > .env
-          echo "YOUTUBE_CLIENT_ID=${{ secrets.YOUTUBE_CLIENT_ID }}" >> .env
-          echo "YOUTUBE_CLIENT_SECRET=${{ secrets.YOUTUBE_CLIENT_SECRET }}" >> .env
-          echo "YOUTUBE_REFRESH_TOKEN=${{ secrets.YOUTUBE_REFRESH_TOKEN }}" >> .env
-          echo "OUTPUT_DIR=./assets" >> .env
-          echo "YT_COOKIES_FILE=./cookies.txt" >> .env
+          @"
+          N8N_API_KEY=dummy
+          YOUTUBE_CLIENT_ID=${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET=${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN=${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          OUTPUT_DIR=./assets
+          YT_COOKIES_FILE=./cookies.txt
+          "@ | Out-File -FilePath .env -Encoding ascii -NoNewline
 
       - name: Decode YouTube token
+        shell: powershell
         run: |
-          echo "${{ secrets.YOUTUBE_TOKEN_B64 }}" | base64 --decode > youtube_token.pickle
+          $bytes = [System.Convert]::FromBase64String("${{ secrets.YOUTUBE_TOKEN_B64 }}")
+          [System.IO.File]::WriteAllBytes("youtube_token.pickle", $bytes)
+          Write-Host "  [OK] Token decoded: $($bytes.Length) bytes"
 
-      - name: Decode YouTube cookies (for yt-dlp bot bypass)
+      - name: Decode YouTube cookies
+        shell: powershell
         run: |
-          echo "${{ secrets.YT_COOKIES_B64 }}" | base64 --decode | tr -d '\r' > cookies.txt
-          if [ $? -ne 0 ] || [ ! -s cookies.txt ]; then
-            echo "  [ERROR] YT_COOKIES_B64 decode failed or produced empty file! Cookies need to be re-exported."
-            ls -la cookies.txt 2>/dev/null || echo "  No cookies.txt found"
-            exit 1
-          fi
-          echo "  [OK] Cookies decoded: $(wc -l < cookies.txt) lines, $(wc -c < cookies.txt) bytes"
-          head -c 200 cookies.txt
+          $bytes = [System.Convert]::FromBase64String("${{ secrets.YT_COOKIES_B64 }}")
+          $text = [System.Text.Encoding]::ASCII.GetString($bytes) -replace "`r", ""
+          [System.IO.File]::WriteAllText("cookies.txt", $text, [System.Text.Encoding]::ASCII)
+          $lines = (Get-Content cookies.txt | Measure-Object -Line).Lines
+          $size = (Get-Item cookies.txt).Length
+          Write-Host "  [OK] Cookies decoded: $lines lines, $size bytes"
 
       - name: Create assets directories
+        shell: powershell
         run: |
-          mkdir -p assets/downloads assets/clips assets/thumbnails/variants assets/logs assets/channel_art
+          New-Item -ItemType Directory -Force -Path assets\downloads, assets\clips, assets\thumbnails\variants, assets\logs, assets\channel_art | Out-Null
 
       - name: Run clip pipeline (with auto-retry on crash)
         id: pipeline
+        shell: powershell
         run: |
-          MAX_RETRIES=1
-          RETRY_DELAY=60  # seconds
-          for attempt in $(seq 0 $MAX_RETRIES); do
-            if [ $attempt -gt 0 ]; then
-              echo "Retry attempt $attempt/$MAX_RETRIES after $RETRY_DELAY seconds..."
-              sleep $RETRY_DELAY
-            fi
-            python run_pipeline.py \
-              ${{ github.event.inputs.type && format('--type {0}', github.event.inputs.type) || '' }} \
-              ${{ github.event.inputs.query && format('--query \"{0}\"', github.event.inputs.query) || '' }} \
-            && break
-            EXIT_CODE=$?
-            echo "Pipeline failed (exit code: $EXIT_CODE) on attempt $attempt"
-            if [ $attempt -eq $MAX_RETRIES ]; then
-              echo "All retries exhausted. Reporting failure."
-              exit $EXIT_CODE
-            fi
-          done
-
-      - name: Upload artifacts (on failure)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: failed-artifacts-${{ github.run_attempt }}
-          path: |
-            assets/downloads/
-            assets/clips/
-            assets/thumbnails/
-            assets/logs/
+          $MAX_RETRIES = 1
+          $RETRY_DELAY = 60
+          ${{ github.event.inputs.type && format('$env:PIPELINE_TYPE = "{0}"', github.event.inputs.type) || '' }}
+          ${{ github.event.inputs.query && format('$env:PIPELINE_QUERY = "{0}"', github.event.inputs.query) || '' }}
+          0..$MAX_RETRIES | ForEach-Object {
+            $attempt = $_
+            if ($attempt -gt 0) {
+              Write-Host "Retry attempt $attempt/$MAX_RETRIES after $RETRY_DELAY seconds..."
+              Start-Sleep -Seconds $RETRY_DELAY
+            }
+            & python run_pipeline.py $env:PIPELINE_TYPE $env:PIPELINE_QUERY
+            if ($LASTEXITCODE -eq 0) {
+              break
+            }
+            Write-Host "Pipeline failed (exit code: $LASTEXITCODE) on attempt $attempt"
+            if ($attempt -eq $MAX_RETRIES) {
+              Write-Host "All retries exhausted. Reporting failure."
+              exit $LASTEXITCODE
+            }
+          }
