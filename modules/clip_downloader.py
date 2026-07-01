@@ -58,43 +58,63 @@ def _get_random_user_agent():
 
 
 def _get_clean_cookies():
-    """Return path to a cookies file with Restricted Mode disabled.
+    """Return path to a cookies file WITHOUT auth tokens, with f6=0.
 
-    YouTube's Restricted Mode limits available formats to storyboard images only.
-    This function modifies the PREF cookie to set f6=0 (restricted mode off)
-    while keeping ALL auth tokens intact for bot detection bypass.
+    YouTube accounts with Restricted Mode (even if set per-session) limit
+    available formats to storyboard images only. Auth cookies from a
+    logged-in browser also trigger account-level Restricted Mode detection.
+
+    This function strips ALL auth/member cookies (SAPISID, SID, SSID, HSID,
+    APISID, LOGIN_INFO, __Secure-*) and only keeps basic navigation cookies
+    (VISITOR_INFO1_LIVE, YSC, PREF, etc.) with f6 forced to 0.
+
+    The resulting 'anonymous' cookies file avoids Restricted Mode while still
+    providing enough fingerprinting to help bypass bot detection in CI.
 
     Returns:
-        Path to sanitized cookies file, or original cookies path if sanitization fails.
+        Path to sanitized cookies file, or None if no cookies file available.
     """
     if not YT_COOKIES_FILE or not os.path.isfile(YT_COOKIES_FILE):
         return None
 
     clean_path = os.path.join(BASE_DIR, "cookies_clean.txt")
-    # Skip if clean file already exists and is newer than original
     if os.path.isfile(clean_path) and os.path.getmtime(clean_path) >= os.path.getmtime(YT_COOKIES_FILE):
         return clean_path
 
-    raw = ""
     try:
         with open(YT_COOKIES_FILE, "r", encoding="utf-8") as f:
-            raw = f.read()
+            lines = f.readlines()
     except Exception:
-        return YT_COOKIES_FILE
+        return None
 
-    # Only modify PREF f6 parameter — keep all auth tokens intact
-    cleaned = re.sub(r'(PREF[^\t]*?)f6=[^&\t]*', r'\1f6=0', raw)
-    if cleaned == raw:
-        # No f6 found, cookies already clean
-        return YT_COOKIES_FILE
+    auth_patterns = re.compile(
+        r'\t(SAPISID|LOGIN_INFO|SID[^\t]*|SSID|HSID|APISID|LSID|'
+        r'__Secure-[^\t]*|__Host-[^\t]*)\t'
+    )
+
+    kept = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            kept.append(line)
+            continue
+        if auth_patterns.search(line):
+            continue
+        kept.append(line)
+
+    cleaned = "".join(kept)
+    cleaned = re.sub(r'(PREF[^\t]*?)f6=[^&\t]*', r'\1f6=0', cleaned)
 
     try:
         with open(clean_path, "w", encoding="utf-8") as f:
             f.write(cleaned)
     except Exception:
-        return YT_COOKIES_FILE
+        return None
 
-    return clean_path if os.path.getsize(clean_path) > 100 else YT_COOKIES_FILE
+    if os.path.getsize(clean_path) < 50:
+        return None
+
+    return clean_path
 
 
 def _log_cookie_status():
@@ -282,12 +302,11 @@ def _extract_video_info(video_url):
 
 
 def download_clip(video_url, output_template=None, video_id=None):
-    """Download a full video from YouTube.
+    """Download a full video from YouTube with 3-tier fallback.
 
-    Intentionally does NOT use cookies for download — cookies from browser
-    extensions often trigger YouTube Restricted Mode, which limits available
-    formats to storyboard images only. Uses android_vr client which works
-    without cookies and returns full format access.
+    Uses clean cookies (no auth, f6=0) + android_vr first — avoids Restricted
+    Mode while still having enough fingerprinting to bypass CI bot detection.
+    Falls back to original cookies, then no cookies at all.
 
     Search (with cookies) is handled separately in download_best_match().
 
@@ -303,93 +322,67 @@ def download_clip(video_url, output_template=None, video_id=None):
         os.makedirs(DOWNLOADS_DIR, exist_ok=True)
         output_template = os.path.join(DOWNLOADS_DIR, "%(id)s.%(ext)s")
 
-    try:
-        # Use clean cookies (auth tokens stripped) to avoid Restricted Mode
-        clean_cookies_path = _get_clean_cookies()
+    clean_cookies_path = _get_clean_cookies()
 
+    attempts = []
+    if clean_cookies_path:
+        attempts.append(("no auth (f6=0, basic only)", clean_cookies_path))
+    if YT_COOKIES_FILE and os.path.isfile(YT_COOKIES_FILE):
+        if not clean_cookies_path or YT_COOKIES_FILE != clean_cookies_path:
+            attempts.append(("original (auth)", YT_COOKIES_FILE))
+    attempts.append(("no cookies", None))
+
+    for label, cookie_path in attempts:
         cmd = [
             "yt-dlp",
             "--no-warnings",
             "--extractor-args", "youtube:player_client=android_vr",
             "-f", "best[height<=1080]",
         ]
-        if clean_cookies_path:
-            cmd += ["--cookies", clean_cookies_path]
+        if cookie_path:
+            cmd += ["--cookies", cookie_path]
         cmd += ["-o", output_template, video_url]
 
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         except subprocess.TimeoutExpired:
-            print("  [downloader] Download timed out", flush=True)
-            return None
+            print(f"  [downloader] {label}: timed out", flush=True)
+            continue
+        except Exception as e:
+            print(f"  [downloader] {label}: error {e}", flush=True)
+            continue
 
-        # Attempt 1: clean cookies (auth + f6=0) + android_vr
-        attempts = []
-        if clean_cookies_path:
-            attempts.append(("clean cookies (f6=0)", clean_cookies_path))
-        if YT_COOKIES_FILE and os.path.isfile(YT_COOKIES_FILE):
-            if not clean_cookies_path or YT_COOKIES_FILE != clean_cookies_path:
-                attempts.append(("original cookies", YT_COOKIES_FILE))
-        attempts.append(("no cookies (pure android_vr)", None))
+        if result.returncode == 0:
+            break
 
-        for label, cookie_path in attempts:
-            cmd = [
-                "yt-dlp",
-                "--no-warnings",
-                "--extractor-args", "youtube:player_client=android_vr",
-                "-f", "best[height<=1080]",
-            ]
-            if cookie_path:
-                cmd += ["--cookies", cookie_path]
-            cmd += ["-o", output_template, video_url]
+        err = (result.stderr or "").lower()
+        if any(x in err for x in ["sign in", "bot", "requested format is not available"]):
+            print(f"  [downloader] {label}: {err[:200]}", flush=True)
+            print(f"  [downloader] Trying next method...", flush=True)
+            continue
 
-            try:
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-            except subprocess.TimeoutExpired:
-                print(f"  [downloader] {label}: timed out", flush=True)
-                continue
-            except Exception as e:
-                print(f"  [downloader] {label}: error {e}", flush=True)
-                continue
+        print(f"  [downloader] {label}: {result.stderr[:300]}", flush=True)
+        return None
+    else:
+        print("  [downloader] All download methods exhausted", flush=True)
+        return None
 
-            if result.returncode == 0:
-                break
-
-            err = (result.stderr or "").lower()
-            if "sign in" in err or "bot" in err:
-                print(f"  [downloader] {label}: bot detected, trying next...", flush=True)
-                continue
-
-            # Non-bot error — print and give up
-            print(f"  [downloader] {label}: {result.stderr[:300]}", flush=True)
-            return None
-        else:
-            # All attempts exhausted
-            print("  [downloader] All download methods exhausted (bot blocked)", flush=True)
-            return None
-
-        # Find the downloaded file
-        if video_id:
-            for ext in [".mp4", ".webm", ".mkv"]:
-                fname = os.path.join(DOWNLOADS_DIR, f"{video_id}{ext}")
-                if os.path.exists(fname):
-                    print(f"  [downloader] Downloaded: {fname} ({os.path.getsize(fname)} bytes)", flush=True)
-                    return fname
-
-        # Fallback: scan downloads dir for any new file
+    if video_id:
         for ext in [".mp4", ".webm", ".mkv"]:
-            for fname in os.listdir(DOWNLOADS_DIR):
-                if fname.endswith(ext):
-                    fpath = os.path.join(DOWNLOADS_DIR, fname)
-                    print(f"  [downloader] Downloaded: {fpath} ({os.path.getsize(fpath)} bytes)", flush=True)
-                    return fpath
+            fname = os.path.join(DOWNLOADS_DIR, f"{video_id}{ext}")
+            if os.path.exists(fname):
+                print(f"  [downloader] Downloaded: {fname} ({os.path.getsize(fname)} bytes)", flush=True)
+                return fname
 
-        print("  [downloader] Downloaded but file not found at expected paths", flush=True)
-        return None
+    for ext in [".mp4", ".webm", ".mkv"]:
+        for fname in os.listdir(DOWNLOADS_DIR):
+            if fname.endswith(ext):
+                fpath = os.path.join(DOWNLOADS_DIR, fname)
+                print(f"  [downloader] Downloaded: {fpath} ({os.path.getsize(fpath)} bytes)", flush=True)
+                return fpath
 
-    except Exception as e:
-        print(f"  [downloader] Error: {e}", flush=True)
-        return None
+    print("  [downloader] Downloaded but file not found at expected paths", flush=True)
+    return None
 
 
 def download_best_match(search_query, used_ids=None):
