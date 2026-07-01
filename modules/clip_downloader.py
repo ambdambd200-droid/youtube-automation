@@ -75,16 +75,14 @@ def _get_info_args(player_client=None):
     Lightweight — no throttling or extra delays so info fetches stay fast.
     Still has retries and cookies for bot bypass.
 
-    Args:
-        player_client: Specific YouTube client to use. If None, uses 'android'.
+    NOTE: player_client is no longer forced via extractor-args. yt-dlp >=2026
+    auto-selects the best client when --cookies is provided. The bgutil POT
+    provider extractor args were removed — they were interfering with normal
+    extraction and not actually solving the n-challenge.
     """
     _log_cookie_status()
-    client = player_client or "android"
-    # Separate extractor-args: one for youtube player client, one for bgutil POT
-    # DO NOT combine them with + — they belong to different extractors
     args = [
-        "--extractor-args", f"youtube:player_client={client}",
-        "--extractor-args", f"youtubepot-bgutilhttp:base_url={_BGUTIL_BASE_URL}",
+        "--no-warnings",
         "--extractor-retries", "3",
         "--user-agent", _get_random_user_agent(),
     ]
@@ -98,15 +96,9 @@ def _get_download_args(player_client=None):
 
     Includes throttling, delays, and retries to avoid rate limiting and bot
     detection during the actual download.
-
-    Args:
-        player_client: Specific YouTube client to use. If None, uses 'android'.
     """
-    client = player_client or "android"
-    # Separate extractor-args: one for youtube player client, one for bgutil POT
     args = [
-        "--extractor-args", f"youtube:player_client={client}",
-        "--extractor-args", f"youtubepot-bgutilhttp:base_url={_BGUTIL_BASE_URL}",
+        "--no-warnings",
         "--extractor-retries", "3",
         "--retries", "10",
         "--fragment-retries", "10",
@@ -273,13 +265,12 @@ def download_clip(video_url, output_template=None):
 
         def _download(client, timeout):
             client_args = _get_download_args(player_client=client)
-            # NOTE: We download the full video and let clip_editor.py handle
-            # trimming. yt-dlp's --download-sections with DASH formats is
-            # extremely slow on Windows (ffmpeg re-encode bottleneck).
-            # The clip editor already uses ffmpeg trim/crop for Shorts.
+            # NOTE: Don't use DASH (bestvideo+bestaudio) — it requires n-challenge
+            # solving which fails in headless CI. Single-stream `best` works
+            # reliably with cookies + yt-dlp's built-in fallback.
             cmd = [
                 "yt-dlp",
-                "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
+                "-f", "best[height<=1080]",
             ] + client_args + [
                 "-o", output_template,
                 video_url,
