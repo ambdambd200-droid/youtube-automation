@@ -49,7 +49,6 @@ jobs:
           YOUTUBE_CLIENT_SECRET=${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN=${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           OUTPUT_DIR=./assets
-          YT_COOKIES_FILE=./cookies.txt
           "@ | Out-File -FilePath .env -Encoding ascii -NoNewline
 
       - name: Decode YouTube token
@@ -58,16 +57,6 @@ jobs:
           $bytes = [System.Convert]::FromBase64String("${{ secrets.YOUTUBE_TOKEN_B64 }}")
           [System.IO.File]::WriteAllBytes("youtube_token.pickle", $bytes)
           Write-Host "  [OK] Token decoded: $($bytes.Length) bytes"
-
-      - name: Decode YouTube cookies
-        shell: powershell
-        run: |
-          $bytes = [System.Convert]::FromBase64String("${{ secrets.YT_COOKIES_B64 }}")
-          $text = [System.Text.Encoding]::ASCII.GetString($bytes) -replace "`r", ""
-          [System.IO.File]::WriteAllText("cookies.txt", $text, [System.Text.Encoding]::ASCII)
-          $lines = (Get-Content cookies.txt | Measure-Object -Line).Lines
-          $size = (Get-Item cookies.txt).Length
-          Write-Host "  [OK] Cookies decoded: $lines lines, $size bytes"
 
       - name: Create assets directories
         shell: powershell
