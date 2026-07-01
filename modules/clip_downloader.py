@@ -58,18 +58,15 @@ def _get_random_user_agent():
 
 
 def _get_clean_cookies():
-    """Return path to a cookies file WITHOUT auth tokens, with f6=0.
+    """Return path to a cookies file with PREF (Restricted Mode) removed.
 
-    YouTube accounts with Restricted Mode (even if set per-session) limit
-    available formats to storyboard images only. Auth cookies from a
-    logged-in browser also trigger account-level Restricted Mode detection.
+    The PREF cookie stores the Restricted Mode flag (f6=40000000). Even when
+    the YouTube account has Restricted Mode OFF, the exported cookie can still
+    carry the ON flag from the browser session, causing yt-dlp to only see
+    storyboard-image formats.
 
-    This function strips ALL auth/member cookies (SAPISID, SID, SSID, HSID,
-    APISID, LOGIN_INFO, __Secure-*) and only keeps basic navigation cookies
-    (VISITOR_INFO1_LIVE, YSC, PREF, etc.) with f6 forced to 0.
-
-    The resulting 'anonymous' cookies file avoids Restricted Mode while still
-    providing enough fingerprinting to help bypass bot detection in CI.
+    This function strips ONLY the PREF line from the cookies file, keeping all
+    auth tokens intact for bot detection bypass.
 
     Returns:
         Path to sanitized cookies file, or None if no cookies file available.
@@ -87,27 +84,14 @@ def _get_clean_cookies():
     except Exception:
         return None
 
-    auth_patterns = re.compile(
-        r'\t(SAPISID|LOGIN_INFO|SID[^\t]*|SSID|HSID|APISID|LSID|'
-        r'__Secure-[123]PSID[^\t]*|__Host-[^\t]*)\t'
-    )
+    kept = [line for line in lines if not re.search(r'\tPREF\t', line)]
 
-    kept = []
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            kept.append(line)
-            continue
-        if auth_patterns.search(line):
-            continue
-        kept.append(line)
-
-    cleaned = "".join(kept)
-    cleaned = re.sub(r'(PREF[^\t]*?)f6=[^&\t]*', r'\1f6=0', cleaned)
+    if len(kept) == len(lines):
+        return YT_COOKIES_FILE
 
     try:
         with open(clean_path, "w", encoding="utf-8") as f:
-            f.write(cleaned)
+            f.writelines(kept)
     except Exception:
         return None
 
@@ -304,16 +288,15 @@ def _extract_video_info(video_url):
 def download_clip(video_url, output_template=None, video_id=None):
     """Download a full video from YouTube with 3-tier fallback.
 
-    Uses clean cookies (no auth, f6=0) + android_vr first — avoids Restricted
-    Mode while still having enough fingerprinting to bypass CI bot detection.
-    Falls back to original cookies, then no cookies at all.
-
-    Search (with cookies) is handled separately in download_best_match().
-
-    Args:
-        video_url: YouTube URL to download
-        output_template: Output file template (default: downloads dir)
-        video_id: Video ID for file finding (optional, auto-detected if None)
+    Strategy:
+      1. Clean cookies (PREF removed) + auto client
+         — Removes the Restricted Mode flag while keeping auth tokens for
+           bot bypass. Auto-selects android_vr or appropriate client.
+      2. Original cookies + auto client
+         — May get Restricted Mode, but includes all auth tokens.
+      3. No cookies + android_vr
+         — Works for unblocked IPs; android_vr gives full formats without
+           needing cookies.
 
     Returns:
         Path to downloaded file, or None on failure
@@ -326,19 +309,20 @@ def download_clip(video_url, output_template=None, video_id=None):
 
     attempts = []
     if clean_cookies_path:
-        attempts.append(("no auth (f6=0, basic only)", clean_cookies_path))
+        attempts.append(("clean (no PREF)", clean_cookies_path, None))
     if YT_COOKIES_FILE and os.path.isfile(YT_COOKIES_FILE):
         if not clean_cookies_path or YT_COOKIES_FILE != clean_cookies_path:
-            attempts.append(("original (auth)", YT_COOKIES_FILE))
-    attempts.append(("no cookies", None))
+            attempts.append(("original (full)", YT_COOKIES_FILE, None))
+    attempts.append(("no cookies", None, "android_vr"))
 
-    for label, cookie_path in attempts:
+    for label, cookie_path, client in attempts:
         cmd = [
             "yt-dlp",
             "--no-warnings",
-            "--extractor-args", "youtube:player_client=android_vr",
             "-f", "best[height<=1080]",
         ]
+        if client:
+            cmd += ["--extractor-args", f"youtube:player_client={client}"]
         if cookie_path:
             cmd += ["--cookies", cookie_path]
         cmd += ["-o", output_template, video_url]
@@ -356,7 +340,8 @@ def download_clip(video_url, output_template=None, video_id=None):
             break
 
         err = (result.stderr or "").lower()
-        if any(x in err for x in ["sign in", "bot", "requested format is not available"]):
+        if any(x in err for x in ["sign in", "bot", "requested format is not available",
+                                   "failed to extract any player response"]):
             print(f"  [downloader] {label}: {err[:200]}", flush=True)
             print(f"  [downloader] Trying next method...", flush=True)
             continue
