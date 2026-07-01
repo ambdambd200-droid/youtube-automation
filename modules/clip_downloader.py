@@ -4,7 +4,6 @@ Handles both World Cup match highlights and movie scenes.
 """
 import json
 import os
-import re
 import subprocess
 import sys
 import random
@@ -31,74 +30,17 @@ _USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
 ]
 
-# Ordered list of player clients to try.
-# Priority order:
-#   1. web        — Works best with cookies; cookies-based auth most effective
-#   2. android    — POT via bgutil plugin; broad format support
-#   3. ios        — Alternative mobile client with POT support (bgutil plugin)
-#   4. android_vr — No PO token needed, but often blocked first (last resort)
-#
-# The bgutil-ytdlp-pot-provider plugin auto-generates Proof-of-Origin tokens for
-# android, ios, and web clients. web is tried first because it works best with
-# cookie-based authentication from --cookies.
 _PLAYER_CLIENTS = [
-    "web",               # Best with cookies — tries cookie auth first
-    "android",           # POT via bgutil plugin
-    "ios",               # POT via bgutil plugin
-    "android_vr",        # No PO token needed, last resort
+    "web",
+    "android",
+    "ios",
+    "android_vr",
 ]
-
-# bgutil-ytdlp-pot-provider HTTP server address (Docker container on port 4416)
-_BGUTIL_BASE_URL = "http://127.0.0.1:4416"
 
 
 def _get_random_user_agent():
     """Return a random desktop Chrome User-Agent string."""
     return random.choice(_USER_AGENTS)
-
-
-def _get_clean_cookies():
-    """Return path to a cookies file with PREF (Restricted Mode) removed.
-
-    The PREF cookie stores the Restricted Mode flag (f6=40000000). Even when
-    the YouTube account has Restricted Mode OFF, the exported cookie can still
-    carry the ON flag from the browser session, causing yt-dlp to only see
-    storyboard-image formats.
-
-    This function strips ONLY the PREF line from the cookies file, keeping all
-    auth tokens intact for bot detection bypass.
-
-    Returns:
-        Path to sanitized cookies file, or None if no cookies file available.
-    """
-    if not YT_COOKIES_FILE or not os.path.isfile(YT_COOKIES_FILE):
-        return None
-
-    clean_path = os.path.join(BASE_DIR, "cookies_clean.txt")
-    if os.path.isfile(clean_path) and os.path.getmtime(clean_path) >= os.path.getmtime(YT_COOKIES_FILE):
-        return clean_path
-
-    try:
-        with open(YT_COOKIES_FILE, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-    except Exception:
-        return None
-
-    kept = [line for line in lines if not re.search(r'\tPREF\t', line)]
-
-    if len(kept) == len(lines):
-        return YT_COOKIES_FILE
-
-    try:
-        with open(clean_path, "w", encoding="utf-8") as f:
-            f.writelines(kept)
-    except Exception:
-        return None
-
-    if os.path.getsize(clean_path) < 50:
-        return None
-
-    return clean_path
 
 
 def _log_cookie_status():
@@ -115,16 +57,7 @@ def _log_cookie_status():
 
 
 def _get_info_args(player_client=None):
-    """Return yt-dlp arguments for fast info-only operations (search, metadata).
-
-    Lightweight — no throttling or extra delays so info fetches stay fast.
-    Still has retries and cookies for bot bypass.
-
-    NOTE: player_client is no longer forced via extractor-args. yt-dlp >=2026
-    auto-selects the best client when --cookies is provided. The bgutil POT
-    provider extractor args were removed — they were interfering with normal
-    extraction and not actually solving the n-challenge.
-    """
+    """Return yt-dlp arguments for fast info-only operations (search, metadata)."""
     _log_cookie_status()
     args = [
         "--no-warnings",
@@ -286,17 +219,11 @@ def _extract_video_info(video_url):
 
 
 def download_clip(video_url, output_template=None, video_id=None):
-    """Download a full video from YouTube with 3-tier fallback.
+    """Download a full video from YouTube with fallback.
 
     Strategy:
-      1. Clean cookies (PREF removed) + auto client
-         — Removes the Restricted Mode flag while keeping auth tokens for
-           bot bypass. Auto-selects android_vr or appropriate client.
-      2. Original cookies + auto client
-         — May get Restricted Mode, but includes all auth tokens.
-      3. No cookies + android_vr
-         — Works for unblocked IPs; android_vr gives full formats without
-           needing cookies.
+      Tries cookies first (if available), then falls back to
+      no cookies + android_vr for unblocked IPs.
 
     Returns:
         Path to downloaded file, or None on failure
@@ -305,14 +232,9 @@ def download_clip(video_url, output_template=None, video_id=None):
         os.makedirs(DOWNLOADS_DIR, exist_ok=True)
         output_template = os.path.join(DOWNLOADS_DIR, "%(id)s.%(ext)s")
 
-    clean_cookies_path = _get_clean_cookies()
-
     attempts = []
-    if clean_cookies_path:
-        attempts.append(("clean (no PREF)", clean_cookies_path, None))
     if YT_COOKIES_FILE and os.path.isfile(YT_COOKIES_FILE):
-        if not clean_cookies_path or YT_COOKIES_FILE != clean_cookies_path:
-            attempts.append(("original (full)", YT_COOKIES_FILE, None))
+        attempts.append(("with cookies", YT_COOKIES_FILE, None))
     attempts.append(("no cookies", None, "android_vr"))
 
     for label, cookie_path, client in attempts:
@@ -372,9 +294,6 @@ def download_clip(video_url, output_template=None, video_id=None):
 
 def download_best_match(search_query, used_ids=None):
     """Search and download the best matching video.
-
-    Uses cookies for SEARCH (to bypass CI bot detection) but downloads WITHOUT
-    cookies (cookies trigger Restricted Mode which limits formats).
 
     Args:
         search_query: Search query for YouTube
