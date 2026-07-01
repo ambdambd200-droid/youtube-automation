@@ -10,6 +10,10 @@ assets/thumbnails/variants/*
 # Keep log files (track history)
 !assets/logs/*
 
+# But ignore runtime artifacts (regenerated every run)
+assets/logs/_frames/
+assets/logs/pipeline_state.json
+
 # YouTube OAuth token
 youtube_token.pickle
 
