@@ -240,16 +240,20 @@ def _extract_video_info(video_url):
     return None, None, 0
 
 
-def download_clip(video_url, output_template=None):
+def download_clip(video_url, output_template=None, video_id=None):
     """Download a full video from YouTube.
 
-    Tries multiple player clients sequentially if bot detection blocks one.
-    Uses random User-Agent per attempt.
-    Trimming is handled later by clip_editor.py's crop_to_shorts.
+    Intentionally does NOT use cookies for download — cookies from browser
+    extensions often trigger YouTube Restricted Mode, which limits available
+    formats to storyboard images only. Uses android_vr client which works
+    without cookies and returns full format access.
+
+    Search (with cookies) is handled separately in download_best_match().
 
     Args:
         video_url: YouTube URL to download
         output_template: Output file template (default: downloads dir)
+        video_id: Video ID for file finding (optional, auto-detected if None)
 
     Returns:
         Path to downloaded file, or None on failure
@@ -259,48 +263,58 @@ def download_clip(video_url, output_template=None):
         output_template = os.path.join(DOWNLOADS_DIR, "%(id)s.%(ext)s")
 
     try:
-        info, video_id, duration = _extract_video_info(video_url)
-        if info is None:
-            return None
-
-        def _download(client, timeout):
-            client_args = _get_download_args(player_client=client)
-            # NOTE: Don't use DASH (bestvideo+bestaudio) — it requires n-challenge
-            # solving which fails in headless CI. Single-stream `best` works
-            # reliably with cookies + yt-dlp's built-in fallback.
+        def _try_download(use_cookies=False):
             cmd = [
                 "yt-dlp",
+                "--no-warnings",
                 "-f", "best[height<=1080]",
-            ] + client_args + [
-                "-o", output_template,
-                video_url,
             ]
+            if use_cookies:
+                # Fallback: try with cookies + web client (limited formats)
+                cmd += ["--cookies", YT_COOKIES_FILE] if YT_COOKIES_FILE and os.path.isfile(YT_COOKIES_FILE) else []
+                cmd += ["--extractor-args", "youtube:player_client=web"]
+            else:
+                # Primary: android_vr without cookies (full formats)
+                cmd += ["--extractor-args", "youtube:player_client=android_vr"]
+            cmd += ["-o", output_template, video_url]
 
             try:
-                download_result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             except subprocess.TimeoutExpired:
-                return False, "timed out"
+                return None, "timed out"
+            return result, None
 
-            if download_result.returncode != 0:
-                return False, download_result.stderr[:300]
+        # Primary attempt: android_vr without cookies
+        result, err = _try_download(use_cookies=False)
 
-            return True, download_result
+        # If bot detection, retry with cookies
+        if result is None or (result.returncode != 0 and ("sign in" in (result.stderr or "").lower() or "bot" in (result.stderr or "").lower())):
+            print("  [downloader] Bot detected without cookies, retrying with cookies...", flush=True)
+            result, err = _try_download(use_cookies=True)
 
-        download_result = _try_with_client_fallback(_download, timeout=300)
+        if result is None:
+            print("  [downloader] Download timed out", flush=True)
+            return None
 
-        if download_result is None:
-            print("  [downloader] Download failed: all clients exhausted", flush=True)
+        if result.returncode != 0:
+            print(f"  [downloader] ERROR: {result.stderr[:300]}", flush=True)
             return None
 
         # Find the downloaded file
-        base = os.path.splitext(output_template.split("%(ext)s")[0])[0]
+        if video_id:
+            for ext in [".mp4", ".webm", ".mkv"]:
+                fname = os.path.join(DOWNLOADS_DIR, f"{video_id}{ext}")
+                if os.path.exists(fname):
+                    print(f"  [downloader] Downloaded: {fname} ({os.path.getsize(fname)} bytes)", flush=True)
+                    return fname
+
+        # Fallback: scan downloads dir for any new file
         for ext in [".mp4", ".webm", ".mkv"]:
-            fname = f"{base}{ext}".replace("%(id)s", video_id)
-            fname2 = os.path.join(DOWNLOADS_DIR, f"{video_id}{ext}")
-            for path_candidate in [fname, fname2]:
-                if os.path.exists(path_candidate):
-                    print(f"  [downloader] Downloaded: {path_candidate} ({os.path.getsize(path_candidate)} bytes)", flush=True)
-                    return path_candidate
+            for fname in os.listdir(DOWNLOADS_DIR):
+                if fname.endswith(ext):
+                    fpath = os.path.join(DOWNLOADS_DIR, fname)
+                    print(f"  [downloader] Downloaded: {fpath} ({os.path.getsize(fpath)} bytes)", flush=True)
+                    return fpath
 
         print("  [downloader] Downloaded but file not found at expected paths", flush=True)
         return None
@@ -312,6 +326,9 @@ def download_clip(video_url, output_template=None):
 
 def download_best_match(search_query, used_ids=None):
     """Search and download the best matching video.
+
+    Uses cookies for SEARCH (to bypass CI bot detection) but downloads WITHOUT
+    cookies (cookies trigger Restricted Mode which limits formats).
 
     Args:
         search_query: Search query for YouTube
@@ -340,7 +357,7 @@ def download_best_match(search_query, used_ids=None):
     chosen = random.choice(fresh_videos[:8])
 
     print(f"  [downloader] Downloading: {chosen['title']}", flush=True)
-    filepath = download_clip(chosen["url"])
+    filepath = download_clip(chosen["url"], video_id=chosen["id"])
 
     if filepath:
         return {
