@@ -121,13 +121,18 @@ DEFAULT_TAGS = [
 # Day format: 0=Sunday, 1=Monday, ..., 6=Saturday
 # Times are in UTC. Convert to local for your audience.
 POSTING_TIMES_BY_DAY = {
-    6: [(11, 0), (14, 0), (19, 0)],   # Saturday:  11:00, 14:00, 19:00 UTC
-    0: [(10, 0), (13, 0), (18, 0)],   # Sunday:    10:00, 13:00, 18:00 UTC
-    1: [(12, 0), (15, 0), (19, 0)],   # Monday:    12:00, 15:00, 19:00 UTC
-    2: [(12, 0), (16, 0), (20, 0)],   # Tuesday:   12:00, 16:00, 20:00 UTC
-    3: [(12, 0), (14, 0), (18, 0)],   # Wednesday: 12:00, 14:00, 18:00 UTC
-    4: [(12, 0), (15, 0), (20, 0)],   # Thursday:  12:00, 15:00, 20:00 UTC
-    5: [(10, 0), (13, 0), (21, 0)],   # Friday:    10:00, 13:00, 21:00 UTC
+    # All times in UTC. Optimised for a global Arabic-speaking audience:
+    # 08:00 UTC → Middle East late morning, Europe morning, Asia afternoon
+    # 14:00 UTC → Peak global: Europe afternoon, Middle East early evening, Americas morning
+    # 19:00 UTC → Americas afternoon, Europe night, Middle East late night
+    # Day format: 0=Sunday, 1=Monday, ..., 6=Saturday
+    6: [(8, 0),  (14, 0), (19, 0)],   # Saturday
+    0: [(8, 0),  (14, 0), (19, 0)],   # Sunday
+    1: [(8, 0),  (14, 0), (19, 0)],   # Monday
+    2: [(8, 0),  (14, 0), (19, 0)],   # Tuesday
+    3: [(8, 0),  (14, 0), (19, 0)],   # Wednesday
+    4: [(8, 0),  (14, 0), (19, 0)],   # Thursday
+    5: [(8, 0),  (14, 0), (19, 0)],   # Friday
 }
 
 # Legacy fixed times (used as fallback)
