@@ -67,10 +67,10 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install system dependencies
+      - name: Install system dependencies (including Node.js for yt-dlp n-challenge)
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core nodejs
 
       - name: Install Python dependencies
         run: |
