@@ -45,7 +45,7 @@ jobs:
 
       - name: Decode YouTube cookies
         run: |
-          echo "${{ secrets.YT_COOKIES_B64 }}" | base64 -d > cookies.txt
+          printf '%s' "${{ secrets.YT_COOKIES_B64 }}" | base64 -d > cookies.txt
           echo "  [OK] Cookies decoded: $(wc -c < cookies.txt) bytes"
 
       - name: Create .env file
