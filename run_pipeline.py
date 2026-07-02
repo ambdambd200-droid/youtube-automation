@@ -1,192 +1,347 @@
 """
-Main pipeline - generates and uploads YouTube videos.
-Zero paid APIs. Uses Groq (free), Coqui XTTS (free), Edge-TTS (free).
-"""
+VARY — Main Pipeline Runner.
+Daily clip-based pipeline: Select → Download → Edit → Critique → Thumbnail → SEO → Upload → Evolve → Cleanup
 
-import argparse, json, os, sys, asyncio, time, shutil
+Usage:
+    python run_pipeline.py                     # Auto-select content (random daily)
+    python run_pipeline.py --type football     # Force football clip
+    python run_pipeline.py --type movie        # Force movie scene
+    python run_pipeline.py --type series       # Force TV series clip
+    python run_pipeline.py --query "custom search"  # Custom search
+"""
+import argparse
+import json
+import os
+import sys
+import random
+import traceback
 from datetime import datetime
 
+# Fix Windows console encoding for Unicode characters (em dashes, arrows, etc.)
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 sys.path.insert(0, os.path.dirname(__file__))
-from config import OUTPUT_DIR, AUDIO_DIR, IMAGES_DIR, VIDEOS_DIR, THUMBNAILS_DIR, AUDIO_BACKGROUND
 
-VOICEOVERS_DIR = os.path.join(OUTPUT_DIR, "voiceovers")
+from config import (
+    LOG_DIR, FOOTBALL_KEYWORDS, MOVIE_KEYWORDS, SERIES_KEYWORDS,
+)
+from modules.content_selector import select_today_content, load_used_scenes, save_used_scene
+from modules.clip_downloader import download_best_match
+from modules.clip_editor import create_clip
+from modules.thumbnail_generator import generate_thumbnails
+from modules.seo_generator import generate_metadata
+from modules.space_manager import full_cleanup
+from modules.pipeline_watchdog import (
+    register_run_start, register_stage, register_run_complete, register_run_failure,
+)
 
-for d in [AUDIO_DIR, IMAGES_DIR, VIDEOS_DIR, THUMBNAILS_DIR, VOICEOVERS_DIR]:
-    os.makedirs(d, exist_ok=True)
+
+def log_result(stage, status, details=None):
+    """Log a pipeline step result."""
+    entry = {
+        "timestamp": datetime.now().isoformat(),
+        "stage": stage,
+        "status": status,
+        "details": details or {},
+    }
+    with open(os.path.join(LOG_DIR, "pipeline_log.jsonl"), "a") as f:
+        f.write(json.dumps(entry) + "\n")
+    return entry
 
 
-def run_pipeline(video_type="short", topic=None, voiceover_path=None):
-    from modules.script_generator import generate_on_this_day_script, generate_long_script
-    from modules.tts_generator import split_script_into_segments
-    from modules.image_fetcher import fetch_and_download_images
-    from modules.video_assembler import assemble_video
-    from modules.thumbnail_generator import create_thumbnail
-    from modules.youtube_uploader import upload_video, generate_seo_metadata
-    from modules.audio_processor import enhance_tts, add_background_music
-    from modules.voice_cloner import clone_voice_segments
+def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
+    """Run the full daily pipeline.
 
-    # Step 1: Script using free Groq API
-    print(f"\n>>> STEP 1/5: Generating script with Groq (free Llama 3 70B)...")
-    if video_type == "short":
-        script_data = generate_on_this_day_script()
-    else:
-        script_data = generate_long_script(topic)
+    Args:
+        force_type: Force a specific content type ("football", "movie", "series", or None)
+        force_query: Force a specific search query
 
-    script = script_data.get("script", "")
-    script_clean = script_data.get("script_clean", script)
-    title = script_data.get("topic", "Video")
-    thumb_hint = script_data.get("thumbnail_hint", "")
-    print(f"  Title: {title}")
-    print(f"  Script: {len(script)} chars")
-    if thumb_hint:
-        print(f"  Thumbnail hint: {thumb_hint[:80]}")
+    Returns:
+        Dict with results, or raises on failure
+    """
+    # ── Register with watchdog ─────────────────────────────
+    pipeline_id = pipeline_id or register_run_start("daily")
 
-    if not script or len(script) < 50:
-        raise Exception(f"Script generation failed: {script[:200]}")
-
-    # Step 2: Voiceover with cloning (user's voice if available)
-    audio_path_used = None
-    custom_voice = None
-
-    # Find the user's custom voice file for cloning
-    if voiceover_path and os.path.exists(voiceover_path):
-        custom_voice = voiceover_path
-    auto_voice = os.path.join(VOICEOVERS_DIR, "custom_voice.mp3")
-    auto_voice2 = os.path.join(VOICEOVERS_DIR, "custom_voice.mp4")
-    if os.path.exists(auto_voice):
-        custom_voice = auto_voice
-    if os.path.exists(auto_voice2):
-        custom_voice = auto_voice2
-
-    if custom_voice:
-        print(f"\n>>> STEP 2/5: Cloning voice from {os.path.basename(custom_voice)}...")
-        segments = split_script_into_segments(script_clean)
-        print(f"  Segments: {len(segments)}")
-
-        audio_files = clone_voice_segments(segments, custom_voice, prefix=video_type, language="en")
-
-        if audio_files:
-            # Combine audio segments
-            combined_path = os.path.join(AUDIO_DIR, f"{video_type}_combined.mp3")
-            if len(audio_files) > 1:
-                import subprocess
-                inputs = []
-                for f in audio_files:
-                    inputs.extend(["-i", f])
-                filter_parts = [f"[{i}:0]" for i in range(len(audio_files))]
-                filter_str = "".join(filter_parts) + f"concat=n={len(audio_files)}:v=0:a=1[out]"
-                cmd = ["ffmpeg", *inputs, "-filter_complex", filter_str, "-map", "[out]", combined_path, "-y"]
-                subprocess.run(cmd, capture_output=True)
-                audio_path_used = combined_path if os.path.exists(combined_path) else audio_files[0]
-            else:
-                audio_path_used = audio_files[0]
-
-    if not audio_path_used:
-        # Fallback: Edge-TTS with enhancement
-        print(f"\n>>> STEP 2/5: Using Edge-TTS (free)...")
-        from modules.tts_generator import generate_tts as generate_tts_fn
-
-        segments = split_script_into_segments(script_clean)
-        print(f"  Segments: {len(segments)}")
-
-        audio_files = []
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        for i, seg in enumerate(segments):
-            fname = f"{video_type}_voiceover_{i+1:02d}.mp3"
-            path = os.path.join(AUDIO_DIR, fname)
-            result = loop.run_until_complete(generate_tts_fn(seg, path))
-            if result:
-                audio_files.append(result)
-                print(f"  Audio {i+1}: {os.path.getsize(result)} bytes")
-        loop.close()
-
-        if not audio_files:
-            raise Exception("TTS generation failed")
-
-        # Combine segments
-        combined_path = os.path.join(AUDIO_DIR, f"{video_type}_combined.mp3")
-        if len(audio_files) > 1:
-            import subprocess
-            inputs = []
-            for f in audio_files:
-                inputs.extend(["-i", f])
-            filter_parts = [f"[{i}:0]" for i in range(len(audio_files))]
-            filter_str = "".join(filter_parts) + f"concat=n={len(audio_files)}:v=0:a=1[out]"
-            cmd = ["ffmpeg", *inputs, "-filter_complex", filter_str, "-map", "[out]", combined_path, "-y"]
-            subprocess.run(cmd, capture_output=True)
-            audio_path_used = combined_path if os.path.exists(combined_path) else audio_files[0]
-        else:
-            audio_path_used = audio_files[0]
-
-    # Step 2b: Enhance audio (EQ, compression, background music)
-    print(f"\n>>> STEP 2b/5: Enhancing audio...")
-    enhanced = os.path.join(AUDIO_DIR, f"{video_type}_enhanced.mp3")
-    bg = str(AUDIO_BACKGROUND) if AUDIO_BACKGROUND and os.path.exists(str(AUDIO_BACKGROUND)) else None
-    enhance_tts(audio_path_used, enhanced)
-
-    if bg:
-        final_audio = os.path.join(AUDIO_DIR, f"{video_type}_final_audio.mp3")
-        add_background_music(enhanced, bg, final_audio)
-        audio_path_used = final_audio
-    else:
-        audio_path_used = enhanced
-
-    if not audio_path_used or not os.path.exists(audio_path_used):
-        raise Exception("Audio processing failed")
-
-    # Step 3: Images
-    print(f"\n>>> STEP 3/5: Fetching images...")
-    img_count = 5 if video_type == "short" else 10
-    img_result = fetch_and_download_images(query=title, count=img_count)
-    images = img_result.get("files", [])
-    print(f"  Images: {len(images)} files")
-
-    # Step 4: Video
-    print(f"\n>>> STEP 4/5: Assembling professional video...")
-    video_path = assemble_video(
-        images=images,
-        audio_path=audio_path_used,
-        output_path=os.path.join(VIDEOS_DIR, f"{video_type}_final.mp4"),
-        background_music=bg,
-        is_short=(video_type == "short"),
-        text_overlays=[{"text": title, "start": 0, "end": 5}],
-        script=script
-    )
-    if not video_path or not os.path.exists(video_path):
-        raise Exception("Video assembly failed")
-    print(f"  Video: {os.path.getsize(video_path)} bytes")
-
-    # Step 5: Thumbnail
-    print(f"\n>>> STEP 5/5: Generating thumbnail...")
-    thumb_path = create_thumbnail(
-        images, title,
-        os.path.join(THUMBNAILS_DIR, f"{video_type}_thumb.jpg"),
-        channel_logo_path="assets/channel_pic.png",
-        channel_name="Depths"
-    )
-
-    # Upload to YouTube
-    print(f"\n>>> UPLOADING to YouTube...")
-    desc, tags = generate_seo_metadata(script, title)
-    vid_id, resp = upload_video(
-        video_path=video_path, title=title,
-        description=desc, tags=tags,
-        thumbnail_path=thumb_path
-    )
-    url = f"https://youtu.be/{vid_id}"
     print(f"\n{'='*60}")
-    print(f"  SUCCESS! Video uploaded:")
-    print(f"  Title: {title}")
-    print(f"  URL: {url}")
-    print(f"{'='*60}")
-    return {"title": title, "url": url, "video_id": vid_id}
+    print(f"  VARY — Daily Clip Pipeline")
+    print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"  Run: {pipeline_id}")
+    print(f"{'='*60}\n")
+
+    # ── Channel Branding Check ────────────────────────────
+    print(f">>> Checking channel branding...")
+    try:
+        from modules.channel_manager import check_and_update_channel
+        channel_result = check_and_update_channel()
+        log_result("channel_check", "success", channel_result)
+        if channel_result.get("description_updated"):
+            print(f"  Channel description updated", flush=True)
+    except Exception as e:
+        print(f"  [SKIP] Channel check failed: {e}", flush=True)
+        log_result("channel_check", "skipped", {"error": str(e)})
+
+    # ── Step 1: Content Selection ────────────────────────
+    register_stage(pipeline_id, "content_selection")
+    print(f">>> Step 1/9: Selecting content...")
+    if force_type:
+        keyword_map = {"football": FOOTBALL_KEYWORDS, "movie": MOVIE_KEYWORDS, "series": SERIES_KEYWORDS}
+        content_info = {
+            "type": force_type,
+            "search_query": force_query or random.choice(
+                keyword_map.get(force_type, MOVIE_KEYWORDS)
+            ),
+            "description": f"Forced: {force_type}",
+        }
+        print(f"  Forced type: {force_type}")
+    elif force_query:
+        content_info = {
+            "type": "custom",
+            "search_query": force_query,
+            "description": f"Custom query: {force_query}",
+        }
+        print(f"  Custom query: {force_query}")
+    else:
+        content_info = select_today_content()
+        print(f"  Selected: {content_info['type']}")
+        print(f"  Search: {content_info['search_query']}")
+
+    log_result("content_selection", "success", content_info)
+
+    # ── Step 2: Download Clip ────────────────────────────
+    register_stage(pipeline_id, "download")
+    print(f"\n>>> Step 2/9: Downloading clip...")
+    used = load_used_scenes()
+    used_ids = set()
+    for key in ["movie_scenes", "football_matches", "series_scenes"]:
+        for entry in used.get(key, []):
+            used_ids.add(entry.get("identifier", ""))
+
+    download_result = download_best_match(
+        content_info["search_query"],
+        used_ids=used_ids,
+        content_type=content_info["type"],
+    )
+
+    if not download_result:
+        print(f"  [FAILED] No video found for query", flush=True)
+        log_result("download", "failed", {"search": content_info["search_query"]})
+        # Try one more time with a different query
+        keyword_map = {"football": FOOTBALL_KEYWORDS, "movie": MOVIE_KEYWORDS, "series": SERIES_KEYWORDS}
+        alt_queries = keyword_map.get(content_info["type"], MOVIE_KEYWORDS)
+        alt_query = random.choice([q for q in alt_queries if q != content_info["search_query"]] or alt_queries)
+        print(f"  Retrying with: {alt_query}", flush=True)
+        download_result = download_best_match(alt_query, used_ids=used_ids, content_type=content_info["type"])
+
+    if not download_result:
+        raise Exception(f"Failed to download clip for: {content_info['search_query']}")
+
+    print(f"  Downloaded: {download_result['title']}", flush=True)
+    log_result("download", "success", download_result)
+
+    # ── Step 3: Edit Clip ────────────────────────────────
+    register_stage(pipeline_id, "editing")
+    print(f"\n>>> Step 3/9: Editing clip to Shorts format...")
+    clip_result = create_clip(
+        download_result["path"],
+        content_info["type"],
+        title=download_result["title"],
+    )
+
+    if not clip_result:
+        raise Exception("Clip editing failed")
+
+    print(f"  Clip duration: {clip_result.get('duration', 0):.1f}s", flush=True)
+    log_result("editing", "success", clip_result)
+
+    # ── Step 4: Generate Thumbnails (A/B variants) ──────
+    register_stage(pipeline_id, "thumbnails")
+    print(f"\n>>> Step 4/9: Generating thumbnails...")
+    thumbnails = generate_thumbnails(
+        clip_result["path"],
+        download_result["title"][:50],
+        content_info["type"],
+    )
+
+    if not thumbnails:
+        print(f"  [WARNING] Thumbnail generation failed, continuing without", flush=True)
+        thumbnails = {}
+
+    log_result("thumbnails", "success" if thumbnails else "skipped", {"variants": list(thumbnails.keys())})
+
+    # ── Step 5: Generate SEO ─────────────────────────────
+    register_stage(pipeline_id, "seo")
+    print(f"\n>>> Step 5/9: Generating SEO metadata...")
+    seo = generate_metadata(
+        download_result["title"],
+        content_info["type"],
+        source_url=download_result.get("url"),
+    )
+
+    print(f"  Title: {seo['title']}", flush=True)
+    print(f"  Tags: {len(seo['tags'])} tags", flush=True)
+
+    # ── Step 6: Critique the clip (pre-upload) ───────────
+    register_stage(pipeline_id, "critique")
+    print(f"\n>>> Step 6/9: Critiquing clip quality...")
+    critique_result = None
+    try:
+        from modules.clip_critique import critique_clip
+        critique_result = critique_clip(
+            clip_result["path"],
+            content_info["type"],
+            source_title=download_result["title"],
+            source_duration=clip_result.get("duration", 0),
+        )
+        if critique_result:
+            log_result("critique", "success", {
+                "compound_score": critique_result["compound_score"],
+                "grade": critique_result["grade"],
+            })
+    except Exception as e:
+        print(f"  [SKIP] Critique error: {e}", flush=True)
+        log_result("critique", "skipped", {"error": str(e)})
+
+    # ── Step 7: Upload to YouTube ────────────────────────
+    register_stage(pipeline_id, "upload")
+    print(f"\n>>> Step 7/9: Uploading to YouTube...")
+    from modules.youtube_uploader import upload_video
+
+    # Pick the best thumbnail (prefer v3, then v2, then v1)
+    best_thumb = None
+    for variant in ["v3", "v2", "v1"]:
+        if variant in thumbnails:
+            best_thumb = thumbnails[variant]
+            break
+
+    try:
+        video_id, response = upload_video(
+            video_path=clip_result["path"],
+            title=seo["title"],
+            description=seo["description"],
+            tags=seo["tags"],
+            thumbnail_path=best_thumb,
+            privacy_status="public",
+        )
+
+        video_url = f"https://youtu.be/{video_id}"
+        print(f"\n  ✅ UPLOADED: {seo['title']}", flush=True)
+        print(f"  URL: {video_url}", flush=True)
+        log_result("upload", "success", {"video_id": video_id, "url": video_url})
+
+    except Exception as e:
+        print(f"  [FAILED] Upload error: {e}", flush=True)
+        log_result("upload", "failed", {"error": str(e)})
+        video_id = None
+        video_url = None
+
+    # ── Step 6a: Register upload for performance tracking ──
+    if video_id:
+        try:
+            from modules.performance_tracker import register_upload
+            register_upload(
+                video_id=video_id,
+                title=download_result["title"],
+                content_type=content_info["type"],
+                search_query=content_info["search_query"],
+                seo_title=seo["title"],
+                critique_score=critique_result["compound_score"] if critique_result else None,
+                critique_grade=critique_result["grade"] if critique_result else None,
+            )
+            print(f"  Registered for performance tracking: {video_id}", flush=True)
+            log_result("performance_register", "success", {"video_id": video_id})
+        except Exception as e:
+            print(f"  [SKIP] Performance register error: {e}", flush=True)
+            log_result("performance_register", "skipped", {"error": str(e)})
+
+    # ── Step 8: Evolution — self-improvement cycle ────────
+    register_stage(pipeline_id, "evolution")
+    print(f"\n>>> Step 8/9: Running evolution cycle...")
+    evolution_result = None
+    try:
+        from modules.evolution_engine import evolve
+        evolution_result = evolve()
+        log_result("evolution", "success", {
+            "generation": evolution_result.get("generation", 0),
+            "evolved": evolution_result.get("evolved", False),
+            "trends": evolution_result.get("trends", {}),
+        })
+        if evolution_result.get("evolved"):
+            print(f"  Parameters evolved to generation {evolution_result['generation']}", flush=True)
+    except Exception as e:
+        print(f"  [SKIP] Evolution error: {e}", flush=True)
+        log_result("evolution", "skipped", {"error": str(e)})
+
+    # ── Step 9: Space Cleanup ─────────────────────────────
+    register_stage(pipeline_id, "cleanup")
+    print(f"\n>>> Step 9/9: Cleaning up all downloaded files...")
+    # Build list of everything to delete: source download + processed clip + thumbnails
+    paths_to_clean = [download_result["path"]]
+    if clip_result:
+        paths_to_clean.append(clip_result["path"])
+    for variant in thumbnails.values():
+        if variant and os.path.exists(variant):
+            paths_to_clean.append(variant)
+    space_info = full_cleanup(paths_to_clean)
+
+    # Mark as used to avoid repeat
+    save_used_scene(content_info["type"], download_result["video_id"])
+
+    # ── Mark complete in watchdog ─────────────────────────
+    register_run_complete(pipeline_id)
+
+    # ── Summary ──────────────────────────────────────────
+    print(f"\n{'='*60}")
+    print(f"  ✅ PIPELINE COMPLETE")
+    print(f"  Content: {content_info['type']}")
+    print(f"  Source: {download_result['title']}")
+    print(f"  Run ID: {pipeline_id}")
+    if video_url:
+        print(f"  Uploaded: {video_url}")
+    if critique_result:
+        print(f"  Critique: {critique_result['compound_score']}/100 ({critique_result['grade']})")
+    if evolution_result:
+        print(f"  Evolution gen: {evolution_result.get('generation', 'N/A')}")
+    print(f"  Space: {space_info.get('size_mb', 0):.1f} MB used")
+    print(f"{'='*60}\n")
+
+    return {
+        "content_type": content_info["type"],
+        "search_query": content_info["search_query"],
+        "source_title": download_result["title"],
+        "clip_path": clip_result["path"],
+        "thumbnails": thumbnails,
+        "seo_title": seo["title"],
+        "video_id": video_id,
+        "video_url": video_url,
+        "critique_score": critique_result["compound_score"] if critique_result else None,
+        "critique_grade": critique_result["grade"] if critique_result else None,
+        "evolution_generation": evolution_result.get("generation") if evolution_result else None,
+    }
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--type", choices=["short", "long"], required=True)
-    parser.add_argument("--topic", default=None)
-    parser.add_argument("--voiceover", default=None, help="Custom voiceover file path")
+    parser = argparse.ArgumentParser(description="VARY — Daily Clip Pipeline")
+    parser.add_argument("--type", choices=["football", "movie", "series"], default=None,
+                        help="Force a specific content type")
+    parser.add_argument("--query", default=None,
+                        help="Force a specific search query")
     args = parser.parse_args()
-    run_pipeline(args.type, args.topic, args.voiceover)
+
+    force_type = None
+    if args.type in ("football", "movie", "series"):
+        force_type = args.type
+
+    from modules.pipeline_watchdog import register_run_start, register_run_failure
+    pipeline_id = register_run_start("daily")
+    try:
+        result = run_pipeline(force_type=force_type, force_query=args.query, pipeline_id=pipeline_id)
+        print(json.dumps(result, indent=2, default=str))
+    except Exception as e:
+        print(f"\n  ❌ PIPELINE CRASHED: {e}", flush=True)
+        traceback.print_exc()
+        register_run_failure(pipeline_id, str(e))
+        sys.exit(1)

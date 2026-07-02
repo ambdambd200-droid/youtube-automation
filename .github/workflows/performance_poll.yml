@@ -1,0 +1,82 @@
+name: VARY — Performance Poll
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"    # Every 6 hours — poll performance data
+  workflow_dispatch:          # Manual trigger
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  poll-performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+
+      - name: Install Python dependencies
+        run: |
+          pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv
+
+      - name: Check Python syntax
+        run: |
+          python -m compileall . -q
+
+      - name: Create .env file
+        run: |
+          echo "YOUTUBE_CLIENT_ID=${{ secrets.YOUTUBE_CLIENT_ID }}" >> .env
+          echo "YOUTUBE_CLIENT_SECRET=${{ secrets.YOUTUBE_CLIENT_SECRET }}" >> .env
+          echo "YOUTUBE_REFRESH_TOKEN=${{ secrets.YOUTUBE_REFRESH_TOKEN }}" >> .env
+          echo "OUTPUT_DIR=./assets" >> .env
+
+      - name: Decode YouTube token
+        run: |
+          echo "${{ secrets.YOUTUBE_TOKEN_B64 }}" | base64 --decode > youtube_token.pickle
+
+      - name: Create assets directories
+        run: |
+          mkdir -p assets/logs
+
+      - name: Poll performance data for all uploaded videos
+        id: poll
+        run: |
+          python -c "
+          from modules.performance_tracker import poll_all_videos, calculate_performance_trends
+          results = poll_all_videos()
+          print(f'Polled {len(results)} videos')
+          trends = calculate_performance_trends()
+          if trends:
+              print(f'Avg real performance: {trends[\"average_performance_score\"]}')
+              print(f'Videos tracked: {trends[\"videos_tracked\"]}')
+              print(f'Like ratio: {trends[\"average_like_ratio\"]}%')
+          "
+
+      - name: Run evolution cycle with real performance data
+        run: |
+          python -c "
+          from modules.evolution_engine import evolve
+          result = evolve()
+          print(f'Evolved: {result[\"evolved\"]}, gen: {result[\"generation\"]}')
+          print(f'Mutations: {result[\"mutations\"]}')
+          "
+
+      - name: Upload performance log as artifact (monthly summary)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-data
+          path: assets/logs/performance_log.jsonl
+          retention-days: 90
