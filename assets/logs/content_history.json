@@ -99,7 +99,12 @@
       "type": "movie",
       "search_query": "iconic movie scene",
       "date": "2026-06-27T16:03:33.500224"
+    },
+    {
+      "type": "movie",
+      "search_query": "thriller classic film scene",
+      "date": "2026-07-02T20:08:24.587776"
     }
   ],
-  "total_count": 20
+  "total_count": 21
 }

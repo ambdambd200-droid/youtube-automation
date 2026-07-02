@@ -259,7 +259,7 @@ def download_clip(video_url, output_template=None, video_id=None):
         cmd = [
             "yt-dlp",
             "--no-warnings",
-            "-f", "best[height<=1080]",
+            "-f", "best[height<=1080]/best[height<=720]/best[height<=480]/best",
         ]
         if client:
             cmd += ["--extractor-args", f"youtube:player_client={client}"]

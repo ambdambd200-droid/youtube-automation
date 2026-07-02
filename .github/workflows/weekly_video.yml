@@ -72,8 +72,16 @@ jobs:
           echo "${{ secrets.YOUTUBE_TOKEN_B64 }}" | base64 --decode > youtube_token.pickle
 
       - name: Decode YouTube cookies (for yt-dlp bot bypass)
+        env:
+          YT_COOKIES_B64: ${{ secrets.YT_COOKIES_B64 }}
         run: |
-          echo "${{ secrets.YT_COOKIES_B64 }}" | base64 --decode > cookies.txt 2>/dev/null || echo "  [SKIP] YT_COOKIES_B64 not set"
+          python3 -c "
+import base64, os
+data = base64.b64decode(os.environ['YT_COOKIES_B64'])
+with open('cookies.txt', 'wb') as f:
+    f.write(data)
+print(f'  [OK] Cookies decoded: {len(data)} bytes')
+"
 
       - name: Create assets directories
         run: |
