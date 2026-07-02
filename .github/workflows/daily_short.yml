@@ -25,15 +25,19 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install Python dependencies
-        shell: powershell
         run: |
-          pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp 2>&1 | Select-Object -Last 5
+          pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
 
       - name: Check Python syntax
         shell: powershell
@@ -61,7 +65,7 @@ jobs:
       - name: Create assets directories
         shell: powershell
         run: |
-          New-Item -ItemType Directory -Force -Path assets\downloads, assets\clips, assets\thumbnails\variants, assets\logs, assets\channel_art | Out-Null
+          New-Item -ItemType Directory -Force -Path ./assets/downloads, ./assets/clips, ./assets/thumbnails/variants, ./assets/logs, ./assets/channel_art | Out-Null
 
       - name: Run clip pipeline (with auto-retry on crash)
         id: pipeline
