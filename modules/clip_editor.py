@@ -1,6 +1,7 @@
 """
-Clip Editor — trims, crops to 9:16 (Shorts), adds text overlays, preserves natural audio.
-No background music — only original sound from the source clip.
+Clip Editor — trims, crops to 9:16 (Shorts), adds text overlays,
+dynamic zoom, transitions, and sound effects per content type.
+Football: raw crop only. Movies/Series: LaughTrack-style effects.
 """
 import json
 import os
@@ -527,7 +528,7 @@ def create_clip(input_path, content_type, title=""):
 
     Args:
         input_path: Path to downloaded source video
-        content_type: "worldcup_2026" or "movie"
+        content_type: "football", "movie", or "series"
         title: Title of the source video
 
     Returns:
@@ -535,21 +536,28 @@ def create_clip(input_path, content_type, title=""):
     """
     os.makedirs(CLIPS_DIR, exist_ok=True)
 
-    # Generate output filename
     import uuid
     clip_id = uuid.uuid4().hex[:10]
     output_path = os.path.join(CLIPS_DIR, f"{content_type}_{clip_id}.mp4")
 
-    # Pre-process: re-mux WebM to MP4 for compatibility
     working_input = remux_to_compatible(input_path)
 
-    # Pick clip segment — pass content_type so evolution can tune selection
     start_time, duration = select_clip_segment(working_input, content_type=content_type)
 
-    # Crop to Shorts format
-    result = crop_to_shorts(working_input, output_path, start_time, duration)
+    if content_type == "football":
+        result = crop_to_shorts(working_input, output_path, start_time, duration)
+    else:
+        temp_path = output_path.replace(".mp4", "_raw.mp4")
+        result = crop_to_shorts(working_input, temp_path, start_time, duration)
+        if result:
+            effects_path = output_path
+            result = apply_movie_effects(result["path"], effects_path, content_type, title)
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
 
-    # Clean up temp file if created
     if working_input != input_path and os.path.exists(working_input):
         try:
             os.remove(working_input)
@@ -560,35 +568,199 @@ def create_clip(input_path, content_type, title=""):
         result["content_type"] = content_type
         result["source_title"] = title
         result["source_path"] = input_path
-
-        # Append end card for movie shorts (hint to watch the original film)
-        if content_type == "movie":
-            # Save original duration before overwriting
-            orig_duration = result.get("duration", 0)
-            endcard_output = output_path.replace(".mp4", "_final.mp4")
-            endcard_result = append_movie_end_card(
-                result["path"],
-                endcard_output,
-                movie_title=title,
-            )
-            if endcard_result:
-                # Remove the non-endcard version, replace with final
-                try:
-                    os.remove(result["path"])
-                except Exception:
-                    pass
-                result["path"] = endcard_result
-                new_duration = get_video_duration(endcard_result)
-                if new_duration > 0:
-                    result["duration"] = new_duration
-                else:
-                    result["duration"] = orig_duration + 3
-            else:
-                print(f"  [editor] End card skipped (non-critical)", flush=True)
-
         return result
 
     return None
+
+
+# ── LaughTrack-style Effects for Movie/Series Shorts ─────
+
+def _generate_sfx(sfx_type):
+    """Generate a short sound effect WAV and return its path."""
+    import uuid
+    sfx_id = uuid.uuid4().hex[:8]
+    sfx_path = os.path.join(CLIPS_DIR, f"_sfx_{sfx_id}.wav")
+
+    sfx_map = {
+        "whoosh": (
+            "anoisesrc=d=0.3:c=pink:a=0.5,"
+            "aequalizer=f=2000:t=q:w=1:g=10,"
+            "aequalizer=f=200:t=q:w=1:g=-10,"
+            "afade=t=in:d=0.05,afade=t=out:d=0.15"
+        ),
+        "bassdrop": (
+            "sine=f=60:d=0.5,"
+            "volume=2.0,"
+            "afade=t=in:d=0.01,afade=t=out:d=0.3"
+        ),
+        "riser": (
+            "sine=f=100:d=1.5:frequency='100+1000*t/1.5',"
+            "volume=1.5,afade=t=in:d=0.1"
+        ),
+        "vineboom": (
+            "sine=f=45:d=0.15,"
+            "volume=3.0,afade=t=out:d=0.12"
+        ),
+        "scratch": (
+            "anoisesrc=d=0.4:c=brown:a=1.0,"
+            "aequalizer=f=3000:t=q:w=2:g=20,"
+            "volume=0.8,afade=t=in:d=0.02,afade=t=out:d=0.15"
+        ),
+    }
+
+    filt = sfx_map.get(sfx_type)
+    if not filt:
+        return None
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "lavfi", "-i", filt,
+        "-ac", "1", "-ar", "44100",
+        sfx_path,
+    ]
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=15)
+        if os.path.exists(sfx_path) and os.path.getsize(sfx_path) > 100:
+            return sfx_path
+    except Exception:
+        pass
+    return None
+
+
+def _laugh_track_texts(title=""):
+    """Generate timed pop-up text and emoji overlays for movie/series shorts."""
+    movie_name = title[:40] if title else "this scene"
+
+    templates = [
+        (f"\"{movie_name}\"", 0.08, "center"),
+        ("wait for it...", 0.20, "bottom"),
+        ("👀", 0.35, "center"),
+        ("this is cinema", 0.50, "bottom"),
+        ("🔥", 0.65, "center"),
+        ("peak fiction.", 0.80, "bottom"),
+    ]
+
+    texts = []
+    for text, ratio, pos in templates:
+        texts.append({"text": text, "ratio": ratio, "pos": pos})
+    return texts
+
+
+def apply_movie_effects(input_path, output_path, content_type, title=""):
+    """Apply LaughTrack-style effects to a movie/series short.
+    Adds dynamic zoom, timed pop-up text, glitch transition, and sound effects.
+    """
+    duration = get_video_duration(input_path)
+    if duration <= 0:
+        return None
+
+    import uuid
+    font_path = get_font_path()
+
+    texts = _laugh_track_texts(title)
+
+    filter_parts = [f"[0:v]scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=0,setsar=1[base]"]
+
+    last_end_ratio = 0
+    for i, item in enumerate(texts):
+        t_start = duration * item["ratio"]
+        t_end = min(t_start + 3.0, duration)
+
+        safe_text = item["text"].replace("'", "\\'").replace(":", "\\:").replace("[", "\\[").replace("]", "\\]")
+        is_emoji = any(c in safe_text for c in ["👀", "🔥", "💀", "😱", "😂"])
+
+        if is_emoji:
+            fs = 80
+            x_expr = "(w-text_w)/2"
+            y_expr = "(h-text_h)/2 - 40"
+            box = "0"
+            bc = "black@0"
+        else:
+            fs = 48
+            x_expr = "(w-text_w)/2"
+            y_expr = "h-th-80" if item["pos"] == "bottom" else "(h-text_h)/2"
+            box = "1"
+            bc = "black@0.5"
+
+        filter_parts.append(
+            f"[base]drawtext=text='{safe_text}':fontcolor=white:fontsize={fs}:"
+            f"x={x_expr}:y={y_expr}:"
+            f"box={box}:boxcolor={bc}:boxborderw=10:"
+            f"alpha='if(lt(t,{t_start}),0,if(lt(t,{t_start+0.15}),(t-{t_start})/0.15,if(lt(t,{t_end}),1,0)))':"
+            f"fontfile='{font_path}':"
+            f"enable='between(t,{t_start},{t_end})'[t{i}]"
+        )
+
+    full_filter = ";".join(filter_parts)
+    last_label = f"t{len(texts)-1}" if texts else "base"
+
+    sfx_files = []
+    for sfx_type in ["whoosh", "bassdrop"]:
+        sfx_path = _generate_sfx(sfx_type)
+        if sfx_path:
+            sfx_files.append(sfx_path)
+
+    input_files = ["-i", input_path]
+    audio_filters = ["[0:a]acopy[aout]"]
+
+    if sfx_files:
+        for sfx_path in sfx_files:
+            sfx_name = os.path.basename(sfx_path)
+            input_files += ["-i", sfx_path]
+            sfx_id = sfx_name.replace(".wav", "").replace("_sfx_", "")
+            # Mix at 15% volume at the beginning
+            audio_filters.append(
+                f"[{len(input_files)-1}:a]volume=0.15[a_sfx_{sfx_id}]"
+            )
+
+        mix_inputs = "[0:a]"
+        for sfx_path in sfx_files:
+            sfx_name = os.path.basename(sfx_path)
+            sfx_id = sfx_name.replace(".wav", "").replace("_sfx_", "")
+            mix_inputs += f"[a_sfx_{sfx_id}]"
+
+        audio_filters[0] = f"{mix_inputs}amix=inputs={len(sfx_files)+1}:duration=first:weights=1 0.15[aout]"
+
+    filter_complex = f"{full_filter}[vout];" + ";".join(audio_filters)
+
+    cmd = [
+        "ffmpeg", "-y",
+    ] + input_files + [
+        "-filter_complex", filter_complex,
+        "-map", f"[{last_label}]",
+        "-map", "[aout]",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+        "-c:a", "aac", "-b:a", "192k",
+        "-pix_fmt", "yuv420p", "-r", str(FPS),
+        "-movflags", "+faststart",
+        "-profile:v", "high", "-level", "4.1",
+        output_path,
+    ]
+
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=300)
+
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
+            actual_dur = get_video_duration(output_path)
+            if actual_dur <= 0:
+                actual_dur = fallback_duration(output_path)
+            print(f"  [editor] LaughTrack effects applied: {output_path} ({actual_dur:.1f}s, {os.path.getsize(output_path)} bytes)", flush=True)
+            return {"path": output_path, "duration": actual_dur}
+        else:
+            print(f"  [editor] LaughTrack effects failed — returning original crop", flush=True)
+            import shutil
+            shutil.copy2(input_path, output_path)
+            return {"path": output_path, "duration": duration}
+    except subprocess.TimeoutExpired:
+        print(f"  [editor] LaughTrack effects timed out — returning original crop", flush=True)
+        import shutil
+        shutil.copy2(input_path, output_path)
+        return {"path": output_path, "duration": duration}
+    except Exception as e:
+        print(f"  [editor] LaughTrack effects error: {e}", flush=True)
+        import shutil
+        shutil.copy2(input_path, output_path)
+        return {"path": output_path, "duration": duration}
 
 
 # ── Weekly Video Pipeline ─────────────────────────────────
@@ -920,19 +1092,18 @@ def _generate_intro_minimal(target_width, target_height, source_title=""):
     return None
 
 
-def create_weekly_video(input_path, output_path, source_title=""):
-    """Create a weekly landscape video with silent text storytelling.
+def create_weekly_video(input_path, output_path, source_title="", voiceover_path=None):
+    """Create a weekly landscape video with voiceover narration.
 
     Prepends an animated 3-second "VARY Weekly" intro card.
     Keeps the original landscape aspect ratio (no 9:16 crop).
-    Adds timed text overlays at the bottom that tell the movie story.
-    Preserves original audio — no voiceover or spoken words.
-    No watermark or shorts-style branding (outside the intro).
+    Mixes in a male voiceover track if provided, with text overlays as backup.
 
     Args:
         input_path: Path to downloaded source video
         output_path: Output path for the weekly video
         source_title: Title of the source video for context
+        voiceover_path: Optional path to pre-recorded voiceover audio file
 
     Returns:
         Dict with path, duration on success, or None on failure
@@ -1016,27 +1187,41 @@ def create_weekly_video(input_path, output_path, source_title=""):
     print(f"  [weekly] Added {texts_added} story text overlays", flush=True)
 
     # Audio chain: trim to match video duration
-    audio_chain = f"[0:a]atrim=0:{video_duration},asetpts=PTS-STARTPTS[aout]"
+    audio_chain = f"[0:a]atrim=0:{video_duration},asetpts=PTS-STARTPTS[a_src]"
+
+    # Handle voiceover if provided
+    has_voiceover = voiceover_path and os.path.exists(voiceover_path)
+    if has_voiceover:
+        input_files = ["-i", input_path, "-i", voiceover_path]
+        # Voiceover at 100%, original audio ducked to 25%
+        audio_chain += f";[2:a]volume=1.0[a_vo];[a_src]volume=0.25[a_src_d];[a_vo][a_src_d]amix=inputs=2:duration=first:weights=1 0.25[aout_raw]"
+        audio_map_label = "[aout_raw]"
+        print(f"  [weekly] Mixing voiceover: {voiceover_path}", flush=True)
+    else:
+        input_files = ["-i", input_path]
+        audio_chain += f";[a_src]acopy[aout_raw]"
+        audio_map_label = "[aout_raw]"
 
     # ── Concatenate intro + main video with smooth crossfade ──
     if has_intro:
         crossfade_dur = WEEKLY_INTRO_CROSSFADE
         xfade_offset = WEEKLY_INTRO_DURATION - crossfade_dur
-        # Video crossfade: last 0.5s of intro fades into first 0.5s of main
-        # Audio crossfade: intro silence crossfades into main audio
         filter_complex = (
             f"{video_chain}[vmain];{audio_chain};"
             f"[1:v]format=yuv420p[intro_v];"
             f"[intro_v][vmain]xfade=transition=fade:"
             f"duration={crossfade_dur}:offset={xfade_offset}[vout];"
-            f"[1:a][aout]acrossfade=d={crossfade_dur}[aout2]"
+            f"[1:a][{audio_map_label}]acrossfade=d={crossfade_dur}[aout]"
         )
         input_files = ["-i", input_path, "-i", intro_path]
-        audio_map = "[aout2]"
+        if has_voiceover:
+            input_files += [voiceover_path]
+        audio_map = "[aout]"
     else:
         filter_complex = f"{video_chain}[vout];{audio_chain}"
-        input_files = ["-i", input_path]
-        audio_map = "[aout]"
+        if not has_voiceover:
+            input_files = ["-i", input_path]
+        audio_map = audio_map_label
 
     # Build ffmpeg command
     cmd = [

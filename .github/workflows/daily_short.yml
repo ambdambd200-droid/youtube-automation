@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       type:
-        description: 'Content type (movie, worldcup, or auto)'
+        description: 'Content type (football, movie, series, or auto)'
         required: false
         default: ''
       query:

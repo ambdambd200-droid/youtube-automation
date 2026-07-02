@@ -455,7 +455,7 @@ def critique_clip(video_path, content_type, source_title="", source_duration=0):
 
     Args:
         video_path: Path to the final processed Short (MP4).
-        content_type: 'movie' or 'worldcup_2026'.
+        content_type: 'football', 'movie', or 'series'.
         source_title: Original video title for context.
         source_duration: Duration of the clip.
 

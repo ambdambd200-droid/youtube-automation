@@ -1,5 +1,5 @@
 """
-Content Selector — randomly picks today's content type (World Cup or Movie).
+Content Selector — randomly picks today's content type (football, movie, or series).
 Tracks history in a JSON log to prevent repeating the same scene/topic.
 """
 import json
@@ -9,14 +9,13 @@ import random
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import LOG_DIR, WORLDCUP_KEYWORDS, MOVIE_KEYWORDS, get_content_weights, is_world_cup_active
+from config import LOG_DIR, FOOTBALL_KEYWORDS, MOVIE_KEYWORDS, SERIES_KEYWORDS, CONTENT_WEIGHTS, CONTENT_TYPES
 
 HISTORY_FILE = os.path.join(LOG_DIR, "content_history.json")
 USED_SCENES_FILE = os.path.join(LOG_DIR, "used_scenes.json")
 
 
 def load_history():
-    """Load content history from JSON log."""
     if os.path.exists(HISTORY_FILE):
         try:
             with open(HISTORY_FILE, "r") as f:
@@ -27,11 +26,9 @@ def load_history():
 
 
 def save_history(entry):
-    """Append an entry to content history."""
     history = load_history()
     history.setdefault("last_30_days", []).append(entry)
     history["total_count"] = history.get("total_count", 0) + 1
-    # Keep only last 90 entries
     if len(history["last_30_days"]) > 90:
         history["last_30_days"] = history["last_30_days"][-90:]
     with open(HISTORY_FILE, "w") as f:
@@ -39,25 +36,23 @@ def save_history(entry):
 
 
 def load_used_scenes():
-    """Load used scenes/matches to avoid repeats."""
     if os.path.exists(USED_SCENES_FILE):
         try:
             with open(USED_SCENES_FILE, "r") as f:
                 return json.load(f)
         except (json.JSONDecodeError, IOError):
             pass
-    return {"movie_scenes": [], "worldcup_matches": []}
+    return {"movie_scenes": [], "football_matches": [], "series_scenes": []}
 
 
 def save_used_scene(content_type, identifier):
-    """Mark a scene/match as used so it won't be repeated."""
     used = load_used_scenes()
-    key = "movie_scenes" if content_type == "movie" else "worldcup_matches"
+    key_map = {"football": "football_matches", "movie": "movie_scenes", "series": "series_scenes"}
+    key = key_map.get(content_type, "movie_scenes")
     used.setdefault(key, []).append({
         "identifier": identifier,
         "date_used": datetime.now().isoformat()
     })
-    # Keep last 500 entries
     if len(used[key]) > 500:
         used[key] = used[key][-500:]
     with open(USED_SCENES_FILE, "w") as f:
@@ -65,9 +60,9 @@ def save_used_scene(content_type, identifier):
 
 
 def is_scene_used(content_type, identifier):
-    """Check if a scene/match has been used before."""
     used = load_used_scenes()
-    key = "movie_scenes" if content_type == "movie" else "worldcup_matches"
+    key_map = {"football": "football_matches", "movie": "movie_scenes", "series": "series_scenes"}
+    key = key_map.get(content_type, "movie_scenes")
     for entry in used.get(key, []):
         if entry["identifier"] == identifier:
             return True
@@ -75,43 +70,34 @@ def is_scene_used(content_type, identifier):
 
 
 def _load_evolution_weights():
-    """Load evolved content weights from the evolution engine (public API)."""
     try:
         from modules.evolution_engine import get_evolved_weights
-        return get_evolved_weights(active=is_world_cup_active())
+        return get_evolved_weights()
     except Exception:
         return None
 
 
 def select_content_type():
-    """Randomly select content type based on weights, with variety enforcement.
-    Automatically stops selecting World Cup content when the tournament is over.
-    Uses evolution engine weights if available (full autonomy).
-    """
+    """Randomly select content type based on weights, with variety enforcement."""
     history = load_history()
     last_30 = history.get("last_30_days", [])
 
-    # Get appropriate weights — try evolved weights first
     evolved = _load_evolution_weights()
     if evolved:
         weights = dict(evolved)
     else:
-        weights = dict(get_content_weights())
+        weights = dict(CONTENT_WEIGHTS)
 
-    # Check last 5 days to avoid streaks
     last_5_types = [h.get("type") for h in last_30[-5:]]
 
-    # If we've had 3+ of same type in last 5, reduce its weight
     for ct in weights:
         streak = last_5_types.count(ct)
         if streak >= 3:
             weights[ct] = max(0.1, weights[ct] * 0.5)
 
-    # Normalize weights
     total = sum(weights.values())
     weights = {k: v / total for k, v in weights.items()}
 
-    # Weighted random choice
     r = random.random()
     cumulative = 0
     for ct, weight in weights.items():
@@ -119,11 +105,10 @@ def select_content_type():
         if r <= cumulative:
             return ct
 
-    return "movie"  # fallback
+    return "movie"
 
 
 def _load_evolved_keywords(content_type):
-    """Load evolved keyword preferences from evolution engine (public API)."""
     try:
         from modules.evolution_engine import get_evolved_keywords
         return get_evolved_keywords(content_type)
@@ -132,32 +117,43 @@ def _load_evolved_keywords(content_type):
 
 
 def generate_search_query(content_type):
-    """Generate a search query for the selected content type.
-    Uses evolved keywords if available.
-    """
-    if content_type == "worldcup_2026":
-        # Use evolved keywords if available, else defaults
-        kws = _load_evolved_keywords(content_type) or WORLDCUP_KEYWORDS
+    """Generate a search query for the selected content type."""
+    if content_type == "football":
+        kws = _load_evolved_keywords(content_type) or FOOTBALL_KEYWORDS
         kw = random.choice(kws)
 
-        # Add variety: sometimes specify a region or team
-        regions = ["", "USA", "Argentina", "Brazil", "France", "Germany",
-                    "England", "Spain", "Portugal", "Netherlands", "Morocco"]
+        teams = ["", "Real Madrid", "Barcelona", "Manchester City", "Liverpool",
+                 "Bayern Munich", "PSG", "Arsenal", "Juventus", "AC Milan"]
         if random.random() < 0.3:
-            team = random.choice(regions)
+            team = random.choice(teams)
             kw = f"{kw} {team}"
 
         return {
-            "type": "worldcup_2026",
+            "type": "football",
             "search_query": kw,
-            "description": f"World Cup 2026 - {kw}",
+            "description": f"Football - {kw}",
         }
 
-    else:  # movie
+    elif content_type == "series":
+        kws = _load_evolved_keywords(content_type) or SERIES_KEYWORDS
+        kw = random.choice(kws)
+
+        shows = ["", "Game of Thrones", "Breaking Bad", "Stranger Things",
+                 "The Crown", "Squid Game", "The Office", "Friends"]
+        if random.random() < 0.3:
+            show = random.choice(shows)
+            kw = f"{kw} {show}"
+
+        return {
+            "type": "series",
+            "search_query": kw,
+            "description": f"TV Series - {kw}",
+        }
+
+    else:
         kws = _load_evolved_keywords(content_type) or MOVIE_KEYWORDS
         kw = random.choice(kws)
 
-        # Add variety: sometimes specify a genre
         genres = ["", "action", "drama", "comedy", "thriller", "sci-fi",
                    "romance", "horror", "animated", "classic", "award winning"]
         if random.random() < 0.3:
@@ -175,16 +171,12 @@ def select_today_content():
     """Main entry point — selects today's content type and search query."""
     content_type = select_content_type()
 
-    # If same as yesterday, re-roll once (extra variety)
     history = load_history()
     if history.get("last_30_days"):
         last_type = history["last_30_days"][-1].get("type")
         if last_type == content_type and random.random() < 0.5:
-            # Only re-roll between types if World Cup is active
-            if is_world_cup_active():
-                content_type = "movie" if content_type == "worldcup_2026" else "worldcup_2026"
-            else:
-                content_type = "movie"
+            others = [t for t in CONTENT_TYPES if t != content_type]
+            content_type = random.choice(others)
 
     query_info = generate_search_query(content_type)
 

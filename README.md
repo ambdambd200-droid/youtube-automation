@@ -104,7 +104,7 @@ python run_pipeline.py
 python run_pipeline.py --type movie
 
 # Force World Cup content
-python run_pipeline.py --type worldcup
+python run_pipeline.py --type football
 
 # Custom search query
 python run_pipeline.py --query "world cup controversial moment 2026"

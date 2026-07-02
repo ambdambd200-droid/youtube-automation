@@ -21,7 +21,7 @@ from flask import Flask, request, jsonify
 sys.path.insert(0, os.path.dirname(__file__))
 
 from config import (
-    CLIPS_DIR, THUMBNAILS_DIR, DOWNLOADS_DIR, LOG_DIR, is_world_cup_active,
+    CLIPS_DIR, THUMBNAILS_DIR, DOWNLOADS_DIR, LOG_DIR,
 )
 from modules.content_selector import select_today_content, load_used_scenes
 from modules.clip_downloader import download_best_match
@@ -46,17 +46,14 @@ def health():
 def select_content():
     """Step 1: Select today's content type and search query."""
     data = request.get_json() or {}
-    force_type = data.get("type")  # "worldcup_2026" or "movie"
+    force_type = data.get("type")  # "football", "movie", or "series"
     force_query = data.get("query")
 
     try:
         if force_type or force_query:
-            from config import WORLDCUP_KEYWORDS, MOVIE_KEYWORDS
             content_info = {
                 "type": force_type or "custom",
-                "search_query": force_query or random.choice(
-                    WORLDCUP_KEYWORDS if force_type == "worldcup_2026" else MOVIE_KEYWORDS
-                ),
+                "search_query": force_query or "trending clips",
                 "description": f"{'Forced: ' + force_type if force_type else 'Custom: ' + force_query}",
             }
         else:
@@ -80,7 +77,7 @@ def download_clip():
     try:
         used = load_used_scenes()
         used_ids = set()
-        for key in ["movie_scenes", "worldcup_matches"]:
+        for key in ["movie_scenes", "football_matches", "series_scenes"]:
             for entry in used.get(key, []):
                 used_ids.add(entry.get("identifier", ""))
 
@@ -253,7 +250,7 @@ def channel_info():
         from modules.channel_manager import get_channel_info
         info = get_channel_info()
         if info:
-            info["world_cup_active"] = is_world_cup_active()
+            info["content_types"] = ["football", "movie", "series"]
             return jsonify(info)
         return jsonify({"error": "Could not fetch channel info"}), 500
     except Exception as ex:

@@ -109,7 +109,7 @@ def run_weekly_pipeline(force_query=None, pipeline_id=None):
     # Load used scenes to avoid re-downloading the same videos
     used = load_used_scenes()
     used_ids = set()
-    for key in ["movie_scenes", "worldcup_matches"]:
+    for key in ["movie_scenes", "football_matches", "series_scenes"]:
         for entry in used.get(key, []):
             used_ids.add(entry.get("identifier", ""))
 

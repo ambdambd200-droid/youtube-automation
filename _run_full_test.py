@@ -36,7 +36,7 @@ results["selection"] = content_info
 print(f"\n>>> STEP 2/7: Downloading clip...")
 used = load_used_scenes()
 used_ids = set()
-for key in ["movie_scenes", "worldcup_matches"]:
+    for key in ["movie_scenes", "football_matches", "series_scenes"]:
     for entry in used.get(key, []):
         used_ids.add(entry.get("identifier", ""))
 
@@ -47,9 +47,10 @@ download_result = download_best_match(
 
 if not download_result:
     print(f"  [FAILED] No video found, retrying with different query...")
-    from config import WORLDCUP_KEYWORDS, MOVIE_KEYWORDS
+    from config import FOOTBALL_KEYWORDS, MOVIE_KEYWORDS, SERIES_KEYWORDS
     import random
-    alt_queries = WORLDCUP_KEYWORDS if content_info["type"] == "worldcup_2026" else MOVIE_KEYWORDS
+    kw_map = {"football": FOOTBALL_KEYWORDS, "movie": MOVIE_KEYWORDS, "series": SERIES_KEYWORDS}
+    alt_queries = kw_map.get(content_info["type"], MOVIE_KEYWORDS)
     alt_query = random.choice([q for q in alt_queries if q != content_info["search_query"]] or alt_queries)
     download_result = download_best_match(alt_query, used_ids=used_ids)
 

@@ -138,7 +138,7 @@ def build_dashboard_data():
     videos = registry.get("videos", [])
 
     # ── Split by content type ─────────────────────────────
-    daily_videos = [v for v in videos if v.get("content_type") in ("movie", "worldcup_2026")]
+    daily_videos = [v for v in videos if v.get("content_type") in ("movie", "football", "series")]
     weekly_videos = [v for v in videos if v.get("content_type") == "weekly_movie"]
 
     # ── Critique stats ────────────────────────────────────
@@ -159,9 +159,9 @@ def build_dashboard_data():
 
     # Split daily critiques by sub-type
     movie_critiques = [c for c in daily_critiques if c.get("content_type") == "movie"]
-    wc_critiques = [c for c in daily_critiques if c.get("content_type") == "worldcup_2026"]
+    fb_critiques = [c for c in daily_critiques if c.get("content_type") == "football"]
     movie_crit_avgs = critique_averages(movie_critiques, DAILY_AXES)
-    wc_crit_avgs = critique_averages(wc_critiques, DAILY_AXES)
+    fb_crit_avgs = critique_averages(fb_critiques, DAILY_AXES)
 
     # ── Performance stats (real YouTube data) ─────────────
     def perf_stats(entries, content_type_filter=None):
@@ -201,7 +201,7 @@ def build_dashboard_data():
             "avg_engagement_rate": avg_engagement,
         }
 
-    daily_perf = perf_stats(perf_entries, content_type_filter=("movie", "worldcup_2026"))
+    daily_perf = perf_stats(perf_entries, content_type_filter=("movie", "football", "series"))
     # Weekly performance — filter for weekly_movie type
     weekly_perf = perf_stats(perf_entries, content_type_filter="weekly_movie")
 
@@ -285,13 +285,13 @@ def build_dashboard_data():
             "weekly": len(weekly_videos),
             "daily_by_type": {
                 "movie": len([v for v in daily_videos if v.get("content_type") == "movie"]),
-                "worldcup_2026": len([v for v in daily_videos if v.get("content_type") == "worldcup_2026"]),
+                "football": len([v for v in daily_videos if v.get("content_type") == "football"]),
             },
         },
         "daily_critique": daily_critique_avgs,
         "weekly_critique": weekly_critique_avgs,
         "movie_critique": movie_crit_avgs,
-        "wc_critique": wc_crit_avgs,
+        "fb_critique": fb_crit_avgs,
         "daily_performance": daily_perf,
         "weekly_performance": weekly_perf,
         "daily_timeline": daily_timeline,
@@ -367,7 +367,7 @@ def render_header(data):
     print(f"\n  📊 OVERVIEW")
     print(f"  {'─'*60}")
     print(f"  Total videos uploaded:     {total}")
-    print(f"  ├─ Daily Shorts:           {daily}  ({reg['daily_by_type']['movie']} movie, {reg['daily_by_type']['worldcup_2026']} world cup)")
+    print(f"  ├─ Daily Shorts:           {daily}  ({reg['daily_by_type']['movie']} movie, {reg['daily_by_type']['football']} football)")
     print(f"  └─ Weekly Videos:          {weekly}")
     print(f"  Content queries run:       {data['content_history']['total_queries']}")
     print(f"  Evolution generation:      {data['evolution']['generation']}")
@@ -378,7 +378,7 @@ def render_critique_comparison(data):
     dc = data["daily_critique"]
     wc = data["weekly_critique"]
     mc = data["movie_critique"]
-    wcc = data["wc_critique"]
+    fbc = data["fb_critique"]
 
     print(f"\n  🎯 CRITIQUE SCORE COMPARISON")
     print(f"  {'─'*60}")
@@ -389,8 +389,8 @@ def render_critique_comparison(data):
     print(f"  {'Daily Shorts':<20} {_colorize_score(dc['compound']):>10} {dc['count']:>8}")
     if mc["count"]:
         print(f"  {'  ├─ Movie':<20} {mc['compound']:>10} {mc['count']:>8}")
-    if wcc["count"]:
-        print(f"  {'  ├─ World Cup':<20} {wcc['compound']:>10} {wcc['count']:>8}")
+    if fbc["count"]:
+        print(f"  {'  ├─ Football':<20} {fbc['compound']:>10} {fbc['count']:>8}")
     print(f"  {'Weekly Videos':<20} {_colorize_score(wc['compound']):>10} {wc['count']:>8}")
 
     if dc["count"] > 0 and wc["count"] > 0:
@@ -535,8 +535,8 @@ def render_performance(data):
             ctype = v["content_type"]
             if ctype == "weekly_movie":
                 ctype_label = "Weekly"
-            elif ctype == "worldcup_2026":
-                ctype_label = "World Cup"
+            elif ctype == "football":
+                ctype_label = "Football"
             else:
                 ctype_label = "Movie"
             print(f"  {i:<4} {title:<30} {ctype_label:<14} {_format_number(v['views']):>8} {v['performance_score']:>6.1f}")

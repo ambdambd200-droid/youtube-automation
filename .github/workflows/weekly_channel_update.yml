@@ -65,7 +65,7 @@ jobs:
           python -c "
           from modules.channel_manager import check_and_update_channel
           result = check_and_update_channel()
-          print(f'World Cup active: {result[\"world_cup_active\"]}')
+          print(f'Channel update: {result}')
           print(f'Description updated: {result[\"description_updated\"]}')
           print(f'Branding uploaded: {result[\"branding_uploaded\"]}')
           "

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 SEO Generator — creates optimized titles, descriptions, and tags for YouTube Shorts.
-Tailored to each content type (World Cup vs Movie).
+Tailored to each content type (football, movie, or series).
 """
 import json
 import os
@@ -9,7 +9,7 @@ import sys
 import random
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import DEFAULT_TAGS, is_world_cup_active, get_posting_times_formatted
+from config import DEFAULT_TAGS, get_posting_times_formatted
 
 
 # ── Title Templates ─────────────────────────────────────────
@@ -17,7 +17,7 @@ from config import DEFAULT_TAGS, is_world_cup_active, get_posting_times_formatte
 #                BALANCED (default current style),
 #                DIRECT (conventional YouTube hook)
 
-POETIC_WORLDCUP_TITLES = [
+POETIC_FOOTBALL_TITLES = [
     "the moment before the roar",
     "a second. then everything.",
     "they didn't see it coming.",
@@ -25,7 +25,7 @@ POETIC_WORLDCUP_TITLES = [
     "the ball. the net. the silence.",
     "this is where it turned.",
     "watch the eyes.",
-    "one pass. one breath.",
+    "one touch. one breath.",
     "the stadium held its breath.",
     "not a goal. a statement.",
     "between the whistle and the scream.",
@@ -54,22 +54,22 @@ POETIC_MOVIE_TITLES = [
 ]
 
 # ── Balanced (current style) ─────────────────────────────────
-WORLDCUP_TITLES = [
-    "THIS MOMENT from World Cup 2026",
-    "World Cup 2026: INSANE Moment",
-    "World Cup 2026: You Won't Believe This",
-    "Controversial Moment in World Cup 2026",
-    "World Cup 2026: Pure Brilliance",
-    "World Cup 2026: The Crowd Went CRAZY",
-    "World Cup 2026: UNREAL Skill",
-    "World Cup 2026: Did You Catch This?",
-    "World Cup 2026 - Best Moment",
-    "World Cup 2026: The Stadium ERUPTED",
-    "World Cup 2026: Controversial Call",
-    "World Cup 2026: Absolute CINEMA",
-    "World Cup 2026: HEARTBREAK",
-    "World Cup 2026: JOY",
-    "World Cup 2026 - One of the Best Moments",
+FOOTBALL_TITLES = [
+    "Insane Skills 🔥",
+    "Unbelievable Goal 🚀",
+    "This Touch Was Something Else",
+    "Pure Football Genius",
+    "How Did He Do That?",
+    "Pure Class",
+    "Different Gravy",
+    "Skills That DEFY Physics",
+    "Unreal Footwork",
+    "The Ball Was Attached to His Foot",
+    "This Pass Is Art",
+    "Cold. Calm. Calculated.",
+    "Ball Don't Lie",
+    "Pure Talent",
+    "Different Level",
 ]
 
 MOVIE_TITLES = [
@@ -91,12 +91,12 @@ MOVIE_TITLES = [
 ]
 
 # ── Direct (conventional YouTube style) ─────────────────────
-DIRECT_WORLDCUP_TITLES = [
-    "World Cup 2026 — Best Moment",
-    "World Cup 2026 Crazy Moment!",
-    "Best World Cup 2026 Clip",
-    "World Cup 2026 Highlight",
-    "Unreal World Cup 2026 Moment",
+DIRECT_FOOTBALL_TITLES = [
+    "Best Football Moment",
+    "Crazy Football Skill!",
+    "Best Football Clip",
+    "Football Highlight",
+    "Unreal Football Moment",
 ]
 
 DIRECT_MOVIE_TITLES = [
@@ -105,6 +105,50 @@ DIRECT_MOVIE_TITLES = [
     "Cinematic Masterpiece",
     "Best Scene in Cinema",
     "Unforgettable Movie Moment",
+]
+
+POETIC_SERIES_TITLES = [
+    "watch the eyes.",
+    "the silence between the words.",
+    "this frame. nothing else.",
+    "they didn't rehearse this.",
+    "the camera didn't blink.",
+    "one take. one lifetime.",
+    "hear the silence.",
+    "before the line. after the look.",
+    "the moment the actor forgot to act.",
+    "not a scene. a confession.",
+    "the frame holds its breath.",
+    "this is where it peaks.",
+    "the showrunner left it in.",
+    "watch the background.",
+    "the pause that carries the weight.",
+]
+
+SERIES_TITLES = [
+    "This Scene is PERFECTION",
+    "One of the Best Scenes in Television",
+    "TV at its Finest",
+    "This Scene Lives Rent Free in My Head",
+    "Absolute Cinema Moment",
+    "They Don't Make TV Like This Anymore",
+    "This Scene is Iconic",
+    "Pure Brilliance",
+    "A Masterpiece of Television",
+    "This TV Scene Changed Everything",
+    "You've Seen This Scene Before",
+    "One of TV's Greatest Moments",
+    "This Scene is Peak Television",
+    "Unforgettable TV Moment",
+    "This Scene is Art",
+]
+
+DIRECT_SERIES_TITLES = [
+    "Best TV Scene",
+    "Iconic TV Moment",
+    "Television Masterpiece",
+    "Best Scene in TV",
+    "Unforgettable Series Moment",
 ]
 
 # ── Description Templates ───────────────────────────────────
@@ -116,7 +160,7 @@ def _get_daily_posting_str():
     times_str = get_posting_times_formatted()
     return f"vary.\n{times_str}"
 
-WORLDCUP_DESCRIPTION_TEMPLATE = """a moment.
+FOOTBALL_DESCRIPTION_TEMPLATE = """a moment.
 
 natural sound. no music. one clip.
 
@@ -134,8 +178,7 @@ natural sound. no music. one clip.
 daily.
 ━━━━━━━━━━━━━━━━━━━━━━━"""
 
-# Description used after the World Cup ends (no football/sports references)
-MOVIE_DESCRIPTION_POST_WC_TEMPLATE = """a frame.
+SERIES_DESCRIPTION_TEMPLATE = """a frame.
 
 natural sound. no music. one clip.
 
@@ -146,16 +189,22 @@ daily.
 
 # ── Tags ────────────────────────────────────────────────────
 
-WORLDCUP_TAGS = [
-    "World Cup 2026", "FIFA World Cup", "soccer", "football",
-    "world cup moments", "viral world cup", "sports shorts",
-    "world cup highlight", "football shorts",
+FOOTBALL_TAGS = [
+    "football", "soccer", "football skills",
+    "football moments", "viral football", "sports shorts",
+    "football highlight", "football shorts",
 ]
 
 MOVIE_TAGS = [
     "movie scene", "cinema", "film", "movie moment",
     "iconic scene", "best movie scenes", "cinematic",
     "film scene", "movie shorts", "classic scene",
+]
+
+SERIES_TAGS = [
+    "tv series", "series scene", "television", "TV moment",
+    "iconic scene", "best series scenes", "TV show",
+    "series scene", "tv shorts", "classic scene",
 ]
 
 
@@ -171,7 +220,7 @@ def generate_metadata(source_title, content_type, source_url=None):
 
     Args:
         source_title: Title of the source video/content
-        content_type: "worldcup_2026" or "movie"
+        content_type: "football", "movie", or "series"
         source_url: Original source URL (optional)
 
     Returns:
@@ -186,51 +235,48 @@ def generate_metadata(source_title, content_type, source_url=None):
     except Exception:
         pass
 
-    # Generate title
-    if content_type == "worldcup_2026":
-        if style == "poetic":
-            title_template = random.choice(POETIC_WORLDCUP_TITLES)
-        elif style == "direct":
-            title_template = random.choice(DIRECT_WORLDCUP_TITLES)
-        else:
-            title_template = random.choice(WORLDCUP_TITLES)
-
-        title = title_template.capitalize() if not title_template[0].islower() else title_template
-
-        # Sometimes append the source title (for balanced/direct styles)
-        if source_title and random.random() < 0.4 and style != "poetic":
-            short_source = source_title[:40].replace("World Cup", "").strip()
-            if short_source:
-                title = f"{title} - {short_source}"
+    # Select title lists based on content type
+    if content_type == "football":
+        poetic_titles = POETIC_FOOTBALL_TITLES
+        direct_titles = DIRECT_FOOTBALL_TITLES
+        balanced_titles = FOOTBALL_TITLES
+    elif content_type == "series":
+        poetic_titles = POETIC_SERIES_TITLES
+        direct_titles = DIRECT_SERIES_TITLES
+        balanced_titles = SERIES_TITLES
     else:
-        if style == "poetic":
-            title_template = random.choice(POETIC_MOVIE_TITLES)
-        elif style == "direct":
-            title_template = random.choice(DIRECT_MOVIE_TITLES)
-        else:
-            title_template = random.choice(MOVIE_TITLES)
+        poetic_titles = POETIC_MOVIE_TITLES
+        direct_titles = DIRECT_MOVIE_TITLES
+        balanced_titles = MOVIE_TITLES
 
-        title = title_template.capitalize() if not title_template[0].islower() else title_template
+    if style == "poetic":
+        title_template = random.choice(poetic_titles)
+    elif style == "direct":
+        title_template = random.choice(direct_titles)
+    else:
+        title_template = random.choice(balanced_titles)
 
-        # Sometimes append the source title (for balanced/direct styles)
-        if source_title and random.random() < 0.4 and style != "poetic":
-            short_source = source_title[:40].strip()
-            if short_source:
-                title = f"{title} - {short_source}"
+    title = title_template.capitalize() if not title_template[0].islower() else title_template
+
+    if source_title and random.random() < 0.4 and style != "poetic":
+        short_source = source_title[:40].strip()
+        if short_source:
+            title = f"{title} - {short_source}"
 
     # Generate posting schedule string for today
     posting_str = _get_daily_posting_str()
 
-    # Generate description — use post-WC descriptions if WC is over
-    wc_active = is_world_cup_active()
-
-    if content_type == "worldcup_2026":
-        description = WORLDCUP_DESCRIPTION_TEMPLATE.format(posting=posting_str)
+    # Generate description
+    if content_type == "football":
+        description = FOOTBALL_DESCRIPTION_TEMPLATE.format(posting=posting_str)
         if source_title:
             description = f"Source: {source_title}\n\n" + description
+    elif content_type == "series":
+        description = SERIES_DESCRIPTION_TEMPLATE.format(posting=posting_str)
+        if source_title:
+            description = f"Scene from: {source_title}\n\n" + description
     else:
-        template = MOVIE_DESCRIPTION_POST_WC_TEMPLATE if not wc_active else MOVIE_DESCRIPTION_TEMPLATE
-        description = template.format(posting=posting_str)
+        description = MOVIE_DESCRIPTION_TEMPLATE.format(posting=posting_str)
         if source_title:
             description = f"Scene from: {source_title}\n\n" + description
 
@@ -259,8 +305,10 @@ def generate_metadata(source_title, content_type, source_url=None):
 
     # Generate tags
     base_tags = list(DEFAULT_TAGS)
-    if content_type == "worldcup_2026":
-        base_tags.extend(WORLDCUP_TAGS)
+    if content_type == "football":
+        base_tags.extend(FOOTBALL_TAGS)
+    elif content_type == "series":
+        base_tags.extend(SERIES_TAGS)
     else:
         base_tags.extend(MOVIE_TAGS)
 

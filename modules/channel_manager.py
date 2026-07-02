@@ -1,6 +1,5 @@
 """
 Channel Manager — updates YouTube channel branding (caption/description, profile pic, banner).
-Handles the auto-transition when the World Cup ends.
 """
 import json
 import os
@@ -9,7 +8,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import (
-    get_channel_description, is_world_cup_active,
+    get_channel_description,
     LOG_DIR, OUTPUT_DIR,
 )
 
@@ -66,10 +65,7 @@ def get_channel_info():
 
 
 def update_channel_description():
-    """Update the channel description based on whether the World Cup is active.
-
-    When the World Cup ends, the channel description is automatically updated
-    to remove World Cup references.
+    """Update the channel description.
 
     The YouTube API rejects `part=snippet` for `channels.update()` (ERROR_PART_UNEXPECTED).
     Instead, `part=brandingSettings` with a `channel.description` field works.
@@ -110,11 +106,8 @@ def update_channel_description():
             },
         ).execute()
 
-        wc_status = "active" if is_world_cup_active() else "ended"
-        print(f"  [channel_manager] Channel description updated (World Cup: {wc_status})", flush=True)
-        _log_channel_update("update_description", "success", {
-            "world_cup_status": wc_status,
-        })
+        print(f"  [channel_manager] Channel description updated", flush=True)
+        _log_channel_update("update_description", "success")
         return True
 
     except Exception as e:
@@ -176,12 +169,10 @@ def upload_channel_branding(profile_picture_path=None, banner_path=None):
 
 
 def check_and_update_channel():
-    """Check World Cup status and update channel branding if needed.
+    """Update channel branding if needed.
 
     This is the main entry point called by the pipeline.
-    - If World Cup just ended: update description, upload new branding
-    - If World Cup still active: ensure WC description is set
-    - If World Cup ended long ago: ensure post-WC description is set
+    Updates the channel description and branding assets.
 
     Gracefully handles missing YouTube credentials — will skip API calls
     and only generate local files if auth isn't available.
@@ -190,12 +181,11 @@ def check_and_update_channel():
         Dict with actions taken.
     """
     result = {
-        "world_cup_active": is_world_cup_active(),
         "description_updated": False,
         "branding_uploaded": False,
     }
 
-    print(f"\n>>> Checking channel branding (World Cup: {'ACTIVE' if is_world_cup_active() else 'ENDED'})...", flush=True)
+    print(f"\n>>> Checking channel branding...", flush=True)
 
     # Check if YouTube credentials are available before attempting API calls
     from config import YOUTUBE_CLIENT_ID, YOUTUBE_REFRESH_TOKEN
@@ -235,8 +225,7 @@ def check_and_update_channel():
         print(f"  [channel_manager] Generating local channel branding assets...", flush=True)
         generate_all_branding()
 
-    wc_status = "active" if is_world_cup_active() else "ended"
-    print(f"  [channel_manager] Channel check complete (World Cup: {wc_status})", flush=True)
+    print(f"  [channel_manager] Channel check complete", flush=True)
 
     return result
 

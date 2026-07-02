@@ -1,6 +1,6 @@
 """
 VARY — Configuration for clip-based YouTube Shorts automation.
-Daily random clips from movies, matches, and the internet.
+Daily random clips from football, movies, and series.
 """
 import os
 from datetime import datetime, timedelta, date
@@ -17,141 +17,107 @@ N8N_API_KEY = os.getenv("N8N_API_KEY")
 N8N_BASE_URL = os.getenv("N8N_BASE_URL", "http://localhost:5678")
 
 # ── Alerts / Webhooks ───────────────────────────────────────
-# Used by pipeline_watchdog to alert when pipeline retries are exhausted.
-# Set to a Discord webhook URL (https://discord.com/api/webhooks/...) or
-# a Slack webhook URL (https://hooks.slack.com/services/...).
-# If not set, alerts are silently skipped.
 ALERT_WEBHOOK_URL = os.getenv("ALERT_WEBHOOK_URL", "")
 
 # ── yt-dlp Auth ───────────────────────────────────────────────
-# Path to cookies.txt file exported from browser, used when YouTube
-# demands sign-in in CI/headless environments. See:
-# https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-
 YT_COOKIES_FILE = os.getenv("YT_COOKIES_FILE", "")
 
 # ── Output Directories ───────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", os.path.join(BASE_DIR, "assets"))
-DOWNLOADS_DIR = os.path.join(OUTPUT_DIR, "downloads")    # Raw clips — deleted after processing
-CLIPS_DIR = os.path.join(OUTPUT_DIR, "clips")             # Final processed Shorts
-THUMBNAILS_DIR = os.path.join(OUTPUT_DIR, "thumbnails")   # Generated thumbnails
-THUMBNAILS_VARIANTS_DIR = os.path.join(THUMBNAILS_DIR, "variants")  # A/B test variants
-LOG_DIR = os.path.join(OUTPUT_DIR, "logs")                # History logs (never deleted)
+DOWNLOADS_DIR = os.path.join(OUTPUT_DIR, "downloads")
+CLIPS_DIR = os.path.join(OUTPUT_DIR, "clips")
+THUMBNAILS_DIR = os.path.join(OUTPUT_DIR, "thumbnails")
+THUMBNAILS_VARIANTS_DIR = os.path.join(THUMBNAILS_DIR, "variants")
+LOG_DIR = os.path.join(OUTPUT_DIR, "logs")
 
 # ── Video Settings ───────────────────────────────────────────
 SHORTS_WIDTH = 1080
 SHORTS_HEIGHT = 1920
 FPS = 30
-CLIP_MAX_DURATION = 60   # Max seconds for Shorts
-CLIP_MIN_DURATION = 15   # Min seconds
+CLIP_MAX_DURATION = 60
+CLIP_MIN_DURATION = 15
 
-# ── Content Selection Weights ────────────────────────────────
-# When the World Cup is active, 40% WC / 60% movie.
-# When it's over, 100% movie (auto-transition).
-CONTENT_WEIGHTS_ACTIVE = {
-    "worldcup_2026": 0.40,
-    "movie": 0.60,
+# ── Content Types & Selection ────────────────────────────────
+CONTENT_TYPES = ["football", "movie", "series"]
+
+# Equal weight by default — evolution engine adjusts over time
+CONTENT_WEIGHTS = {
+    "football": 0.34,
+    "movie": 0.33,
+    "series": 0.33,
 }
-CONTENT_WEIGHTS_POST_WC = {
-    "movie": 1.0,
-}
 
-def get_content_weights():
-    """Return appropriate weights based on whether the World Cup is active."""
-    if is_world_cup_active():
-        return CONTENT_WEIGHTS_ACTIVE
-    return CONTENT_WEIGHTS_POST_WC
-
-# ── World Cup Sources ────────────────────────────────────────
-# FIFA World Cup 2026 runs from June 8 to July 3, 2026
-WORLD_CUP_START_DATE = "2026-06-08"
-WORLD_CUP_END_DATE = "2026-07-03"
-
-WORLDCUP_KEYWORDS = [
-    "world cup 2026 best moments",
-    "world cup 2026 highlight",
-    "world cup 2026 controversial",
-    "world cup 2026 amazing goal",
-    "world cup 2026 viral moment",
+# ── Keywords ─────────────────────────────────────────────────
+FOOTBALL_KEYWORDS = [
+    "football best moments",
+    "football insane skills",
+    "football incredible goal",
+    "football amazing save",
+    "football match highlight",
+    "football viral clip",
+    "football top plays",
 ]
 
-def is_world_cup_active():
-    """Check if the FIFA World Cup 2026 is currently in progress."""
-    today = date.today()
-    start = datetime.strptime(WORLD_CUP_START_DATE, "%Y-%m-%d").date()
-    end = datetime.strptime(WORLD_CUP_END_DATE, "%Y-%m-%d").date()
-    return start <= today <= end + timedelta(days=2)  # 2-day grace period after final
-
-# ── Movie Keywords (for sourcing) ─────────────────────────────
 MOVIE_KEYWORDS = [
     "iconic movie scene",
     "best movie moments",
     "classic film scene",
     "cinematic masterpiece scene",
+    "movie trailer epic",
+    "film scene amazing",
+]
+
+SERIES_KEYWORDS = [
+    "tv series best scene",
+    "tv show viral moment",
+    "series most iconic scene",
+    "tv series epic moment",
+    "show best scene ever",
 ]
 
 # ── Channel Branding ─────────────────────────────────────────
 CHANNEL_NAME = "VARY"
 CHANNEL_TAGLINE = "three times daily. one clip at a time."
 
-CHANNEL_DESCRIPTION = """Welcome to VARY! ⚽🎬
+CHANNEL_DESCRIPTION = """Welcome to VARY — three times daily, one clip at a time. ⚽🎬📺
 
-Your ultimate destination where the thrill of football meets the magic of cinema. 🌍
+Your daily destination for the best clips from football, movies, and TV series.
 
-🔹 World Cup Highlights: Relive the most iconic moments, stunning goals, and dramatic saves from the FIFA World Cup. Experience the passion of the global game in short, electrifying clips. 🏆🥅
+⚽ Football — raw match moments, incredible goals, insane skills, and viral plays
+🎬 Movies — unforgettable scenes, cinematic masterpieces, iconic moments
+📺 Series — the most iconic TV moments, viral scenes, show highlights
 
-🔸 Random Movie Scenes: Dive into a curated mix of unforgettable scenes from top foreign films. From action-packed sequences to emotional dramas, enjoy a random cinematic journey every time you tune in. 🎥🍿
+Every short is handpicked for maximum impact. No filler, just the best moments from the worlds of sports and entertainment.
 
-VARY – Where sports excitement and movie mastery collide. ✨"""
+VARY — three times daily. one clip at a time."""
 
-def get_channel_description():
-    """Return the channel description."""
-    return CHANNEL_DESCRIPTION
-
-# ── SEO ──────────────────────────────────────────────────────
 DEFAULT_TAGS = [
     "VARY", "shorts", "YouTube shorts", "daily shorts",
-    "movie clips", "movie scenes", "world cup 2026",
+    "football shorts", "movie clips", "tv series clips",
     "viral clips", "random clips", "daily video",
+    "sports", "cinema", "television",
 ]
 
 # ── Posting Schedule ────────────────────────────────────────
-# Day-dependent optimal posting times based on audience analysis.
-# Three shorts per day at times optimized for each weekday.
-# Day format: 0=Sunday, 1=Monday, ..., 6=Saturday
-# Times are in UTC. Convert to local for your audience.
 POSTING_TIMES_BY_DAY = {
-    # All times in UTC. Optimised for a global Arabic-speaking audience:
-    # 08:00 UTC → Middle East late morning, Europe morning, Asia afternoon
-    # 14:00 UTC → Peak global: Europe afternoon, Middle East early evening, Americas morning
-    # 19:00 UTC → Americas afternoon, Europe night, Middle East late night
-    # Day format: 0=Sunday, 1=Monday, ..., 6=Saturday
-    6: [(8, 0),  (14, 0), (19, 0)],   # Saturday
-    0: [(8, 0),  (14, 0), (19, 0)],   # Sunday
-    1: [(8, 0),  (14, 0), (19, 0)],   # Monday
-    2: [(8, 0),  (14, 0), (19, 0)],   # Tuesday
-    3: [(8, 0),  (14, 0), (19, 0)],   # Wednesday
-    4: [(8, 0),  (14, 0), (19, 0)],   # Thursday
-    5: [(8, 0),  (14, 0), (19, 0)],   # Friday
+    6: [(8, 0),  (14, 0), (19, 0)],
+    0: [(8, 0),  (14, 0), (19, 0)],
+    1: [(8, 0),  (14, 0), (19, 0)],
+    2: [(8, 0),  (14, 0), (19, 0)],
+    3: [(8, 0),  (14, 0), (19, 0)],
+    4: [(8, 0),  (14, 0), (19, 0)],
+    5: [(8, 0),  (14, 0), (19, 0)],
 }
 
-# Legacy fixed times (used as fallback)
-POSTING_TIMES_UTC_DEFAULT = [(7, 33), (17, 55), (22, 18)]
+POSTING_TIMES_UTC_DEFAULT = [(8, 0), (14, 0), (19, 0)]
 
 
 def get_posting_times():
-    """Return today's posting times based on the day of the week.
+    """Return today's posting times based on the day of the week."""
+    today = datetime.now().weekday()
+    our_day = (today + 1) % 7
 
-    Checks the evolution engine for AI-optimized times first.
-    Falls back to static day-dependent defaults if not evolved yet.
-    """
-    today = datetime.now().weekday()  # 0=Monday, 6=Sunday
-    # Convert: Python Monday=0..Sunday=6 -> our dict Saturday=6..Friday=5
-    # Python: Mon=0, Tue=1, Wed=2, Thu=3, Fri=4, Sat=5, Sun=6
-    # Our:    Sat=6, Sun=0, Mon=1, Tue=2, Wed=3, Thu=4, Fri=5
-    our_day = (today + 1) % 7  # Shift: Mon(0)->1, ..., Sun(6)->0
-
-    # Check evolution engine for learned optimal times first
     try:
         from modules.evolution_engine import get_evolved_posting_times
         evolved = get_evolved_posting_times()
@@ -168,6 +134,5 @@ def get_posting_times_formatted():
     times = get_posting_times()
     return " · ".join(f"{h:02d}:{m:02d} utc" for h, m in times)
 
-# Ensure directories exist
 for d in [DOWNLOADS_DIR, CLIPS_DIR, THUMBNAILS_DIR, THUMBNAILS_VARIANTS_DIR, LOG_DIR]:
     os.makedirs(d, exist_ok=True)

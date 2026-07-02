@@ -4,8 +4,9 @@ Daily clip-based pipeline: Select → Download → Edit → Critique → Thumbna
 
 Usage:
     python run_pipeline.py                     # Auto-select content (random daily)
-    python run_pipeline.py --type worldcup     # Force World Cup content
-    python run_pipeline.py --type movie        # Force movie content
+    python run_pipeline.py --type football     # Force football clip
+    python run_pipeline.py --type movie        # Force movie scene
+    python run_pipeline.py --type series       # Force TV series clip
     python run_pipeline.py --query "custom search"  # Custom search
 """
 import argparse
@@ -26,7 +27,7 @@ if hasattr(sys.stdout, 'reconfigure'):
 sys.path.insert(0, os.path.dirname(__file__))
 
 from config import (
-    LOG_DIR, WORLDCUP_KEYWORDS, MOVIE_KEYWORDS,
+    LOG_DIR, FOOTBALL_KEYWORDS, MOVIE_KEYWORDS, SERIES_KEYWORDS,
 )
 from modules.content_selector import select_today_content, load_used_scenes, save_used_scene
 from modules.clip_downloader import download_best_match
@@ -56,7 +57,7 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
     """Run the full daily pipeline.
 
     Args:
-        force_type: Force a specific content type ("worldcup_2026", "movie", or None)
+        force_type: Force a specific content type ("football", "movie", "series", or None)
         force_query: Force a specific search query
 
     Returns:
@@ -77,7 +78,6 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
         from modules.channel_manager import check_and_update_channel
         channel_result = check_and_update_channel()
         log_result("channel_check", "success", channel_result)
-        print(f"  World Cup: {'Active' if channel_result.get('world_cup_active') else 'Ended'}", flush=True)
         if channel_result.get("description_updated"):
             print(f"  Channel description updated", flush=True)
     except Exception as e:
@@ -88,13 +88,14 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
     register_stage(pipeline_id, "content_selection")
     print(f">>> Step 1/9: Selecting content...")
     if force_type:
-        content_info = {
-            "type": force_type,
-            "search_query": force_query or random.choice(
-                WORLDCUP_KEYWORDS if force_type == "worldcup_2026" else MOVIE_KEYWORDS
-            ),
-            "description": f"Forced: {force_type}",
-        }
+            keyword_map = {"football": FOOTBALL_KEYWORDS, "movie": MOVIE_KEYWORDS, "series": SERIES_KEYWORDS}
+            content_info = {
+                "type": force_type,
+                "search_query": force_query or random.choice(
+                    keyword_map.get(force_type, MOVIE_KEYWORDS)
+                ),
+                "description": f"Forced: {force_type}",
+            }
         print(f"  Forced type: {force_type}")
     elif force_query:
         content_info = {
@@ -115,7 +116,7 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
     print(f"\n>>> Step 2/9: Downloading clip...")
     used = load_used_scenes()
     used_ids = set()
-    for key in ["movie_scenes", "worldcup_matches"]:
+    for key in ["movie_scenes", "football_matches", "series_scenes"]:
         for entry in used.get(key, []):
             used_ids.add(entry.get("identifier", ""))
 
@@ -128,7 +129,8 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
         print(f"  [FAILED] No video found for query", flush=True)
         log_result("download", "failed", {"search": content_info["search_query"]})
         # Try one more time with a different query
-        alt_queries = WORLDCUP_KEYWORDS if content_info["type"] == "worldcup_2026" else MOVIE_KEYWORDS
+        keyword_map = {"football": FOOTBALL_KEYWORDS, "movie": MOVIE_KEYWORDS, "series": SERIES_KEYWORDS}
+        alt_queries = keyword_map.get(content_info["type"], MOVIE_KEYWORDS)
         alt_query = random.choice([q for q in alt_queries if q != content_info["search_query"]] or alt_queries)
         print(f"  Retrying with: {alt_query}", flush=True)
         download_result = download_best_match(alt_query, used_ids=used_ids)
@@ -322,17 +324,15 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="VARY — Daily Clip Pipeline")
-    parser.add_argument("--type", choices=["worldcup", "movie"], default=None,
+    parser.add_argument("--type", choices=["football", "movie", "series"], default=None,
                         help="Force a specific content type")
     parser.add_argument("--query", default=None,
                         help="Force a specific search query")
     args = parser.parse_args()
 
     force_type = None
-    if args.type == "worldcup":
-        force_type = "worldcup_2026"
-    elif args.type == "movie":
-        force_type = "movie"
+    if args.type in ("football", "movie", "series"):
+        force_type = args.type
 
     from modules.pipeline_watchdog import register_run_start, register_run_failure
     pipeline_id = register_run_start("daily")

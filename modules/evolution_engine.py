@@ -11,7 +11,7 @@ This engine runs in FULL AUTONOMY mode — it adjusts parameters without
 human approval. All changes are logged and reversible.
 
 Evolution Axes:
-  1. CONTENT_WEIGHTS — Shift between movie/World Cup based on performance
+   1. CONTENT_WEIGHTS — Shift between football/movie/series based on performance
   2. SEARCH_KEYWORDS — Promote keywords yielding high-scoring clips
   3. CLIP_DURATION — Adjust min/max duration sweet spot
   4. SCENE_THRESHOLD — Scene detection sensitivity
@@ -25,8 +25,9 @@ from copy import deepcopy
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (
-    LOG_DIR, CONTENT_WEIGHTS_ACTIVE, CONTENT_WEIGHTS_POST_WC,
-    WORLDCUP_KEYWORDS, MOVIE_KEYWORDS, CLIP_MIN_DURATION, CLIP_MAX_DURATION,
+    LOG_DIR, CONTENT_WEIGHTS,
+    FOOTBALL_KEYWORDS, MOVIE_KEYWORDS, SERIES_KEYWORDS,
+    CLIP_MIN_DURATION, CLIP_MAX_DURATION,
 )
 
 
@@ -40,10 +41,10 @@ DEFAULT_EVOLUTION_STATE = {
     "generation": 1,
     "last_updated": None,
     "parameters": {
-        "content_weights_active": dict(CONTENT_WEIGHTS_ACTIVE),
-        "content_weights_post_wc": dict(CONTENT_WEIGHTS_POST_WC),
-        "worldcup_keywords": list(WORLDCUP_KEYWORDS),
+        "content_weights": dict(CONTENT_WEIGHTS),
+        "football_keywords": list(FOOTBALL_KEYWORDS),
         "movie_keywords": list(MOVIE_KEYWORDS),
+        "series_keywords": list(SERIES_KEYWORDS),
         "clip_min_duration": CLIP_MIN_DURATION,
         "clip_max_duration": CLIP_MAX_DURATION,
         "scene_threshold": 0.3,
@@ -202,23 +203,23 @@ def _mutate_content_weights(state, trends):
 
     for ct, avg_score in type_avgs.items():
         # Map content_type to weight key
-        key = "worldcup_2026" if ct == "worldcup_2026" else "movie"
-        if key in params["content_weights_active"]:
-            current = params["content_weights_active"][key]
+        key = ct if ct in ("football", "movie", "series") else "movie"
+        if key in params["content_weights"]:
+            current = params["content_weights"][key]
             # If this type performs >10% above average, boost it
             overall_avg = trends.get("average_score", 50)
             if avg_score > overall_avg * 1.1:
                 # Boost this type, reduce others
                 boost = min(0.15, (avg_score - overall_avg) / 200)
-                params["content_weights_active"][key] = round(min(0.9, current + boost), 2)
+                params["content_weights"][key] = round(min(0.9, current + boost), 2)
                 # Normalize
-                total = sum(params["content_weights_active"].values())
-                for k in params["content_weights_active"]:
-                    params["content_weights_active"][k] = round(params["content_weights_active"][k] / total, 2)
+                total = sum(params["content_weights"].values())
+                for k in params["content_weights"]:
+                    params["content_weights"][k] = round(params["content_weights"][k] / total, 2)
                 state["mutations"].append({
                     "timestamp": datetime.now().isoformat(),
                     "axis": "content_weights",
-                    "change": f"Boosted {key} from {current:.2f} to {params['content_weights_active'][key]:.2f} (score: {avg_score})"
+                    "change": f"Boosted {key} from {current:.2f} to {params['content_weights'][key]:.2f} (score: {avg_score})"
                 })
 
 
@@ -238,7 +239,7 @@ def _mutate_keywords(state, trends):
         ct = c.get("content_type", "movie")
 
         # Check each keyword
-        base_kws = WORLDCUP_KEYWORDS if ct == "worldcup_2026" else MOVIE_KEYWORDS
+        base_kws = {"football": FOOTBALL_KEYWORDS, "movie": MOVIE_KEYWORDS, "series": SERIES_KEYWORDS}.get(ct, MOVIE_KEYWORDS)
         for kw in base_kws:
             kw_lower = kw.lower()
             if kw_lower in title or any(word in title for word in kw_lower.split()):
@@ -396,20 +397,20 @@ def _mutate_from_real_performance(state):
 
     # If real performance is high for a content type, boost it
     for ct, avg_score in type_avgs.items():
-        key = "worldcup_2026" if ct == "worldcup_2026" else "movie"
-        if key in params["content_weights_active"]:
-            current = params["content_weights_active"][key]
+        key = ct if ct in ("football", "movie", "series") else "movie"
+        if key in params["content_weights"]:
+            current = params["content_weights"][key]
             # Real performance is the ultimate signal
             if avg_score > 60:  # Strong real performance
                 boost = min(0.10, (avg_score - 50) / 500)
-                params["content_weights_active"][key] = round(min(0.9, current + boost), 2)
-                total = sum(params["content_weights_active"].values())
-                for k in params["content_weights_active"]:
-                    params["content_weights_active"][k] = round(params["content_weights_active"][k] / total, 2)
+                params["content_weights"][key] = round(min(0.9, current + boost), 2)
+                total = sum(params["content_weights"].values())
+                for k in params["content_weights"]:
+                    params["content_weights"][k] = round(params["content_weights"][k] / total, 2)
                 state["mutations"].append({
                     "timestamp": datetime.now().isoformat(),
                     "axis": "real_performance",
-                    "change": f"Real perf boosted {key} from {current:.2f} to {params['content_weights_active'][key]:.2f} (real avg: {avg_score})"
+                    "change": f"Real perf boosted {key} from {current:.2f} to {params['content_weights'][key]:.2f} (real avg: {avg_score})"
                 })
 
     # If critique consistently overestimates (large positive delta), lower expectations
@@ -699,22 +700,14 @@ def get_parameter(key, default=None):
     return state.get("parameters", {}).get(key, default)
 
 
-def get_evolved_weights(active=True):
+def get_evolved_weights():
     """Public getter for evolved content weights.
 
-    Args:
-        active: If True, return active (World Cup period) weights.
-                If False, return post-WC weights.
-
     Returns:
-        Dict of content weights, or None if not evolved yet.
+        Dict of content weights for football/movie/series, or None if not evolved.
     """
     state = _load_state()
-    if active:
-        params = state.get("parameters", {}).get("content_weights_active")
-    else:
-        params = state.get("parameters", {}).get("content_weights_post_wc")
-
+    params = state.get("parameters", {}).get("content_weights")
     if params and all(isinstance(v, (int, float)) for v in params.values()):
         return dict(params)
     return None
@@ -724,13 +717,14 @@ def get_evolved_keywords(content_type):
     """Public getter for evolved search keywords.
 
     Args:
-        content_type: 'worldcup_2026' or 'movie'
+        content_type: 'football', 'movie', or 'series'
 
     Returns:
         List of keywords, or None if not evolved yet.
     """
     state = _load_state()
-    key = "worldcup_keywords" if content_type == "worldcup_2026" else "movie_keywords"
+    key_map = {"football": "football_keywords", "movie": "movie_keywords", "series": "series_keywords"}
+    key = key_map.get(content_type, "movie_keywords")
     kws = state.get("parameters", {}).get(key)
     if kws and isinstance(kws, list):
         return list(kws)

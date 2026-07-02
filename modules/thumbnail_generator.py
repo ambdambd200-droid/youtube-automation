@@ -153,7 +153,7 @@ def generate_thumbnails(video_path, title, content_type):
     Args:
         video_path: Path to the processed Short video
         title: Video title for text overlay
-        content_type: "worldcup_2026" or "movie"
+        content_type: "football", "movie", or "series"
 
     Returns:
         Dict with 3 thumbnail paths, or None

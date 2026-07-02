@@ -33,7 +33,7 @@
 
 | Component | Status | Details |
 |---|---|---|
-| `generate_metadata()` | ✅ Complete | Three-tier titles (poetic/balanced/direct) for worldcup + movie. Description templates. Tags. |
+| `generate_metadata()` | ✅ Complete | Three-tier titles (poetic/balanced/direct) for football + movie + series. Description templates. Tags. |
 | `generate_weekly_metadata()` | ✅ Complete | Essay-style titles with `[movie]` and `[theme]` placeholders. Film analysis descriptions. Weekly-specific tags. |
 
 ### Downloader (`modules/clip_downloader.py`)
