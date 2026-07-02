@@ -19,6 +19,22 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import DOWNLOADS_DIR, YT_COOKIES_FILE, BASE_DIR
 
 
+# ── Cookie sanitisation ─────────────────────────────────────
+
+def _sanitize_cookies():
+    """Strip Restricted Mode (PREF f6=40000000) from cookies in-place."""
+    if not YT_COOKIES_FILE or not os.path.isfile(YT_COOKIES_FILE):
+        return YT_COOKIES_FILE
+    with open(YT_COOKIES_FILE, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+    cleaned = [l for l in lines if not ("\tPREF\t" in l and "f6=40000000" in l)]
+    if len(cleaned) != len(lines):
+        with open(YT_COOKIES_FILE, "w", encoding="utf-8") as f:
+            f.writelines(cleaned)
+        print(f"  [cookies] Stripped Restricted Mode from {YT_COOKIES_FILE}", flush=True)
+    return YT_COOKIES_FILE
+
+
 # ── Anti-bot helpers ────────────────────────────────────────
 
 _USER_AGENTS = [
@@ -64,8 +80,9 @@ def _get_info_args(player_client=None):
         "--extractor-retries", "3",
         "--user-agent", _get_random_user_agent(),
     ]
-    if YT_COOKIES_FILE and os.path.isfile(YT_COOKIES_FILE):
-        args.extend(["--cookies", YT_COOKIES_FILE])
+    cookie_file = _sanitize_cookies() if YT_COOKIES_FILE else None
+    if cookie_file and os.path.isfile(cookie_file):
+        args.extend(["--cookies", cookie_file])
     return args
 
 
@@ -232,9 +249,10 @@ def download_clip(video_url, output_template=None, video_id=None):
         os.makedirs(DOWNLOADS_DIR, exist_ok=True)
         output_template = os.path.join(DOWNLOADS_DIR, "%(id)s.%(ext)s")
 
+    cookie_file = _sanitize_cookies() if YT_COOKIES_FILE else None
     attempts = []
-    if YT_COOKIES_FILE and os.path.isfile(YT_COOKIES_FILE):
-        attempts.append(("with cookies", YT_COOKIES_FILE, None))
+    if cookie_file and os.path.isfile(cookie_file):
+        attempts.append(("with cookies", cookie_file, None))
     attempts.append(("no cookies", None, "android_vr"))
 
     for label, cookie_path, client in attempts:

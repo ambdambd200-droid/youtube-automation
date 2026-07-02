@@ -43,6 +43,11 @@ jobs:
         run: |
           python -m compileall . -q 2>&1
 
+      - name: Decode YouTube cookies
+        run: |
+          echo "${{ secrets.YT_COOKIES_B64 }}" | base64 -d > cookies.txt
+          echo "  [OK] Cookies decoded: $(wc -c < cookies.txt) bytes"
+
       - name: Create .env file
         run: |
           cat <<EOF > .env
@@ -50,6 +55,7 @@ jobs:
           YOUTUBE_CLIENT_ID=${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET=${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN=${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          YT_COOKIES_FILE=$(pwd)/cookies.txt
           OUTPUT_DIR=./assets
           EOF
           echo "  [OK] .env created"

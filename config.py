@@ -92,6 +92,11 @@ Every short is handpicked for maximum impact. No filler, just the best moments f
 
 VARY — three times daily. one clip at a time."""
 
+
+def get_channel_description():
+    """Return the channel description."""
+    return CHANNEL_DESCRIPTION
+
 DEFAULT_TAGS = [
     "VARY", "shorts", "YouTube shorts", "daily shorts",
     "football shorts", "movie clips", "tv series clips",
