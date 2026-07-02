@@ -44,9 +44,16 @@ jobs:
           python -m compileall . -q 2>&1
 
       - name: Decode YouTube cookies
+        env:
+          YT_COOKIES_B64: ${{ secrets.YT_COOKIES_B64 }}
         run: |
-          printf '%s' "${{ secrets.YT_COOKIES_B64 }}" | base64 -d > cookies.txt
-          echo "  [OK] Cookies decoded: $(wc -c < cookies.txt) bytes"
+          python3 -c "
+import base64, sys, os
+data = base64.b64decode(os.environ['YT_COOKIES_B64'])
+with open('cookies.txt', 'wb') as f:
+    f.write(data)
+print(f'  [OK] Cookies decoded: {len(data)} bytes')
+"
 
       - name: Create .env file
         run: |
