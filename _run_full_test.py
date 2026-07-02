@@ -36,7 +36,7 @@ results["selection"] = content_info
 print(f"\n>>> STEP 2/7: Downloading clip...")
 used = load_used_scenes()
 used_ids = set()
-    for key in ["movie_scenes", "football_matches", "series_scenes"]:
+for key in ["movie_scenes", "football_matches", "series_scenes"]:
     for entry in used.get(key, []):
         used_ids.add(entry.get("identifier", ""))
 
