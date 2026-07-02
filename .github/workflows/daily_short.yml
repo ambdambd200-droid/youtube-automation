@@ -40,54 +40,50 @@ jobs:
           pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
 
       - name: Check Python syntax
-        shell: powershell
         run: |
           python -m compileall . -q 2>&1
 
       - name: Create .env file
-        shell: powershell
         run: |
-          @"
+          cat <<EOF > .env
           N8N_API_KEY=dummy
           YOUTUBE_CLIENT_ID=${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET=${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN=${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           OUTPUT_DIR=./assets
-          "@ | Out-File -FilePath .env -Encoding ascii -NoNewline
+          EOF
+          echo "  [OK] .env created"
 
       - name: Decode YouTube token
-        shell: powershell
         run: |
-          $bytes = [System.Convert]::FromBase64String("${{ secrets.YOUTUBE_TOKEN_B64 }}")
-          [System.IO.File]::WriteAllBytes("youtube_token.pickle", $bytes)
-          Write-Host "  [OK] Token decoded: $($bytes.Length) bytes"
+          echo "${{ secrets.YOUTUBE_TOKEN_B64 }}" | base64 -d > youtube_token.pickle
+          echo "  [OK] Token decoded: $(wc -c < youtube_token.pickle) bytes"
 
       - name: Create assets directories
-        shell: powershell
         run: |
-          New-Item -ItemType Directory -Force -Path ./assets/downloads, ./assets/clips, ./assets/thumbnails/variants, ./assets/logs, ./assets/channel_art | Out-Null
+          mkdir -p assets/downloads assets/clips assets/thumbnails/variants assets/logs assets/channel_art
 
       - name: Run clip pipeline (with auto-retry on crash)
         id: pipeline
-        shell: powershell
         run: |
-          $MAX_RETRIES = 1
-          $RETRY_DELAY = 60
-          ${{ github.event.inputs.type && format('$env:PIPELINE_TYPE = "{0}"', github.event.inputs.type) || '' }}
-          ${{ github.event.inputs.query && format('$env:PIPELINE_QUERY = "{0}"', github.event.inputs.query) || '' }}
-          0..$MAX_RETRIES | ForEach-Object {
-            $attempt = $_
-            if ($attempt -gt 0) {
-              Write-Host "Retry attempt $attempt/$MAX_RETRIES after $RETRY_DELAY seconds..."
-              Start-Sleep -Seconds $RETRY_DELAY
-            }
-            & python run_pipeline.py $env:PIPELINE_TYPE $env:PIPELINE_QUERY
-            if ($LASTEXITCODE -eq 0) {
+          MAX_RETRIES=1
+          RETRY_DELAY=60
+
+          PIPELINE_TYPE="${{ github.event.inputs.type }}"
+          PIPELINE_QUERY="${{ github.event.inputs.query }}"
+
+          for attempt in $(seq 0 $MAX_RETRIES); do
+            if [ "$attempt" -gt 0 ]; then
+              echo "Retry attempt $attempt/$MAX_RETRIES after $RETRY_DELAY seconds..."
+              sleep $RETRY_DELAY
+            fi
+            python run_pipeline.py $PIPELINE_TYPE $PIPELINE_QUERY
+            if [ $? -eq 0 ]; then
               break
-            }
-            Write-Host "Pipeline failed (exit code: $LASTEXITCODE) on attempt $attempt"
-            if ($attempt -eq $MAX_RETRIES) {
-              Write-Host "All retries exhausted. Reporting failure."
-              exit $LASTEXITCODE
-            }
-          }
+            fi
+            echo "Pipeline failed (exit code: $?) on attempt $attempt"
+            if [ "$attempt" -eq "$MAX_RETRIES" ]; then
+              echo "All retries exhausted. Reporting failure."
+              exit 1
+            fi
+          done
