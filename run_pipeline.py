@@ -123,6 +123,7 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
     download_result = download_best_match(
         content_info["search_query"],
         used_ids=used_ids,
+        content_type=content_info["type"],
     )
 
     if not download_result:
@@ -133,7 +134,7 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
         alt_queries = keyword_map.get(content_info["type"], MOVIE_KEYWORDS)
         alt_query = random.choice([q for q in alt_queries if q != content_info["search_query"]] or alt_queries)
         print(f"  Retrying with: {alt_query}", flush=True)
-        download_result = download_best_match(alt_query, used_ids=used_ids)
+        download_result = download_best_match(alt_query, used_ids=used_ids, content_type=content_info["type"])
 
     if not download_result:
         raise Exception(f"Failed to download clip for: {content_info['search_query']}")

@@ -113,7 +113,7 @@ def run_weekly_pipeline(force_query=None, pipeline_id=None):
         for entry in used.get(key, []):
             used_ids.add(entry.get("identifier", ""))
 
-    download_result = download_best_match(search_query, used_ids=used_ids)
+    download_result = download_best_match(search_query, used_ids=used_ids, content_type="movie")
 
     if not download_result:
         print(f"  [FAILED] No video found for query", flush=True)
@@ -121,7 +121,7 @@ def run_weekly_pipeline(force_query=None, pipeline_id=None):
         # Try once more with a different query
         alt_query = random.choice([q for q in WEEKLY_KEYWORDS if q != search_query] or WEEKLY_KEYWORDS)
         print(f"  Retrying with: {alt_query}", flush=True)
-        download_result = download_best_match(alt_query, used_ids=used_ids)
+        download_result = download_best_match(alt_query, used_ids=used_ids, content_type="movie")
 
     if not download_result:
         raise Exception(f"Failed to download video for: {search_query}")

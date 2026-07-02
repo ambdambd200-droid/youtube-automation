@@ -310,12 +310,41 @@ def download_clip(video_url, output_template=None, video_id=None):
     return None
 
 
-def download_best_match(search_query, used_ids=None):
+_CONTENT_TERMS = {
+    "football": ["football", "soccer", "goal", "match", "fifa", "uefa",
+                 "champion", "league", "player", "sport", "athletic", "stadium",
+                 "highlight", "skills", "top play", "best moment", "viral"],
+    "movie": ["movie", "film", "scene", "trailer", "clip", "cinema", "cinematic",
+              "actor", "actress", "director", "hollywood", "animated",
+              "behind the scenes", "iconic", "masterpiece", "4k hd"],
+    "series": ["episode", "series", "show", "tv", "television", "netflix",
+               "season", "finale", "season", "drama", "comedy", "sitcom",
+               "hit show", "tv series"],
+}
+_BLACKLIST_TITLE = [
+    "documentary", "history of", "explained", "tutorial", "how to",
+    "review", "reaction", "analysis", "deep dive", "interview",
+    "behind the news", "mystery of", "story of",
+]
+
+
+def _is_relevant(title, content_type):
+    """Check if a video title is relevant for the given content type."""
+    tl = title.lower()
+    if any(b in tl for b in _BLACKLIST_TITLE):
+        return False
+    if content_type and content_type in _CONTENT_TERMS:
+        return any(t in tl for t in _CONTENT_TERMS[content_type])
+    return True
+
+
+def download_best_match(search_query, used_ids=None, content_type=None):
     """Search and download the best matching video.
 
     Args:
         search_query: Search query for YouTube
         used_ids: Set of already-used video IDs to avoid repeats
+        content_type: 'football', 'movie', or 'series' — for relevance filter
 
     Returns:
         Dict with 'path', 'title', 'video_id', 'content_type', or None
@@ -325,8 +354,14 @@ def download_best_match(search_query, used_ids=None):
 
     videos = search_youtube(search_query, max_results=15)
 
-    # Filter out already-used videos
-    fresh_videos = [v for v in videos if v["id"] not in used_ids]
+    # Filter out already-used videos + irrelevant titles
+    fresh_videos = [v for v in videos
+                    if v["id"] not in used_ids
+                    and _is_relevant(v["title"], content_type)]
+
+    # If filtering leaves nothing, retry without title filter
+    if not fresh_videos:
+        fresh_videos = [v for v in videos if v["id"] not in used_ids]
 
     if not fresh_videos:
         if videos:
@@ -336,7 +371,7 @@ def download_best_match(search_query, used_ids=None):
             print("  [downloader] No videos found for query", flush=True)
             return None
 
-    # Pick a random video from the results (not just the first — for variety)
+    # Pick a random video from the results
     chosen = random.choice(fresh_videos[:8])
 
     print(f"  [downloader] Downloading: {chosen['title']}", flush=True)
