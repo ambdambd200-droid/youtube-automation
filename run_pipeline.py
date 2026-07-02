@@ -88,14 +88,14 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
     register_stage(pipeline_id, "content_selection")
     print(f">>> Step 1/9: Selecting content...")
     if force_type:
-            keyword_map = {"football": FOOTBALL_KEYWORDS, "movie": MOVIE_KEYWORDS, "series": SERIES_KEYWORDS}
-            content_info = {
-                "type": force_type,
-                "search_query": force_query or random.choice(
-                    keyword_map.get(force_type, MOVIE_KEYWORDS)
-                ),
-                "description": f"Forced: {force_type}",
-            }
+        keyword_map = {"football": FOOTBALL_KEYWORDS, "movie": MOVIE_KEYWORDS, "series": SERIES_KEYWORDS}
+        content_info = {
+            "type": force_type,
+            "search_query": force_query or random.choice(
+                keyword_map.get(force_type, MOVIE_KEYWORDS)
+            ),
+            "description": f"Forced: {force_type}",
+        }
         print(f"  Forced type: {force_type}")
     elif force_query:
         content_info = {
