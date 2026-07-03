@@ -34,9 +34,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Python dependencies
-        shell: powershell
+        shell: cmd
         run: |
-          pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp 2>&1
+          pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
 
       - name: Check Python syntax
         shell: powershell
