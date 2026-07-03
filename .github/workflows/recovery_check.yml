@@ -34,23 +34,23 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Python dependencies
-        shell: pwsh
+        shell: powershell
         run: |
           pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp 2>&1
 
       - name: Check Python syntax
-        shell: pwsh
+        shell: powershell
         run: |
           python -m compileall . -q 2>&1
 
       - name: Create assets directories
-        shell: pwsh
+        shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path assets\downloads, assets\clips, assets\thumbnails\variants, assets\logs, assets\channel_art | Out-Null
 
       - name: Report pipeline state
         id: check_state
-        shell: pwsh
+        shell: powershell
         run: |
           Write-Host "### Pipeline State Report"
           python -m modules.pipeline_watchdog --status 2>&1
@@ -58,13 +58,13 @@ jobs:
 
       - name: Prune old pipeline state entries
         id: prune_state
-        shell: pwsh
+        shell: powershell
         run: |
           $output = python -m modules.pipeline_watchdog --prune 2>&1
           Write-Host $output
 
       - name: Run recovery
-        shell: pwsh
+        shell: powershell
         run: |
           if ("${{ github.event_name }}" -eq "schedule") { $mode = "auto" } else { $mode = "${{ github.event.inputs.mode }}" }
           $filter = ""

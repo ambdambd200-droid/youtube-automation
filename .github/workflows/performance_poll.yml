@@ -15,23 +15,23 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Python dependencies
-        shell: pwsh
+        shell: powershell
         run: |
           pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv 2>&1
 
       - name: Check Python syntax
-        shell: pwsh
+        shell: powershell
         run: |
           python -m compileall . -q 2>&1
 
       - name: Create assets directories
-        shell: pwsh
+        shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path assets\logs | Out-Null
 
       - name: Poll performance data for all uploaded videos
         id: poll
-        shell: pwsh
+        shell: powershell
         run: |
           python -c "
           from modules.performance_tracker import poll_all_videos, calculate_performance_trends
@@ -45,7 +45,7 @@ jobs:
           "
 
       - name: Run evolution cycle with real performance data
-        shell: pwsh
+        shell: powershell
         run: |
           python -c "
           from modules.evolution_engine import evolve
