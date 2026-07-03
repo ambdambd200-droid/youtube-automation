@@ -1,9 +1,8 @@
-name: VARY — Weekly Video (Sunday)
+name: VARY — Weekly Video (Saturday)
 
 on:
   schedule:
-    # Sunday (0) — 12:00 UTC — one weekly story analysis video
-    - cron: "0 12 * * 0"
+    - cron: "0 12 * * 6"    # Saturday 12:00 UTC = 15:00 SA
   workflow_dispatch:
     inputs:
       query:
@@ -11,116 +10,51 @@ on:
         required: false
         default: ''
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   create-and-upload:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 180
-    services:
-      pot-provider:
-        image: brainicism/bgutil-ytdlp-pot-provider
-        ports:
-          - 4416:4416
-    # Auto-retry on failure (watchdog: 1 automatic retry)
-    strategy:
-      max-parallel: 1
-    continue-on-error: false
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
-
       - name: Install Python dependencies
+        shell: pwsh
         run: |
-          pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp bgutil-ytdlp-pot-provider
+          pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp 2>&1
 
       - name: Check Python syntax
+        shell: pwsh
         run: |
-          python -m compileall . -q
-
-      - name: Debug secrets
-        run: |
-          echo "YOUTUBE_CLIENT_ID set: ${{ secrets.YOUTUBE_CLIENT_ID != '' }}"
-          echo "YOUTUBE_CLIENT_SECRET set: ${{ secrets.YOUTUBE_CLIENT_SECRET != '' }}"
-          echo "YOUTUBE_REFRESH_TOKEN set: ${{ secrets.YOUTUBE_REFRESH_TOKEN != '' }}"
-          echo "YOUTUBE_TOKEN_B64 set: ${{ secrets.YOUTUBE_TOKEN_B64 != '' }}"
-          echo "YT_COOKIES_B64 set: ${{ secrets.YT_COOKIES_B64 != '' }}"
-
-      - name: Create .env file
-        run: |
-          echo "N8N_API_KEY=dummy" > .env
-          echo "YOUTUBE_CLIENT_ID=${{ secrets.YOUTUBE_CLIENT_ID }}" >> .env
-          echo "YOUTUBE_CLIENT_SECRET=${{ secrets.YOUTUBE_CLIENT_SECRET }}" >> .env
-          echo "YOUTUBE_REFRESH_TOKEN=${{ secrets.YOUTUBE_REFRESH_TOKEN }}" >> .env
-          echo "OUTPUT_DIR=./assets" >> .env
-          echo "YT_COOKIES_FILE=./cookies.txt" >> .env
-
-      - name: Decode YouTube token
-        run: |
-          echo "${{ secrets.YOUTUBE_TOKEN_B64 }}" | base64 --decode > youtube_token.pickle
-
-      - name: Decode YouTube cookies (for yt-dlp bot bypass)
-        env:
-          YT_COOKIES_B64: ${{ secrets.YT_COOKIES_B64 }}
-        run: |
-          python3 -c "
-          import base64, os
-          data = base64.b64decode(os.environ['YT_COOKIES_B64'])
-          with open('cookies.txt', 'wb') as f:
-              f.write(data)
-          print(f'  [OK] Cookies decoded: {len(data)} bytes')
-          "
+          python -m compileall . -q 2>&1
 
       - name: Create assets directories
+        shell: pwsh
         run: |
-          mkdir -p assets/downloads assets/clips assets/thumbnails/variants assets/logs assets/channel_art
+          New-Item -ItemType Directory -Force -Path assets\downloads, assets\clips, assets\thumbnails\variants, assets\logs, assets\channel_art | Out-Null
 
-      - name: Verify bgutil POT provider is running
-        run: |
-          echo "Checking bgutil POT provider at http://127.0.0.1:4416..."
-          curl -s -o /dev/null -w "HTTP %{http_code}" http://127.0.0.1:4416 2>&1 || echo "  [WARN] bgutil server not reachable"
-          echo ""
-          yt-dlp --version 2>&1
-
-      - name: Run weekly video pipeline (with auto-retry on crash)
+      - name: Run weekly video pipeline
         id: weekly
+        shell: pwsh
         run: |
-          MAX_RETRIES=1
-          RETRY_DELAY=60  # seconds
-          for attempt in $(seq 0 $MAX_RETRIES); do
-            if [ $attempt -gt 0 ]; then
-              echo "Retry attempt $attempt/$MAX_RETRIES after $RETRY_DELAY seconds..."
-              sleep $RETRY_DELAY
-            fi
-            python run_weekly_pipeline.py \
-              ${{ github.event.inputs.query && format('--query \"{0}\"', github.event.inputs.query) || '' }} \
-            && break
-            EXIT_CODE=$?
-            echo "Weekly pipeline failed (exit code: $EXIT_CODE) on attempt $attempt"
-            if [ $attempt -eq $MAX_RETRIES ]; then
-              echo "All retries exhausted. Reporting failure."
-              exit $EXIT_CODE
-            fi
-          done
-
-      - name: Upload artifacts (on failure)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: failed-weekly-artifacts-${{ github.run_attempt }}
-          path: |
-            assets/downloads/
-            assets/clips/
-            assets/logs/
+          $maxRetries = 1
+          $retryDelay = 60
+          $query = "${{ github.event.inputs.query }}"
+          for ($attempt = 0; $attempt -le $maxRetries; $attempt++) {
+            if ($attempt -gt 0) {
+              Write-Host "Retry attempt $attempt/$maxRetries after $retryDelay seconds..."
+              Start-Sleep -Seconds $retryDelay
+            }
+            if ($query -ne '') {
+              python run_weekly_pipeline.py --query "$query"
+            } else {
+              python run_weekly_pipeline.py
+            }
+            if ($LASTEXITCODE -eq 0) { break }
+            Write-Host "Weekly pipeline failed (exit code: $LASTEXITCODE) on attempt $attempt"
+            if ($attempt -eq $maxRetries) {
+              Write-Host "All retries exhausted. Reporting failure."
+              exit $LASTEXITCODE
+            }
+          }

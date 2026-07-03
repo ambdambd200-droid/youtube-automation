@@ -2,56 +2,36 @@ name: VARY — Performance Poll
 
 on:
   schedule:
-    - cron: "0 */6 * * *"    # Every 6 hours — poll performance data
-  workflow_dispatch:          # Manual trigger
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
 
 jobs:
   poll-performance:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 30
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg
-
       - name: Install Python dependencies
+        shell: pwsh
         run: |
-          pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv
+          pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv 2>&1
 
       - name: Check Python syntax
+        shell: pwsh
         run: |
-          python -m compileall . -q
-
-      - name: Create .env file
-        run: |
-          echo "YOUTUBE_CLIENT_ID=${{ secrets.YOUTUBE_CLIENT_ID }}" >> .env
-          echo "YOUTUBE_CLIENT_SECRET=${{ secrets.YOUTUBE_CLIENT_SECRET }}" >> .env
-          echo "YOUTUBE_REFRESH_TOKEN=${{ secrets.YOUTUBE_REFRESH_TOKEN }}" >> .env
-          echo "OUTPUT_DIR=./assets" >> .env
-
-      - name: Decode YouTube token
-        run: |
-          echo "${{ secrets.YOUTUBE_TOKEN_B64 }}" | base64 --decode > youtube_token.pickle
+          python -m compileall . -q 2>&1
 
       - name: Create assets directories
+        shell: pwsh
         run: |
-          mkdir -p assets/logs
+          New-Item -ItemType Directory -Force -Path assets\logs | Out-Null
 
       - name: Poll performance data for all uploaded videos
         id: poll
+        shell: pwsh
         run: |
           python -c "
           from modules.performance_tracker import poll_all_videos, calculate_performance_trends
@@ -65,6 +45,7 @@ jobs:
           "
 
       - name: Run evolution cycle with real performance data
+        shell: pwsh
         run: |
           python -c "
           from modules.evolution_engine import evolve
@@ -72,11 +53,3 @@ jobs:
           print(f'Evolved: {result[\"evolved\"]}, gen: {result[\"generation\"]}')
           print(f'Mutations: {result[\"mutations\"]}')
           "
-
-      - name: Upload performance log as artifact (monthly summary)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: performance-data
-          path: assets/logs/performance_log.jsonl
-          retention-days: 90
