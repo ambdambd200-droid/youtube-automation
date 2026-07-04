@@ -2,7 +2,7 @@ name: VARY — Weekly Video (Saturday)
 
 on:
   schedule:
-    - cron: "0 12 * * 6"    # Saturday 12:00 UTC = 15:00 SA
+    - cron: "20 11 * * 6"   # Saturday 11:20 UTC = 14:20 SA
   workflow_dispatch:
     inputs:
       query:

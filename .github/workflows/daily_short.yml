@@ -1,10 +1,9 @@
-name: VARY — Daily Shorts (×3)
+name: VARY — Daily Shorts (×2)
 
 on:
   schedule:
-    - cron: "0 6 * * *"    # 06:00 UTC = 09:00 SA
-    - cron: "0 12 * * *"   # 12:00 UTC = 15:00 SA
-    - cron: "0 16 * * *"   # 16:00 UTC = 19:00 SA
+    - cron: "35 9 * * *"   # 09:35 UTC = 12:35 SA
+    - cron: "35 18 * * *"  # 18:35 UTC = 21:35 SA
   workflow_dispatch:
     inputs:
       type:
