@@ -22,12 +22,12 @@ jobs:
       - name: Install Python dependencies
         shell: cmd
         run: |
-          C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
+          py -3.12 -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
 
       - name: Check Python syntax
         shell: powershell
         run: |
-          C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe -m compileall . -q 2>&1
+          py -3.12 -m compileall . -q 2>&1
 
       - name: Create assets directories
         shell: powershell
@@ -47,9 +47,9 @@ jobs:
               Start-Sleep -Seconds $retryDelay
             }
             if ($query -ne '') {
-              C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe run_weekly_pipeline.py --query "$query"
+              py -3.12 run_weekly_pipeline.py --query "$query"
             } else {
-              C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe run_weekly_pipeline.py
+              py -3.12 run_weekly_pipeline.py
             }
             if ($LASTEXITCODE -eq 0) { break }
             Write-Host "Weekly pipeline failed (exit code: $LASTEXITCODE) on attempt $attempt"

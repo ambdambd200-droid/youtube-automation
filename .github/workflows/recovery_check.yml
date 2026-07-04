@@ -36,12 +36,12 @@ jobs:
       - name: Install Python dependencies
         shell: cmd
         run: |
-          C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
+          py -3.12 -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
 
       - name: Check Python syntax
         shell: powershell
         run: |
-          C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe -m compileall . -q 2>&1
+          py -3.12 -m compileall . -q 2>&1
 
       - name: Create assets directories
         shell: powershell
@@ -53,14 +53,14 @@ jobs:
         shell: powershell
         run: |
           Write-Host "### Pipeline State Report"
-          C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe -m modules.pipeline_watchdog --status 2>&1
-          C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe -m modules.pipeline_watchdog --missed 2>&1
+          py -3.12 -m modules.pipeline_watchdog --status 2>&1
+          py -3.12 -m modules.pipeline_watchdog --missed 2>&1
 
       - name: Prune old pipeline state entries
         id: prune_state
         shell: powershell
         run: |
-          $output = C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe -m modules.pipeline_watchdog --prune 2>&1
+          $output = py -3.12 -m modules.pipeline_watchdog --prune 2>&1
           Write-Host $output
 
       - name: Run recovery
@@ -71,7 +71,7 @@ jobs:
           if ("${{ github.event.inputs.pipeline }}" -eq "daily") { $filter = "--daily" }
           if ("${{ github.event.inputs.pipeline }}" -eq "weekly") { $filter = "--weekly" }
           switch ($mode) {
-            "check" { C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe run_recovery.py --check $filter }
-            "force" { C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe run_recovery.py --force $filter }
-            default { C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe run_recovery.py $filter }
+            "check" { py -3.12 run_recovery.py --check $filter }
+            "force" { py -3.12 run_recovery.py --force $filter }
+            default { py -3.12 run_recovery.py $filter }
           }

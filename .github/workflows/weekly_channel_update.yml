@@ -17,12 +17,12 @@ jobs:
       - name: Install Python dependencies
         shell: cmd
         run: |
-          C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
+          py -3.12 -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
 
       - name: Check Python syntax
         shell: powershell
         run: |
-          C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe -m compileall . -q 2>&1
+          py -3.12 -m compileall . -q 2>&1
 
       - name: Create assets directories
         shell: powershell
@@ -32,7 +32,7 @@ jobs:
       - name: Generate channel branding
         shell: powershell
         run: |
-          C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe -c "
+          py -3.12 -c "
           from modules.channel_branding_generator import generate_all_branding
           result = generate_all_branding()
           print(f'Profile: {result[\"profile_picture\"]}')
@@ -42,7 +42,7 @@ jobs:
       - name: Update channel description and branding
         shell: powershell
         run: |
-          C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe -c "
+          py -3.12 -c "
           from modules.channel_manager import check_and_update_channel
           result = check_and_update_channel()
           print(f'Channel update: {result}')
