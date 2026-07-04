@@ -30,18 +30,24 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      - name: Add Python 3.12 to PATH
+        shell: powershell
+        run: |
+          "C:\Users\A\AppData\Local\Programs\Python\Python312\" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts\" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
       - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Install Python dependencies
-        shell: cmd
+        shell: powershell
         run: |
-          py -3.12 -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
+          python -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp 2>&1
 
       - name: Check Python syntax
         shell: powershell
         run: |
-          py -3.12 -m compileall . -q 2>&1
+          python -m compileall . -q 2>&1
 
       - name: Create assets directories
         shell: powershell
@@ -53,14 +59,14 @@ jobs:
         shell: powershell
         run: |
           Write-Host "### Pipeline State Report"
-          py -3.12 -m modules.pipeline_watchdog --status 2>&1
-          py -3.12 -m modules.pipeline_watchdog --missed 2>&1
+          python -m modules.pipeline_watchdog --status 2>&1
+          python -m modules.pipeline_watchdog --missed 2>&1
 
       - name: Prune old pipeline state entries
         id: prune_state
         shell: powershell
         run: |
-          $output = py -3.12 -m modules.pipeline_watchdog --prune 2>&1
+          $output = python -m modules.pipeline_watchdog --prune 2>&1
           Write-Host $output
 
       - name: Run recovery
@@ -71,7 +77,7 @@ jobs:
           if ("${{ github.event.inputs.pipeline }}" -eq "daily") { $filter = "--daily" }
           if ("${{ github.event.inputs.pipeline }}" -eq "weekly") { $filter = "--weekly" }
           switch ($mode) {
-            "check" { py -3.12 run_recovery.py --check $filter }
-            "force" { py -3.12 run_recovery.py --force $filter }
-            default { py -3.12 run_recovery.py $filter }
+            "check" { python run_recovery.py --check $filter }
+            "force" { python run_recovery.py --force $filter }
+            default { python run_recovery.py $filter }
           }

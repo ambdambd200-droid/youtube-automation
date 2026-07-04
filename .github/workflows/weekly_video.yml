@@ -16,18 +16,24 @@ jobs:
     timeout-minutes: 180
 
     steps:
+      - name: Add Python 3.12 to PATH
+        shell: powershell
+        run: |
+          "C:\Users\A\AppData\Local\Programs\Python\Python312\" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts\" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
       - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Install Python dependencies
-        shell: cmd
+        shell: powershell
         run: |
-          py -3.12 -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
+          python -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp 2>&1
 
       - name: Check Python syntax
         shell: powershell
         run: |
-          py -3.12 -m compileall . -q 2>&1
+          python -m compileall . -q 2>&1
 
       - name: Create assets directories
         shell: powershell
@@ -47,9 +53,9 @@ jobs:
               Start-Sleep -Seconds $retryDelay
             }
             if ($query -ne '') {
-              py -3.12 run_weekly_pipeline.py --query "$query"
+              python run_weekly_pipeline.py --query "$query"
             } else {
-              py -3.12 run_weekly_pipeline.py
+              python run_weekly_pipeline.py
             }
             if ($LASTEXITCODE -eq 0) { break }
             Write-Host "Weekly pipeline failed (exit code: $LASTEXITCODE) on attempt $attempt"
