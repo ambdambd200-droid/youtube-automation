@@ -17,10 +17,10 @@ jobs:
 
     steps:
       - name: Add Python 3.12 to PATH
-        shell: powershell
+        shell: cmd
         run: |
-          "C:\Users\A\AppData\Local\Programs\Python\Python312\" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts\" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo C:\Users\A\AppData\Local\Programs\Python\Python312\ >> %GITHUB_PATH%
+          echo C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts\ >> %GITHUB_PATH%
 
       - name: Checkout repo
         uses: actions/checkout@v4

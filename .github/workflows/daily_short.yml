@@ -22,53 +22,56 @@ jobs:
 
     steps:
       - name: Add Python 3.12 to PATH
-        shell: powershell
+        shell: cmd
         run: |
-          "C:\Users\A\AppData\Local\Programs\Python\Python312\" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts\" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo C:\Users\A\AppData\Local\Programs\Python\Python312\ >> %GITHUB_PATH%
+          echo C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts\ >> %GITHUB_PATH%
 
       - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Install Python dependencies
-        shell: powershell
+        shell: cmd
         run: |
-          python -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp 2>&1
+          python -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
 
       - name: Check Python syntax
-        shell: powershell
+        shell: cmd
         run: |
-          python -m compileall . -q 2>&1
+          python -m compileall . -q
 
       - name: Create assets directories
-        shell: powershell
+        shell: cmd
         run: |
-          New-Item -ItemType Directory -Force -Path assets\downloads, assets\clips, assets\thumbnails\variants, assets\logs, assets\channel_art | Out-Null
+          if not exist assets\downloads mkdir assets\downloads
+          if not exist assets\clips mkdir assets\clips
+          if not exist assets\thumbnails\variants mkdir assets\thumbnails\variants
+          if not exist assets\logs mkdir assets\logs
+          if not exist assets\channel_art mkdir assets\channel_art
 
       - name: Run clip pipeline (with auto-retry on crash)
         id: pipeline
-        shell: powershell
+        shell: cmd
         run: |
-          $maxRetries = 1
-          $retryDelay = 60
-          $pipelineType = "${{ github.event.inputs.type }}"
-          $pipelineQuery = "${{ github.event.inputs.query }}"
-          for ($attempt = 0; $attempt -le $maxRetries; $attempt++) {
-            if ($attempt -gt 0) {
-              Write-Host "Retry attempt $attempt/$maxRetries after $retryDelay seconds..."
-              Start-Sleep -Seconds $retryDelay
-            }
-            if ($pipelineType -ne '') {
-              python run_pipeline.py --type $pipelineType
-            } elseif ($pipelineQuery -ne '') {
-              python run_pipeline.py --query "$pipelineQuery"
-            } else {
+          setlocal enabledelayedexpansion
+          set MAX_RETRIES=1
+          set RETRY_DELAY=60
+          set ATTEMPT=0
+          :retry_loop
+          if !ATTEMPT! gtr !MAX_RETRIES! exit /b 1
+          if !ATTEMPT! gtr 0 (
+              echo Retry attempt !ATTEMPT!/!MAX_RETRIES! after !RETRY_DELAY! seconds...
+              timeout /t !RETRY_DELAY! /nobreak > nul
+          )
+          if not "${{ github.event.inputs.type }}"=="" (
+              python run_pipeline.py --type ${{ github.event.inputs.type }}
+          ) else if not "${{ github.event.inputs.query }}"=="" (
+              python run_pipeline.py --query "${{ github.event.inputs.query }}"
+          ) else (
               python run_pipeline.py
-            }
-            if ($LASTEXITCODE -eq 0) { break }
-            Write-Host "Pipeline failed (exit code: $LASTEXITCODE) on attempt $attempt"
-            if ($attempt -eq $maxRetries) {
-              Write-Host "All retries exhausted. Reporting failure."
-              exit 1
-            }
-          }
+          )
+          if !ERRORLEVEL! equ 0 goto :retry_end
+          echo Pipeline failed ^(exit code: !ERRORLEVEL!^) on attempt !ATTEMPT!
+          set /a ATTEMPT+=1
+          goto :retry_loop
+          :retry_end
