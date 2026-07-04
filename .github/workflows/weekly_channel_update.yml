@@ -11,34 +11,32 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Add Python 3.12 to PATH
-        shell: cmd
-        run: |
-          echo C:\Users\A\AppData\Local\Programs\Python\Python312\ >> %GITHUB_PATH%
-          echo C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts\ >> %GITHUB_PATH%
-
       - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Install Python dependencies
-        shell: powershell
+        shell: cmd
         run: |
-          python -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp 2>&1
+          py -3.12 -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
 
       - name: Check Python syntax
-        shell: powershell
+        shell: cmd
         run: |
-          python -m compileall . -q 2>&1
+          py -3.12 -m compileall . -q
 
       - name: Create assets directories
-        shell: powershell
+        shell: cmd
         run: |
-          New-Item -ItemType Directory -Force -Path assets\downloads, assets\clips, assets\thumbnails\variants, assets\logs, assets\channel_art | Out-Null
+          if not exist assets\downloads mkdir assets\downloads
+          if not exist assets\clips mkdir assets\clips
+          if not exist assets\thumbnails\variants mkdir assets\thumbnails\variants
+          if not exist assets\logs mkdir assets\logs
+          if not exist assets\channel_art mkdir assets\channel_art
 
       - name: Generate channel branding
         shell: powershell
         run: |
-          python -c "
+          py -3.12 -c "
           from modules.channel_branding_generator import generate_all_branding
           result = generate_all_branding()
           print(f'Profile: {result[\"profile_picture\"]}')
@@ -48,7 +46,7 @@ jobs:
       - name: Update channel description and branding
         shell: powershell
         run: |
-          python -c "
+          py -3.12 -c "
           from modules.channel_manager import check_and_update_channel
           result = check_and_update_channel()
           print(f'Channel update: {result}')

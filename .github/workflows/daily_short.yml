@@ -21,24 +21,18 @@ jobs:
     timeout-minutes: 180
 
     steps:
-      - name: Add Python 3.12 to PATH
-        shell: cmd
-        run: |
-          echo C:\Users\A\AppData\Local\Programs\Python\Python312\ >> %GITHUB_PATH%
-          echo C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts\ >> %GITHUB_PATH%
-
       - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Install Python dependencies
         shell: cmd
         run: |
-          python -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
+          py -3.12 -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
 
       - name: Check Python syntax
         shell: cmd
         run: |
-          python -m compileall . -q
+          py -3.12 -m compileall . -q
 
       - name: Create assets directories
         shell: cmd
@@ -64,11 +58,11 @@ jobs:
               timeout /t !RETRY_DELAY! /nobreak > nul
           )
           if not "${{ github.event.inputs.type }}"=="" (
-              python run_pipeline.py --type ${{ github.event.inputs.type }}
+              py -3.12 run_pipeline.py --type ${{ github.event.inputs.type }}
           ) else if not "${{ github.event.inputs.query }}"=="" (
-              python run_pipeline.py --query "${{ github.event.inputs.query }}"
+              py -3.12 run_pipeline.py --query "${{ github.event.inputs.query }}"
           ) else (
-              python run_pipeline.py
+              py -3.12 run_pipeline.py
           )
           if !ERRORLEVEL! equ 0 goto :retry_end
           echo Pipeline failed ^(exit code: !ERRORLEVEL!^) on attempt !ATTEMPT!
