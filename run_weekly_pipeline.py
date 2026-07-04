@@ -28,7 +28,7 @@ from config import (
 )
 from modules.clip_downloader import download_best_match
 from modules.clip_editor import create_weekly_video, remux_to_compatible, get_video_duration
-from modules.clip_critique import critique_weekly_video
+
 from modules.seo_generator import generate_weekly_metadata
 from modules.thumbnail_generator import generate_weekly_thumbnails
 from modules.space_manager import full_cleanup
@@ -147,25 +147,9 @@ def run_weekly_pipeline(force_query=None, pipeline_id=None):
     print(f"  Weekly video duration: {weekly_result.get('duration', 0):.1f}s", flush=True)
     log_result("editing", "success", weekly_result)
 
-    # ── Step 4: Critique ───────────────────────────────────
-    register_stage(pipeline_id, "critique")
-    print(f"\n>>> Step 4/7: Critiquing weekly video...")
-    critique_result = critique_weekly_video(
-        weekly_result["path"],
-        source_title=download_result["title"],
-        source_duration=weekly_result.get("duration", 0),
-    )
-
-    if critique_result:
-        print(f"  [critique] Score: {critique_result['compound_score']:.1f}/100", flush=True)
-        print(f"  [critique] Axes: {json.dumps(critique_result['axes'])}", flush=True)
-        log_result("critique", "success", {
-            "compound_score": critique_result["compound_score"],
-            "axes": critique_result["axes"],
-        })
-    else:
-        print(f"  [WARNING] Weekly critique failed, continuing without", flush=True)
-        log_result("critique", "skipped", {"reason": "critique returned None"})
+    # ── Step 4: Critique (disabled — was causing hangs) ──
+    critique_result = None
+    print(f"  [SKIP] Critique disabled (was causing ffmpeg hangs)", flush=True)
 
     # ── Step 5: Generate Thumbnails (landscape variants) ──
     register_stage(pipeline_id, "thumbnails")

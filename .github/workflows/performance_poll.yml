@@ -22,7 +22,7 @@ jobs:
       - name: Check Python syntax
         shell: powershell
         run: |
-          python -m compileall . -q 2>&1
+          C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe -m compileall . -q 2>&1
 
       - name: Create assets directories
         shell: powershell
@@ -33,7 +33,7 @@ jobs:
         id: poll
         shell: powershell
         run: |
-          python -c "
+          C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe -c "
           from modules.performance_tracker import poll_all_videos, calculate_performance_trends
           results = poll_all_videos()
           print(f'Polled {len(results)} videos')
@@ -47,7 +47,7 @@ jobs:
       - name: Run evolution cycle with real performance data
         shell: powershell
         run: |
-          python -c "
+          C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe -c "
           from modules.evolution_engine import evolve
           result = evolve()
           print(f'Evolved: {result[\"evolved\"]}, gen: {result[\"generation\"]}')

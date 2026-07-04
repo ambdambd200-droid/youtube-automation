@@ -27,7 +27,7 @@ jobs:
       - name: Check Python syntax
         shell: powershell
         run: |
-          python -m compileall . -q 2>&1
+          C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe -m compileall . -q 2>&1
 
       - name: Create assets directories
         shell: powershell
@@ -47,9 +47,9 @@ jobs:
               Start-Sleep -Seconds $retryDelay
             }
             if ($query -ne '') {
-              python run_weekly_pipeline.py --query "$query"
+              C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe run_weekly_pipeline.py --query "$query"
             } else {
-              python run_weekly_pipeline.py
+              C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe run_weekly_pipeline.py
             }
             if ($LASTEXITCODE -eq 0) { break }
             Write-Host "Weekly pipeline failed (exit code: $LASTEXITCODE) on attempt $attempt"
