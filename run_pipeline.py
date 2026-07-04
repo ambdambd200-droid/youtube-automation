@@ -190,17 +190,18 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
     critique_result = None
     try:
         from modules.clip_critique import critique_clip
-        critique_result = critique_clip(
-            clip_result["path"],
-            content_info["type"],
-            source_title=download_result["title"],
-            source_duration=clip_result.get("duration", 0),
-        )
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(critique_clip, clip_result["path"], content_info["type"], source_title=download_result["title"], source_duration=clip_result.get("duration", 0))
+            critique_result = future.result(timeout=120)
         if critique_result:
             log_result("critique", "success", {
                 "compound_score": critique_result["compound_score"],
                 "grade": critique_result["grade"],
             })
+    except FuturesTimeout:
+        print(f"  [SKIP] Critique timed out after 120s", flush=True)
+        log_result("critique", "skipped", {"error": "timeout"})
     except Exception as e:
         print(f"  [SKIP] Critique error: {e}", flush=True)
         log_result("critique", "skipped", {"error": str(e)})
