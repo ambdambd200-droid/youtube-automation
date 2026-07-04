@@ -191,35 +191,42 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
     # ── Step 7: Upload to YouTube ────────────────────────
     register_stage(pipeline_id, "upload")
     print(f"\n>>> Step 7/9: Uploading to YouTube...")
+    from config import YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN
     from modules.youtube_uploader import upload_video
 
-    # Pick the best thumbnail (prefer v3, then v2, then v1)
-    best_thumb = None
-    for variant in ["v3", "v2", "v1"]:
-        if variant in thumbnails:
-            best_thumb = thumbnails[variant]
-            break
-
-    try:
-        video_id, response = upload_video(
-            video_path=clip_result["path"],
-            title=seo["title"],
-            description=seo["description"],
-            tags=seo["tags"],
-            thumbnail_path=best_thumb,
-            privacy_status="public",
-        )
-
-        video_url = f"https://youtu.be/{video_id}"
-        print(f"\n  ✅ UPLOADED: {seo['title']}", flush=True)
-        print(f"  URL: {video_url}", flush=True)
-        log_result("upload", "success", {"video_id": video_id, "url": video_url})
-
-    except Exception as e:
-        print(f"  [FAILED] Upload error: {e}", flush=True)
-        log_result("upload", "failed", {"error": str(e)})
+    if not YOUTUBE_CLIENT_ID or not YOUTUBE_CLIENT_SECRET or not YOUTUBE_REFRESH_TOKEN:
+        print(f"  [SKIP] YouTube credentials not configured — skipping upload", flush=True)
+        log_result("upload", "skipped", {"reason": "credentials not configured"})
         video_id = None
         video_url = None
+    else:
+        # Pick the best thumbnail (prefer v3, then v2, then v1)
+        best_thumb = None
+        for variant in ["v3", "v2", "v1"]:
+            if variant in thumbnails:
+                best_thumb = thumbnails[variant]
+                break
+
+        try:
+            video_id, response = upload_video(
+                video_path=clip_result["path"],
+                title=seo["title"],
+                description=seo["description"],
+                tags=seo["tags"],
+                thumbnail_path=best_thumb,
+                privacy_status="public",
+            )
+
+            video_url = f"https://youtu.be/{video_id}"
+            print(f"\n  ✅ UPLOADED: {seo['title']}", flush=True)
+            print(f"  URL: {video_url}", flush=True)
+            log_result("upload", "success", {"video_id": video_id, "url": video_url})
+
+        except BaseException as e:
+            print(f"  [FAILED] Upload error: {e}", flush=True)
+            log_result("upload", "failed", {"error": str(e)})
+            video_id = None
+            video_url = None
 
     # ── Step 6a: Register upload for performance tracking ──
     if video_id:
