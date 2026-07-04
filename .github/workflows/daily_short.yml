@@ -27,7 +27,7 @@ jobs:
       - name: Install Python dependencies
         shell: cmd
         run: |
-          pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
+          C:\Users\A\AppData\Local\Programs\Python\Python312\python.exe -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
 
       - name: Check Python syntax
         shell: powershell
