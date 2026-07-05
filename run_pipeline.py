@@ -146,7 +146,7 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
     register_stage(pipeline_id, "editing")
     print(f"\n>>> Step 3/9: Editing clip to Shorts format...")
     # Skip effects to avoid hang - only do smart crop for now
-    skip_effects = True
+    skip_effects = False
     clip_result = create_clip(
         download_result["path"],
         content_info["type"],

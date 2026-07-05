@@ -281,8 +281,8 @@ def crop_to_shorts(input_path, output_path, start_time=0, duration=None):
         "-map", "[vout]",
         "-map", "[aout]",
         "-c:v", "libx264",
-        "-preset", "medium",    # Good balance of speed and compression
-        "-crf", "23",           # Standard quality (lower = better, 23 is default)
+        "-preset", "medium",
+        "-crf", "18",           # Higher quality (lower = better, 23 is default)
         "-c:a", "aac",
         "-b:a", "192k",         # Higher audio bitrate for cleaner sound
         "-pix_fmt", "yuv420p",
@@ -374,7 +374,7 @@ def append_movie_end_card(video_path, output_path, movie_title=""):
         "-vf", drawtext_filters,
         "-c:v", "libx264",
         "-preset", "fast",
-        "-crf", "23",
+        "-crf", "18",
         "-c:a", "aac",
         "-b:a", "64k",
         "-pix_fmt", "yuv420p",
@@ -405,7 +405,7 @@ def append_movie_end_card(video_path, output_path, movie_title=""):
         "-map", "[aout]",
         "-c:v", "libx264",
         "-preset", "medium",
-        "-crf", "23",
+        "-crf", "18",
         "-c:a", "aac",
         "-b:a", "192k",
         "-pix_fmt", "yuv420p",
@@ -502,7 +502,7 @@ def remux_to_compatible(input_path):
             "-i", input_path,
             "-c:v", "libx264",
             "-preset", "fast",
-            "-crf", "22",
+            "-crf", "18",
             "-c:a", "aac",
             "-b:a", "128k",
             "-pix_fmt", "yuv420p",
@@ -670,8 +670,8 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
     texts = _laugh_track_texts(title)
 
     filter_parts = [f"[0:v]scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=0,setsar=1[base]"]
+    prev_label = "base"
 
-    last_end_ratio = 0
     for i, item in enumerate(texts):
         t_start = duration * item["ratio"]
         t_end = min(t_start + 3.0, duration)
@@ -693,13 +693,13 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
             bc = "black@0.5"
 
         filter_parts.append(
-            f"[base]drawtext=text='{safe_text}':fontcolor=white:fontsize={fs}:"
+            f"[{prev_label}]drawtext=text='{safe_text}':fontcolor=white:fontsize={fs}:"
             f"x={x_expr}:y={y_expr}:"
             f"box={box}:boxcolor={bc}:boxborderw=10:"
-            f"alpha='if(lt(t,{t_start}),0,if(lt(t,{t_start+0.15}),(t-{t_start})/0.15,if(lt(t,{t_end}),1,0)))':"
             f"fontfile='{font_path}':"
             f"enable='between(t,{t_start},{t_end})'[t{i}]"
         )
+        prev_label = f"t{i}"
 
     full_filter = ";".join(filter_parts)
     last_label = f"t{len(texts)-1}" if texts else "base"
@@ -711,27 +711,21 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
             sfx_files.append(sfx_path)
 
     input_files = ["-i", input_path]
+    input_count = 1
     audio_filters = ["[0:a]acopy[aout]"]
 
     if sfx_files:
         for sfx_path in sfx_files:
-            sfx_name = os.path.basename(sfx_path)
             input_files += ["-i", sfx_path]
-            sfx_id = sfx_name.replace(".wav", "").replace("_sfx_", "")
-            # Mix at 15% volume at the beginning
             audio_filters.append(
-                f"[{len(input_files)-1}:a]volume=0.15[a_sfx_{sfx_id}]"
+                f"[{input_count}:a]volume=0.15[a_sfx_{input_count}]"
             )
+            input_count += 1
 
-        mix_inputs = "[0:a]"
-        for sfx_path in sfx_files:
-            sfx_name = os.path.basename(sfx_path)
-            sfx_id = sfx_name.replace(".wav", "").replace("_sfx_", "")
-            mix_inputs += f"[a_sfx_{sfx_id}]"
+        mix_inputs = "[0:a]" + "".join(f"[a_sfx_{i}]" for i in range(1, input_count))
+        audio_filters[0] = f"{mix_inputs}amix=inputs={input_count}:duration=first:weights=1 0.15[aout]"
 
-        audio_filters[0] = f"{mix_inputs}amix=inputs={len(sfx_files)+1}:duration=first:weights=1 0.15[aout]"
-
-    filter_complex = f"{full_filter}[vout];" + ";".join(audio_filters)
+    filter_complex = f"{full_filter};" + ";".join(audio_filters)
 
     cmd = [
         "ffmpeg", "-y",
@@ -739,7 +733,7 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
         "-filter_complex", filter_complex,
         "-map", f"[{last_label}]",
         "-map", "[aout]",
-        "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "18",
         "-c:a", "aac", "-b:a", "192k",
         "-pix_fmt", "yuv420p", "-r", str(FPS),
         "-movflags", "+faststart",
@@ -748,7 +742,7 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
     ]
 
     try:
-        subprocess.run(cmd, capture_output=True, timeout=300)
+        result = subprocess.run(cmd, capture_output=True, timeout=300)
 
         if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
             actual_dur = get_video_duration(output_path)
@@ -757,7 +751,8 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
             print(f"  [editor] LaughTrack effects applied: {output_path} ({actual_dur:.1f}s, {os.path.getsize(output_path)} bytes)", flush=True)
             return {"path": output_path, "duration": actual_dur}
         else:
-            print(f"  [editor] LaughTrack effects failed — returning original crop", flush=True)
+            err = result.stderr[-500:].decode('utf-8', errors='replace') if result.stderr else "no stderr"
+            print(f"  [editor] LaughTrack effects failed (ffmpeg exit {result.returncode}): {err}", flush=True)
             import shutil
             shutil.copy2(input_path, output_path)
             return {"path": output_path, "duration": duration}

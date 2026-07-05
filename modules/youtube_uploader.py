@@ -158,8 +158,8 @@ def upload_video(video_path, title, description, tags, category_id="22", privacy
                 videoId=video_id,
                 media_body=MediaFileUpload(thumbnail_path)
             ).execute()
-        except Exception as ex:
-            print(f"Thumbnail upload error: {ex}", file=sys.stderr)
+        except Exception:
+            print(f"  [SKIP] Custom thumbnail not available yet (upload manually on YouTube Studio)", file=sys.stderr)
 
     return video_id, response
 

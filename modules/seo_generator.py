@@ -9,7 +9,7 @@ import sys
 import random
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import DEFAULT_TAGS, get_posting_times_formatted
+from config import DEFAULT_TAGS
 
 
 # ── Title Templates ─────────────────────────────────────────
@@ -153,39 +153,29 @@ DIRECT_SERIES_TITLES = [
 
 # ── Description Templates ───────────────────────────────────
 
-# ── Description Templates (minimalist restraint) ────────────
+FOOTBALL_DESCRIPTION_TEMPLATE = """{source_line}
 
-def _get_daily_posting_str():
-    """Get the posting schedule string for today's description."""
-    times_str = get_posting_times_formatted()
-    return f"vary.\n{times_str}"
+━━━━━━━━━━━━━━━━━━━━━━
+⚽ VARY — daily football moments
+━━━━━━━━━━━━━━━━━━━━━━
 
-FOOTBALL_DESCRIPTION_TEMPLATE = """a moment.
+#Football #Soccer #Highlights #VARY #Shorts"""
 
-natural sound. no music. one clip.
+MOVIE_DESCRIPTION_TEMPLATE = """{source_line}
 
-━━━━━━━━━━━━━━━━━━━━━━━
-{posting}
-daily.
-━━━━━━━━━━━━━━━━━━━━━━━"""
+━━━━━━━━━━━━━━━━━━━━━━
+🎬 VARY — daily movie moments
+━━━━━━━━━━━━━━━━━━━━━━
 
-MOVIE_DESCRIPTION_TEMPLATE = """a frame.
+#MovieScene #Cinema #Film #VARY #Shorts"""
 
-natural sound. no music. one clip.
+SERIES_DESCRIPTION_TEMPLATE = """{source_line}
 
-━━━━━━━━━━━━━━━━━━━━━━━
-{posting}
-daily.
-━━━━━━━━━━━━━━━━━━━━━━━"""
+━━━━━━━━━━━━━━━━━━━━━━
+📺 VARY — daily series moments
+━━━━━━━━━━━━━━━━━━━━━━
 
-SERIES_DESCRIPTION_TEMPLATE = """a frame.
-
-natural sound. no music. one clip.
-
-━━━━━━━━━━━━━━━━━━━━━━━
-{posting}
-daily.
-━━━━━━━━━━━━━━━━━━━━━━━"""
+#SeriesScene #TV #Series #VARY #Shorts"""
 
 # ── Tags ────────────────────────────────────────────────────
 
@@ -258,50 +248,33 @@ def generate_metadata(source_title, content_type, source_url=None):
 
     title = title_template.capitalize() if not title_template[0].islower() else title_template
 
-    if source_title and random.random() < 0.4 and style != "poetic":
-        short_source = source_title[:40].strip()
+    if source_title:
+        short_source = source_title[:50].strip()
         if short_source:
-            title = f"{title} - {short_source}"
-
-    # Generate posting schedule string for today
-    posting_str = _get_daily_posting_str()
+            title = f"{short_source} — {title}"
 
     # Generate description
+    source_line = f"Scene: {source_title}" if source_title else f"a moment."
     if content_type == "football":
-        description = FOOTBALL_DESCRIPTION_TEMPLATE.format(posting=posting_str)
-        if source_title:
-            description = f"Source: {source_title}\n\n" + description
+        description = FOOTBALL_DESCRIPTION_TEMPLATE.format(source_line=source_line)
     elif content_type == "series":
-        description = SERIES_DESCRIPTION_TEMPLATE.format(posting=posting_str)
-        if source_title:
-            description = f"Scene from: {source_title}\n\n" + description
+        description = SERIES_DESCRIPTION_TEMPLATE.format(source_line=source_line)
     else:
-        description = MOVIE_DESCRIPTION_TEMPLATE.format(posting=posting_str)
-        if source_title:
-            description = f"Scene from: {source_title}\n\n" + description
+        description = MOVIE_DESCRIPTION_TEMPLATE.format(source_line=source_line)
 
     # Add source URL if provided
     if source_url:
-        description = f"Original: {source_url}\n\n" + description
+        description += f"\n\nOriginal: {source_url}"
 
-    # Add channel signature (minimalist)
-    if style == "poetic":
-        description += (
-            f"\n\n━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"vary.\n"
-            f"{posting_str}\n"
-            f"\n"
-            f"not content. moments.\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━"
-        )
-    else:
-        description += (
-            f"\n\n━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🔔 VARY — three times daily\n"
-            f"👍 one clip at a time\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"#VARY #DailyClips"
-        )
+    # Add movie-specific hashtag from source title
+    extra_hashtags = ""
+    if source_title:
+        movie_word = source_title.split("(")[0].split(":")[0].strip()
+        words = [w for w in movie_word.split() if len(w) > 3][:3]
+        if words:
+            hashtags = " #" + " #".join(words)
+            extra_hashtags = hashtags.replace(" ", "").replace(",", "")
+            description += extra_hashtags
 
     # Generate tags
     base_tags = list(DEFAULT_TAGS)
