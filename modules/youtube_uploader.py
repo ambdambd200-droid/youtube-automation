@@ -64,7 +64,7 @@ def get_authenticated_service():
         err_msg += ". Set secrets in repo: Settings → Secrets and variables → Actions: "
         err_msg += "YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN, YOUTUBE_TOKEN_B64"
         print(json.dumps({"error": err_msg}))
-        sys.exit(1)
+        raise RuntimeError(err_msg)
 
     # Local interactive fallback
     from google_auth_oauthlib.flow import InstalledAppFlow

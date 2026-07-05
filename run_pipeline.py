@@ -80,7 +80,7 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
         log_result("channel_check", "success", channel_result)
         if channel_result.get("description_updated"):
             print(f"  Channel description updated", flush=True)
-    except Exception as e:
+    except BaseException as e:
         print(f"  [SKIP] Channel check failed: {e}", flush=True)
         log_result("channel_check", "skipped", {"error": str(e)})
 

@@ -188,35 +188,40 @@ def check_and_update_channel():
     print(f"\n>>> Checking channel branding...", flush=True)
 
     # Check if YouTube credentials are available before attempting API calls
-    from config import YOUTUBE_CLIENT_ID, YOUTUBE_REFRESH_TOKEN
-    has_creds = bool(YOUTUBE_CLIENT_ID and YOUTUBE_REFRESH_TOKEN)
+    from config import YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN
+    has_creds = bool(YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET and YOUTUBE_REFRESH_TOKEN)
 
     if not has_creds:
         print(f"  [channel_manager] YouTube credentials not configured — skipping channel API calls", flush=True)
         result["description_updated"] = False
         result["branding_uploaded"] = False
     else:
-        # 1. Update description via API
-        desc_updated = update_channel_description()
-        result["description_updated"] = desc_updated
+        try:
+            # 1. Update description via API
+            desc_updated = update_channel_description()
+            result["description_updated"] = desc_updated
 
-        # 2. Upload branding assets via API
-        from modules.channel_branding_generator import generate_all_branding
-        branding_dir = os.path.join(OUTPUT_DIR, "channel_art")
-        profile_pic = os.path.join(branding_dir, "profile_picture.png")
-        banner = os.path.join(branding_dir, "channel_banner.png")
+            # 2. Upload branding assets via API
+            from modules.channel_branding_generator import generate_all_branding
+            branding_dir = os.path.join(OUTPUT_DIR, "channel_art")
+            profile_pic = os.path.join(branding_dir, "profile_picture.png")
+            banner = os.path.join(branding_dir, "channel_banner.png")
 
-        if not os.path.exists(profile_pic) or not os.path.exists(banner):
-            branding = generate_all_branding()
-            profile_pic = branding.get("profile_picture")
-            banner = branding.get("banner")
+            if not os.path.exists(profile_pic) or not os.path.exists(banner):
+                branding = generate_all_branding()
+                profile_pic = branding.get("profile_picture")
+                banner = branding.get("banner")
 
-        if os.path.exists(profile_pic) and os.path.exists(banner):
-            upload_result = upload_channel_branding(
-                profile_picture_path=profile_pic if os.path.exists(profile_pic) else None,
-                banner_path=banner if os.path.exists(banner) else None,
-            )
-            result["branding_uploaded"] = upload_result.get("profile_picture") or upload_result.get("banner")
+            if os.path.exists(profile_pic) and os.path.exists(banner):
+                upload_result = upload_channel_branding(
+                    profile_picture_path=profile_pic if os.path.exists(profile_pic) else None,
+                    banner_path=banner if os.path.exists(banner) else None,
+                )
+                result["branding_uploaded"] = upload_result.get("profile_picture") or upload_result.get("banner")
+        except BaseException as e:
+            print(f"  [channel_manager] YouTube API call failed: {e}", flush=True)
+            result["description_updated"] = False
+            result["branding_uploaded"] = False
 
     # Also run the channel branding generator locally if images don't exist
     from modules.channel_branding_generator import generate_all_branding
