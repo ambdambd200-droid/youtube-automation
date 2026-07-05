@@ -99,13 +99,13 @@ CONTENT_WEIGHTS = {
 
 # ── Keywords ─────────────────────────────────────────────────
 FOOTBALL_KEYWORDS = [
-    "football best moments",
-    "football insane skills",
-    "football incredible goal",
-    "football amazing save",
-    "football match highlight",
-    "football viral clip",
-    "football top plays",
+    "World Cup 2026 best moments",
+    "World Cup 2026 amazing goal",
+    "World Cup 2026 highlight",
+    "World Cup 2026 incredible play",
+    "World Cup 2026 skills",
+    "football World Cup 2026 moment",
+    "World Cup 2026 top plays",
 ]
 
 MOVIE_KEYWORDS = [

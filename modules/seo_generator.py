@@ -291,117 +291,24 @@ def build_tripart_title(content_type, source_title=None):
     return title.strip()
 
 
-def build_rich_description(source_title, content_type, source_url=None):
-    """Blueprint Section 1.2: SEO-Optimized Description Matrix.
-    Minimum 250 words with structured hierarchy:
-      - First 150 chars: Keyword-rich snippet (repeats title core)
-      - Narrative Expansion (100 words)
-      - Contextual Footer (facts + location)
-      - Hashtag Triad
+def build_short_description(source_title, content_type, source_url=None):
+    """Short description for daily shorts — concise, high-density.
+    YouTube Shorts descriptions work best at 1-3 lines.
     """
-    lines = []
-
-    # First 150 chars — snippet / meta-description
-    snippet = f"{source_title[:60] if source_title else 'This moment'} — raw emotion, no music, pure impact."
-    lines.append(snippet)
-    lines.append("")
-
-    # Narrative Expansion (~200 words for 250+ total)
     if content_type == "football":
-        narrative = (
-            f"In the world of football, moments like these are why we watch. "
-            f"The stadium holds its breath as the play unfolds. Every touch, every step, "
-            f"every decision leads to this single frame. The crowd's reaction tells the story — "
-            f"from stunned silence to explosive celebration. This is the raw beauty of the sport: "
-            f"unscripted, unfiltered, unforgettable. Watch closely and you will see the technique, "
-            f"the precision, and the pure athleticism that separates the great from the legendary. "
-            f"No commentary needed. No music required. Just the sound of the game breathing. "
-            f"This is football at its most honest. What makes this moment special is not just the "
-            f"skill involved but the context — the pressure of the match, the stakes for the team, "
-            f"the hopes of the fans watching around the world. Every match has its turning point, "
-            f"and this is it. The player did not hesitate. The decision was made in a fraction of "
-            f"a second. Body position, ball control, spatial awareness — all came together in one "
-            f"fluid motion. This is what peak athletic performance looks like when the pressure is "
-            f"at its highest and the moment demands everything. "
-            f"This is the kind of play that defines careers and becomes part of football folklore. "
-            f"It will be replayed, analyzed, and talked about for years to come. And yet, for the "
-            f"player involved, it was just an instant. A split-second decision executed with "
-            f"thousands of hours of training behind it. That is the beauty of sport at this level."
-        )
+        hashtags = "#Shorts #Football #WorldCup2026"
     elif content_type == "series":
-        narrative = (
-            f"Television at its finest lives in moments like this. The writers crafted every word, "
-            f"the actors delivered every glance with precision, and the directors captured it all "
-            f"in a single, unbroken take. This scene represents the peak of what serialized "
-            f"storytelling can achieve — building episodes of tension, character development, "
-            f"and emotional investment that culminates in this frame. No background music needed. "
-            f"No dramatic score. Just the raw talent of everyone involved, captured in real time. "
-            f"This is why television has become the dominant art form of our generation. What makes "
-            f"this scene extraordinary is the restraint shown by everyone involved. The silence "
-            f"between the lines. The micro-expressions on the actors faces. The way the camera "
-            f"holds just a moment longer than expected. These are choices made by people who "
-            f"understand that less is more. Great television does not tell you what to feel — it "
-            f"creates space for you to feel it yourself. This scene does exactly that. It trusts "
-            f"the audience. It respects the intelligence of the viewer. And in doing so, it "
-            f"achieves something that stays with you long after the episode ends. This is writing "
-            f"at its most confident. This is acting at its most truthful. This is why we invest "
-            f"hours of our lives following these characters and their stories. Moments like this "
-            f"make it all worth it. They remind us why storytelling matters."
-        )
+        hashtags = "#Shorts #TVSeries #RawEmotion"
     else:
-        narrative = (
-            f"Cinema has the power to stop time. This scene, captured in a single moment, "
-            f"represents everything that makes film the most immersive art form. The cinematography, "
-            f"the blocking, the performance — all elements align to create something transcendent. "
-            f"Every frame is a painting. Every silence carries meaning. The director's vision, "
-            f"the actor's commitment, and the editor's rhythm combine to produce a moment that "
-            f"lives in the mind long after the credits roll. No music distracts. No score manipulates. "
-            f"Just pure cinema. Consider what went into making this moment work. The lighting design "
-            f"that draws your eye exactly where it needs to go. The production design that places "
-            f"every object with purpose. The sound design that captures the ambient texture of the "
-            f"world. These are not accidents. They are the result of hundreds of artists working "
-            f"toward a shared vision. When you watch a scene like this, you are seeing the "
-            f"culmination of thousands of decisions, each one made in service of the story. "
-            f"Great cinema does not explain itself. It simply exists, and invites you to experience it. "
-            f"Watch this scene and notice how much is communicated without words. The framing, "
-            f"the lighting, the movement within the frame — all of it is language. A language "
-            f"that transcends borders and speaks directly to something universal in all of us."
-        )
-    lines.append(narrative)
-    lines.append("")
+        hashtags = "#Shorts #Cinema #RawEmotion"
 
-    # Contextual Footer
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append(f"🎬 VARY — three times daily, one clip at a time")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append("")
-
-    if content_type == "football":
-        lines.append("⚽ Source: " + (source_title or "Match footage"))
-        lines.append("🏟️ Format: Raw match moment — no music, natural sound only")
-    elif content_type == "series":
-        lines.append("📺 Source: " + (source_title or "TV series scene"))
-        lines.append("🎭 Format: Scene clip — original dialogue preserved")
-    else:
-        lines.append("🎬 Source: " + (source_title or "Film scene"))
-        lines.append("🎥 Format: Cinema moment — original audio preserved")
+    source_line = source_title or "This moment"
+    parts = [source_line, "", f"VARY — daily clips", hashtags]
 
     if source_url:
-        lines.append(f"📎 Original: {source_url}")
+        parts.insert(0, f"Source: {source_url}")
 
-    lines.append("")
-    lines.append("No music. No commentary. Just the moment.")
-    lines.append("")
-
-    # Hashtag Triad
-    if content_type == "football":
-        lines.append("#Shorts #Football #RawEmotion")
-    elif content_type == "series":
-        lines.append("#Shorts #TVSeries #RawEmotion")
-    else:
-        lines.append("#Shorts #Cinema #RawEmotion")
-
-    return "\n".join(lines)
+    return "\n".join(parts)
 
 
 def generate_metadata(source_title, content_type, source_url=None):
@@ -441,8 +348,8 @@ def generate_metadata(source_title, content_type, source_url=None):
     # Blueprint Section 1: Use Tri-Part Title Structure
     title = build_tripart_title(content_type, source_title)
 
-    # Blueprint Section 1.2: Build rich 250+ word description
-    description = build_rich_description(source_title, content_type, source_url)
+    # Short description for shorts
+    description = build_short_description(source_title, content_type, source_url)
 
     # Generate tags
     base_tags = list(DEFAULT_TAGS)
