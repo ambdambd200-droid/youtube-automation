@@ -32,6 +32,16 @@ jobs:
         run: |
           py -3.12 -m compileall . -q
 
+      - name: Debug YouTube env vars
+        shell: cmd
+        run: |
+          echo === DEBUG: YouTube Env Vars ===
+          if "%YOUTUBE_CLIENT_ID%"=="" (echo CLIENT_ID: MISSING) else (echo CLIENT_ID: SET)
+          if "%YOUTUBE_CLIENT_SECRET%"=="" (echo CLIENT_SECRET: MISSING) else (echo CLIENT_SECRET: SET)
+          if "%YOUTUBE_REFRESH_TOKEN%"=="" (echo REFRESH_TOKEN: MISSING) else (echo REFRESH_TOKEN: SET)
+          if "%YOUTUBE_TOKEN_B64%"=="" (echo TOKEN_B64: MISSING) else (echo TOKEN_B64: SET)
+          echo === END DEBUG ===
+
       - name: Create assets directories
         shell: cmd
         run: |
@@ -43,25 +53,30 @@ jobs:
 
       - name: Run weekly video pipeline
         id: weekly
-        shell: powershell
+        shell: cmd
         run: |
-          $maxRetries = 1
-          $retryDelay = 60
-          $query = "${{ github.event.inputs.query }}"
-          for ($attempt = 0; $attempt -le $maxRetries; $attempt++) {
-            if ($attempt -gt 0) {
-              Write-Host "Retry attempt $attempt/$maxRetries after $retryDelay seconds..."
-              Start-Sleep -Seconds $retryDelay
-            }
-            if ($query -ne '') {
-              py -3.12 run_weekly_pipeline.py --query "$query"
-            } else {
+          set YOUTUBE_CLIENT_ID=${{ secrets.YOUTUBE_CLIENT_ID }}
+          set YOUTUBE_CLIENT_SECRET=${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          set YOUTUBE_REFRESH_TOKEN=${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          set YOUTUBE_TOKEN_B64=${{ secrets.YOUTUBE_TOKEN_B64 }}
+          setlocal enabledelayedexpansion
+          set MAX_RETRIES=1
+          set RETRY_DELAY=60
+          set ATTEMPT=0
+          set QUERY=${{ github.event.inputs.query }}
+          :retry_loop
+          if !ATTEMPT! gtr !MAX_RETRIES! exit /b 1
+          if !ATTEMPT! gtr 0 (
+              echo Retry attempt !ATTEMPT!/!MAX_RETRIES! after !RETRY_DELAY! seconds...
+              timeout /t !RETRY_DELAY! /nobreak > nul
+          )
+          if not "!QUERY!"=="" (
+              py -3.12 run_weekly_pipeline.py --query "!QUERY!"
+          ) else (
               py -3.12 run_weekly_pipeline.py
-            }
-            if ($LASTEXITCODE -eq 0) { break }
-            Write-Host "Weekly pipeline failed (exit code: $LASTEXITCODE) on attempt $attempt"
-            if ($attempt -eq $maxRetries) {
-              Write-Host "All retries exhausted. Reporting failure."
-              exit $LASTEXITCODE
-            }
-          }
+          )
+          if !ERRORLEVEL! equ 0 goto :retry_end
+          echo Pipeline failed ^(exit code: !ERRORLEVEL!^) on attempt !ATTEMPT!
+          set /a ATTEMPT+=1
+          goto :retry_loop
+          :retry_end

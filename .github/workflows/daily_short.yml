@@ -36,6 +36,16 @@ jobs:
         run: |
           py -3.12 -m compileall . -q
 
+      - name: Debug YouTube env vars
+        shell: cmd
+        run: |
+          echo === DEBUG: YouTube Env Vars ===
+          if "%YOUTUBE_CLIENT_ID%"=="" (echo CLIENT_ID: MISSING) else (echo CLIENT_ID: SET)
+          if "%YOUTUBE_CLIENT_SECRET%"=="" (echo CLIENT_SECRET: MISSING) else (echo CLIENT_SECRET: SET)
+          if "%YOUTUBE_REFRESH_TOKEN%"=="" (echo REFRESH_TOKEN: MISSING) else (echo REFRESH_TOKEN: SET)
+          if "%YOUTUBE_TOKEN_B64%"=="" (echo TOKEN_B64: MISSING) else (echo TOKEN_B64: SET)
+          echo === END DEBUG ===
+
       - name: Create assets directories
         shell: cmd
         run: |
@@ -49,6 +59,10 @@ jobs:
         id: pipeline
         shell: cmd
         run: |
+          set YOUTUBE_CLIENT_ID=${{ secrets.YOUTUBE_CLIENT_ID }}
+          set YOUTUBE_CLIENT_SECRET=${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          set YOUTUBE_REFRESH_TOKEN=${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          set YOUTUBE_TOKEN_B64=${{ secrets.YOUTUBE_TOKEN_B64 }}
           setlocal enabledelayedexpansion
           set MAX_RETRIES=1
           set RETRY_DELAY=60

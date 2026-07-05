@@ -194,6 +194,11 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
     from config import YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN
     from modules.youtube_uploader import upload_video
 
+    print(f"  [DEBUG] CI env: {os.environ.get('CI', 'not set')}", flush=True)
+    print(f"  [DEBUG] CLIENT_ID: {'SET' if YOUTUBE_CLIENT_ID else 'MISSING'}", flush=True)
+    print(f"  [DEBUG] CLIENT_SECRET: {'SET' if YOUTUBE_CLIENT_SECRET else 'MISSING'}", flush=True)
+    print(f"  [DEBUG] REFRESH_TOKEN: {'SET' if YOUTUBE_REFRESH_TOKEN else 'MISSING'}", flush=True)
+
     if not YOUTUBE_CLIENT_ID or not YOUTUBE_CLIENT_SECRET or not YOUTUBE_REFRESH_TOKEN:
         print(f"  [SKIP] YouTube credentials not configured — skipping upload", flush=True)
         log_result("upload", "skipped", {"reason": "credentials not configured"})
