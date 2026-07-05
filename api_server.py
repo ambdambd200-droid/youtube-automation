@@ -29,6 +29,8 @@ from modules.clip_editor import create_clip
 from modules.thumbnail_generator import generate_thumbnails
 from modules.seo_generator import generate_metadata
 from modules.space_manager import full_cleanup
+from modules.audio_pipeline import full_audio_pipeline
+from modules.color_grade import full_color_pipeline
 
 app = Flask(__name__)
 
@@ -100,28 +102,75 @@ def download_clip():
 
 @app.route("/edit-clip", methods=["POST"])
 def edit_clip():
-    """Step 3: Edit downloaded clip to Shorts format."""
+    """Step 3: Edit downloaded clip — Full Blueprint Pipeline.
+    In Media Res → Crop → Color Grade → Speed Ramp → Text → Audio → Breath Cut
+    """
     data = request.get_json() or {}
     source_path = data.get("source_path", "")
     content_type = data.get("type", "movie")
     title = data.get("title", "")
+    skip_effects = data.get("skip_effects", False)
 
     if not source_path or not os.path.exists(source_path):
         return jsonify({"error": f"Source file not found: {source_path}"}), 400
 
     try:
-        result = create_clip(source_path, content_type, title=title)
+        result = create_clip(source_path, content_type, title=title, skip_effects=skip_effects)
 
         if not result:
             return jsonify({"error": "Clip editing failed"}), 500
 
         return jsonify({
             "status": "edited",
+            "pipeline": "blueprint" if not skip_effects else "legacy",
             "path": result["path"],
             "duration": result.get("duration", 0),
             "content_type": content_type,
             "source_title": title,
         })
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
+@app.route("/audio-process", methods=["POST"])
+def audio_process():
+    """Standalone audio processing — Blueprint Section 2."""
+    data = request.get_json() or {}
+    video_path = data.get("video_path", "")
+    content_type = data.get("type", "movie")
+
+    if not video_path or not os.path.exists(video_path):
+        return jsonify({"error": f"Video not found: {video_path}"}), 400
+
+    try:
+        from modules.audio_pipeline import full_audio_pipeline
+        import uuid
+        out = os.path.join(CLIPS_DIR, f"audio_{uuid.uuid4().hex[:8]}.mp4")
+        result = full_audio_pipeline(video_path, content_type, out)
+        if result:
+            return jsonify({"status": "processed", "path": result})
+        return jsonify({"error": "Audio processing failed"}), 500
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+
+@app.route("/color-grade", methods=["POST"])
+def color_grade():
+    """Standalone color grading — Blueprint Section 3."""
+    data = request.get_json() or {}
+    video_path = data.get("video_path", "")
+
+    if not video_path or not os.path.exists(video_path):
+        return jsonify({"error": f"Video not found: {video_path}"}), 400
+
+    try:
+        from modules.color_grade import full_color_pipeline
+        import uuid
+        out = os.path.join(CLIPS_DIR, f"graded_{uuid.uuid4().hex[:8]}.mp4")
+        result = full_color_pipeline(video_path, out)
+        if result:
+            return jsonify({"status": "graded", "path": result})
+        return jsonify({"error": "Color grading failed"}), 500
     except Exception as ex:
         return jsonify({"error": str(ex)}), 500
 
@@ -473,6 +522,41 @@ def pipeline_prune():
 
 
 # ── Dashboard Endpoint ─────────────────────────────────────
+
+
+@app.route("/blueprint-status", methods=["GET"])
+def blueprint_status():
+    """Get current Blueprint configuration status."""
+    from config import (
+        RENDER_CODEC, RENDER_BITRATE, RENDER_CRF, AUDIO_TARGET_LUFS,
+        COLOR_TEAL_SHADOWS, COLOR_ORANGE_MIDTONES,
+        TEMP_PRE_ACTION_WINDOW, TEMP_SLOW_MOTION_SPEED,
+    )
+    return jsonify({
+        "render": {
+            "codec": RENDER_CODEC,
+            "bitrate": RENDER_BITRATE,
+            "crf": RENDER_CRF,
+        },
+        "audio": {
+            "lufs_target": AUDIO_TARGET_LUFS,
+            "true_peak": -1.0,
+            "compression_ratio": 4,
+        },
+        "color": {
+            "teal_shadows": COLOR_TEAL_SHADOWS,
+            "orange_midtones": COLOR_ORANGE_MIDTONES,
+            "grain_intensity": 5,
+            "sharpening": "unsharp_mask",
+        },
+        "temporal": {
+            "pre_action_window": TEMP_PRE_ACTION_WINDOW,
+            "slow_motion_speed": TEMP_SLOW_MOTION_SPEED,
+            "freeze_duration": 0.4,
+            "speed_up": 2.0,
+        },
+        "status": "active",
+    })
 
 
 @app.route("/dashboard", methods=["GET"])

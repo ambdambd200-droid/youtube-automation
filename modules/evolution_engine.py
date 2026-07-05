@@ -466,7 +466,6 @@ def _mutate_posting_times(state):
     if len(entries) < 10:
         return  # Not enough data yet
 
-    registry = _load_registry()
     registry_by_id = {v["video_id"]: v for v in registry.get("videos", [])}
 
     # Group by hour of upload time and calculate avg view_velocity

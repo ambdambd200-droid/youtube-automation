@@ -17,8 +17,9 @@ def delete_file(filepath):
     if not filepath or not os.path.exists(filepath):
         return False
     try:
+        size = os.path.getsize(filepath)
         os.remove(filepath)
-        print(f"  [space] Deleted: {os.path.basename(filepath)} ({os.path.getsize(filepath)} bytes freed)", flush=True)
+        print(f"  [space] Deleted: {os.path.basename(filepath)} ({size} bytes freed)", flush=True)
         return True
     except OSError as e:
         print(f"  [space] Error deleting {filepath}: {e}", flush=True)

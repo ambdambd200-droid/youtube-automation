@@ -17,10 +17,15 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Copy local credentials
+        shell: cmd
+        run: |
+          if exist "C:\Users\A\Desktop\Movies\.env" copy "C:\Users\A\Desktop\Movies\.env" .env
+
       - name: Install Python dependencies
         shell: cmd
         run: |
-          py -3.12 -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
+          py -3.12 -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp edge-tts
 
       - name: Check Python syntax
         shell: cmd

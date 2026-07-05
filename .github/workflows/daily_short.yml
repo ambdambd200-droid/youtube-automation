@@ -21,6 +21,11 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Copy local credentials
+        shell: cmd
+        run: |
+          if exist "C:\Users\A\Desktop\Movies\.env" copy "C:\Users\A\Desktop\Movies\.env" .env
+
       - name: Install Python dependencies
         shell: cmd
         run: |

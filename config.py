@@ -35,8 +35,53 @@ LOG_DIR = os.path.join(OUTPUT_DIR, "logs")
 SHORTS_WIDTH = 1080
 SHORTS_HEIGHT = 1920
 FPS = 30
-CLIP_MAX_DURATION = 60
+CLIP_MAX_DURATION = 60       # Max 60s for YouTube Shorts
 CLIP_MIN_DURATION = 15
+
+# ── Blueprint Render Specs (Section 6: The Final Render) ──
+SAFE_ZONE_WIDTH = 1080       # Content box width within 1080x1920
+SAFE_ZONE_HEIGHT = 1350      # Content box height (leaves 285px top/bottom padding)
+RENDER_CODEC = "libx264"     # H.264 baseline, H.265 (libx265) preferred
+RENDER_PROFILE = "high"
+RENDER_LEVEL = "4.1"
+RENDER_BITRATE = "20000k"    # 20 Mbps upload bitrate to outsmart YouTube compression
+RENDER_BUFFER_SIZE = "40000k"
+RENDER_CRF = 14              # Near-lossless master (lower = better, 14 is visually lossless)
+RENDER_PIX_FMT = "yuv420p"
+RENDER_MOVFLAGS = "+faststart"
+
+# ── Audio Specs (Section 2: Acoustic Engineering) ─────────
+AUDIO_TARGET_LUFS = -14.0    # YouTube loudness standard
+AUDIO_TRUE_PEAK = -1.0       # dBTP true peak limit
+AUDIO_SAMPLE_RATE = 48000
+AUDIO_BITRATE = "192k"
+AUDIO_CODEC = "aac"
+AUDIO_EQ_HIGHPASS = 80       # HP filter at 80Hz
+AUDIO_EQ_LOWPASS = 12000     # LP filter at 12kHz
+AUDIO_PRESENCE_BOOST = 3     # +3dB at 3-5kHz presence range
+AUDIO_COMPRESSION_RATIO = 4  # 4:1 compression ratio
+AUDIO_DUCK_DB = -6           # -6dB ducking on impact
+AUDIO_DUCK_DURATION = 0.5    # 0.5 second duck duration
+
+# ── Video Color Specs (Section 3: Visual Alchemy) ─────────
+COLOR_SHADOW_LIFT = "#101010"  # Lift black point to avoid pure black
+COLOR_TEAL_SHADOWS = 0.15     # Push shadows toward teal/cyan
+COLOR_ORANGE_MIDTONES = 0.12  # Push midtones toward warm orange
+COLOR_GLOBAL_SATURATION = -0.10  # Reduce global saturation by 10%
+COLOR_VIBRANCE_BOOST = 0.15   # Increase vibrance by 15%
+COLOR_GRAIN_INTENSITY = 5     # Film grain intensity (0-100)
+COLOR_GRAIN_SIZE = 0.3        # Film grain size
+COLOR_SHARPEN_RADIUS = 0.5    # Unsharp mask radius
+COLOR_SHARPEN_AMOUNT = 50     # Unsharp mask amount
+
+# ── Temporal Specs (Section 4: Temporal Dynamics) ─────────
+TEMP_PRE_ACTION_WINDOW = 1.5  # Start 1.5s before main event
+TEMP_SLOW_MOTION_SPEED = 0.4 # 40% speed at impact
+TEMP_FREEZE_DURATION = 0.4   # Freeze frame for 0.4s (10-12 frames)
+TEMP_SPEED_UP_SPEED = 2.0    # 200% speed after impact
+TEMP_REACTION_DURATION = 2.0 # End 2s after action for reaction
+TEMP_ZOOM_IN_SCALE = 1.10    # Micro-zoom 110% for focus
+TEMP_ZOOM_DURATION = 0.5     # Zoom over 0.5 seconds
 
 # ── Content Types & Selection ────────────────────────────────
 CONTENT_TYPES = ["football", "movie", "series"]

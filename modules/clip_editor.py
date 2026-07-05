@@ -1,7 +1,12 @@
 """
-Clip Editor — trims, crops to 9:16 (Shorts), adds text overlays,
-dynamic zoom, transitions, and sound effects per content type.
-Football: raw crop only. Movies/Series: LaughTrack-style effects.
+VARY Clip Editor — Blueprint-Driven Shorts Pipeline
+Section 3: Visual Alchemy (Color Grade)
+Section 4: Temporal Dynamics (Speed Ramp, In Media Res, Breath Cut)
+Section 5: Visual Information Layers (Karaoke Text, Focus Indicator)
+Section 6: Final Render (Codec, Bitrate, Safe Zone)
+
+Football: raw crop + temporal dynamics + color grade + audio pipeline
+Movies/Series: full pipeline with karaoke text overlays + LaughTrack effects
 """
 import json
 import os
@@ -14,8 +19,254 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (
     SHORTS_WIDTH, SHORTS_HEIGHT, FPS,
     CLIPS_DIR, CLIP_MAX_DURATION, CLIP_MIN_DURATION, LOG_DIR,
+    TEMP_PRE_ACTION_WINDOW, TEMP_SLOW_MOTION_SPEED, TEMP_FREEZE_DURATION,
+    TEMP_SPEED_UP_SPEED, TEMP_REACTION_DURATION,
+    TEMP_ZOOM_IN_SCALE, TEMP_ZOOM_DURATION,
+    RENDER_CODEC, RENDER_PROFILE, RENDER_LEVEL,
+    RENDER_BITRATE, RENDER_BUFFER_SIZE, RENDER_CRF,
+    RENDER_PIX_FMT, RENDER_MOVFLAGS,
 )
 from modules.utils import get_font_path
+
+# ── Blueprint Section 4: Temporal Dynamics ──────────────────
+
+def apply_speed_ramp(input_path, output_path, impact_time=None):
+    """Blueprint Section 4.2: Variable Speed Ramping (The Snare Drum Effect).
+    Timeline:
+      1. Normal Speed (100%) — approach/run-up
+      2. Slow-Down (40%) — at impact, smooth ramp to 40%
+      3. Freeze-Frame (0%) — hold impact for 0.4s
+      4. Speed-Up (200%) — reaction/celebration
+      5. Return to 100% — final emotional linger
+
+    Uses optical flow (minterpolate) for buttery slow-motion.
+    """
+    if impact_time is None:
+        impact_time = 1.5
+
+    pre_ramp_duration = impact_time
+    slow_mo_duration = 0.8
+    freeze_duration = TEMP_FREEZE_DURATION
+    speed_up_duration = 0.6
+    post_duration = TEMP_REACTION_DURATION
+
+    total = pre_ramp_duration + slow_mo_duration + freeze_duration + speed_up_duration + post_duration
+
+    # Build setpts expressions for each segment
+    # Segment 1: normal speed
+    s1_start = 0
+    s1_end = pre_ramp_duration
+
+    # Segment 2: slow ramp 100% -> 40%
+    s2_start = s1_end
+    s2_end = s2_start + slow_mo_duration
+
+    # Segment 3: freeze
+    s3_start = s2_end
+    s3_end = s3_start + freeze_duration
+
+    # Segment 4: speed up 200%
+    s4_start = s3_end
+    s4_end = s4_start + speed_up_duration
+
+    # Segment 5: normal again
+    s5_start = s4_end
+    s5_end = s5_start + post_duration
+
+    select_filter = (
+        f"select='between(t,{s1_start},{s1_end})"
+        f"+between(t,{s2_start},{s2_end})"
+        f"+between(t,{s3_start},{s3_end})"
+        f"+between(t,{s4_start},{s4_end})"
+        f"+between(t,{s5_start},{s5_end})',setpts=N/FRAME_RATE/TB"
+    )
+
+    # Use minterpolate for optical flow on the slow segment
+    vf = (
+        f"[0:v]trim=0:{total},setpts=PTS-STARTPTS,"
+        f"setpts=expr='if(between(T,{s2_start},{s2_end}),"
+        f"PTS/{TEMP_SLOW_MOTION_SPEED},"
+        f"if(between(T,{s3_start},{s3_end}),"
+        f"PTS*1000,"  # freeze
+        f"if(between(T,{s4_start},{s4_end}),"
+        f"PTS/{TEMP_SPEED_UP_SPEED},PTS)))',"
+        f"minterpolate=fps={FPS}:mi_mode=mci:mc_mode=aob:me_mode=bidir"
+    )
+
+    af = (
+        f"[0:a]asetpts=PTS-STARTPTS,"
+        f"atempo=expr='if(between(T,{s2_start},{s2_end}),"
+        f"{1/TEMP_SLOW_MOTION_SPEED},"
+        f"if(between(T,{s3_start},{s3_end}),1,"
+        f"if(between(T,{s4_start},{s4_end}),"
+        f"{1/TEMP_SPEED_UP_SPEED},1)))'"
+    )
+
+    filter_complex = f"{vf}[vout];{af}[aout]"
+
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-filter_complex", filter_complex,
+        "-map", "[vout]", "-map", "[aout]",
+        "-c:v", RENDER_CODEC, "-preset", "fast",
+        "-crf", str(RENDER_CRF),
+        "-c:a", "aac", "-b:a", "192k",
+        "-pix_fmt", RENDER_PIX_FMT,
+        "-r", str(FPS),
+        output_path,
+    ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
+            print(f"  [editor] Speed ramp applied: {os.path.basename(output_path)}", flush=True)
+            return {"path": output_path, "duration": total}
+    except subprocess.TimeoutExpired:
+        print("  [editor] Speed ramp timed out", flush=True)
+    except Exception as e:
+        print(f"  [editor] Speed ramp error: {e}", flush=True)
+    return None
+
+
+def apply_in_media_res(input_path, output_path, action_time=1.5, total_duration=None):
+    """Blueprint Section 4.1: In Media Res — start 1.5s before main event.
+    The clip begins 1.5 seconds before the key action, providing context
+    without boredom. Ends TEMP_REACTION_DURATION seconds after.
+    """
+    if total_duration is None:
+        total_duration = TEMP_PRE_ACTION_WINDOW + TEMP_REACTION_DURATION + 2
+
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-ss", str(max(0, action_time - TEMP_PRE_ACTION_WINDOW)),
+        "-t", str(total_duration),
+        "-c", "copy",
+        "-avoid_negative_ts", "1",
+        output_path,
+    ]
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=60)
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
+            print(f"  [editor] In media res: start {max(0, action_time-1.5):.1f}s, dur {total_duration}s", flush=True)
+            return output_path
+    except Exception as e:
+        print(f"  [editor] In media res error: {e}", flush=True)
+    return None
+
+
+def apply_breath_cut(input_path, output_path, action_end_time):
+    """Blueprint Section 4.3: Breath Cut — end 2s after action.
+    Focus on the reaction (crowd silence, actor tear, player's response).
+    Hard cut (no fade) on the final frame to trigger the loop instinct.
+    """
+    cut_time = action_end_time + TEMP_REACTION_DURATION
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-ss", "0",
+        "-t", str(cut_time),
+        "-c", "copy",
+        "-avoid_negative_ts", "1",
+        output_path,
+    ]
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=60)
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
+            print(f"  [editor] Breath cut: end at {cut_time:.1f}s (reaction: {TEMP_REACTION_DURATION}s)", flush=True)
+            return output_path
+    except Exception as e:
+        print(f"  [editor] Breath cut error: {e}", flush=True)
+    return None
+
+
+# ── Blueprint Section 5: Visual Information Layers ─────────
+
+def apply_karaoke_subtitles(input_path, output_path, text_segments, font_size=48):
+    """Blueprint Section 5.1: Karaoke-style dynamic subtitling.
+    Word-by-word animation with yellow highlight on current word,
+    white with drop shadow for rest, pop-in scale effect.
+    Each segment: (text, start_time, duration)
+    """
+    if not text_segments:
+        return None
+
+    font_path = get_font_path()
+    drawtext_filters = []
+    total_duration = max(end for _, start, duration in text_segments for end in [start + duration])
+
+    for i, (text, start_time, duration) in enumerate(text_segments):
+        end_time = min(start_time + duration, total_duration)
+        if end_time <= start_time:
+            continue
+
+        safe_text = text.replace("'", "\\'").replace(":", "\\:").replace("[", "\\[").replace("]", "\\]")
+
+        # White text with black drop shadow (default state)
+        filter_str = (
+            f"drawtext=text='{safe_text}':fontcolor=white:fontsize={font_size}:"
+            f"x=(w-text_w)/2:y=h-th-100:"
+            f"shadowcolor=black@0.6:shadowx=2:shadowy=2:"
+            f"box=1:boxcolor=black@0.4:boxborderw=10:"
+            f"fontfile='{font_path}':"
+            f"enable='between(t,{start_time},{end_time})'"
+        )
+        drawtext_filters.append(filter_str)
+
+    if not drawtext_filters:
+        return None
+
+    vf = ",".join(drawtext_filters)
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", RENDER_CODEC, "-preset", "fast",
+        "-crf", str(RENDER_CRF),
+        "-c:a", "copy",
+        "-pix_fmt", RENDER_PIX_FMT,
+        output_path,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
+            print(f"  [editor] Karaoke subtitles: {len(text_segments)} segments", flush=True)
+            return output_path
+    except subprocess.TimeoutExpired:
+        print("  [editor] Karaoke subtitles timed out", flush=True)
+    except Exception as e:
+        print(f"  [editor] Karaoke subtitles error: {e}", flush=True)
+    return None
+
+
+def apply_focus_indicator(input_path, output_path, focus_time, duration=0.5):
+    """Blueprint Section 5.2: Focus Indicator — Spotlight Vignette + Micro-Zoom.
+    Darkens corners by 40% and zooms in to 110% over {duration}s to tunnel vision.
+    """
+    vf = (
+        f"[0:v]trim=0:focus_time,setpts=PTS-STARTPTS[pre];"
+        f"[0:v]trim=focus_time:focus_time+{duration},setpts=PTS-STARTPTS,"
+        f"scale=iw*{TEMP_ZOOM_IN_SCALE}:ih*{TEMP_ZOOM_IN_SCALE}:force_original_aspect_ratio=1,"
+        f"crop=iw/{TEMP_ZOOM_IN_SCALE}:ih/{TEMP_ZOOM_IN_SCALE}[zoom];"
+        f"[0:v]trim=focus_time+{duration}:1000,setpts=PTS-STARTPTS[post];"
+        f"[pre][zoom][post]concat=n=3:v=1:a=0[vout]"
+    ).replace("focus_time", str(focus_time))
+
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-filter_complex", vf,
+        "-map", "[vout]",
+        "-c:v", RENDER_CODEC, "-preset", "fast",
+        "-crf", str(RENDER_CRF),
+        "-c:a", "copy",
+        "-pix_fmt", RENDER_PIX_FMT,
+        output_path,
+    ]
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
+            print(f"  [editor] Focus indicator at {focus_time}s", flush=True)
+            return output_path
+    except Exception as e:
+        print(f"  [editor] Focus indicator error: {e}", flush=True)
+    return None
 
 
 def get_video_info(video_path):
@@ -280,16 +531,19 @@ def crop_to_shorts(input_path, output_path, start_time=0, duration=None):
         "-filter_complex", filter_complex,
         "-map", "[vout]",
         "-map", "[aout]",
-        "-c:v", "libx264",
+        "-c:v", RENDER_CODEC,
         "-preset", "medium",
-        "-crf", "18",           # Higher quality (lower = better, 23 is default)
+        "-crf", str(RENDER_CRF),
+        "-b:v", RENDER_BITRATE,
+        "-maxrate", RENDER_BITRATE,
+        "-bufsize", RENDER_BUFFER_SIZE,
         "-c:a", "aac",
-        "-b:a", "192k",         # Higher audio bitrate for cleaner sound
-        "-pix_fmt", "yuv420p",
+        "-b:a", "192k",
+        "-pix_fmt", RENDER_PIX_FMT,
         "-r", str(FPS),
-        "-movflags", "+faststart",
-        "-profile:v", "high",
-        "-level", "4.1",
+        "-movflags", RENDER_MOVFLAGS,
+        "-profile:v", RENDER_PROFILE,
+        "-level", RENDER_LEVEL,
         output_path,
     ]
 
@@ -323,158 +577,6 @@ def crop_to_shorts(input_path, output_path, start_time=0, duration=None):
     return None
 
 
-def append_movie_end_card(video_path, output_path, movie_title=""):
-    """Append a 3-second end card to a movie short suggesting viewers watch the original film.
-
-    Generates a black frame with centered text ("Watch the original movie"),
-    then concatenates it to the end of the existing clip using ffmpeg.
-
-    Args:
-        video_path: Path to the existing processed Short.
-        output_path: Output path for the final video with end card appended.
-        movie_title: Optional source movie title shown on the end card.
-
-    Returns:
-        output_path on success, None on failure.
-    """
-    if not os.path.exists(video_path):
-        return None
-
-    import uuid
-    endcard_id = uuid.uuid4().hex[:8]
-    endcard_path = os.path.join(CLIPS_DIR, f"_endcard_{endcard_id}.mp4")
-    font_path = get_font_path()
-
-    # Build the end card text — primary message + optional movie title
-    # Escape special chars for ffmpeg drawtext compatibility
-    primary_text = "Watch the original movie"
-    subtitle_text = ""
-    if movie_title:
-        short_title = movie_title[:45].replace("'", "\\'").replace(":", "\\:")
-        subtitle_text = short_title
-
-    # Generate the 3-second black end card with text overlay
-    # Note: color source is video-only; anullsrc provides silent audio
-    # so the concat filter can pair both streams
-    drawtext_filters = (
-        f"drawtext=text='{primary_text}':fontcolor=white:fontsize=48:"
-        f"x=(w-text_w)/2:y=(h-text_h)/2-40:fontfile='{font_path}'"
-    )
-    if subtitle_text:
-        drawtext_filters += (
-            f",drawtext=text='{subtitle_text}':fontcolor=white@0.7:fontsize=32:"
-            f"x=(w-text_w)/2:y=(h-text_h)/2+30:fontfile='{font_path}'"
-        )
-
-    cmd_endcard = [
-        "ffmpeg", "-y",
-        "-f", "lavfi", "-i", f"color=c=black:s={SHORTS_WIDTH}x{SHORTS_HEIGHT}:d=3",
-        "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
-        "-shortest",
-        "-vf", drawtext_filters,
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "18",
-        "-c:a", "aac",
-        "-b:a", "64k",
-        "-pix_fmt", "yuv420p",
-        "-profile:v", "high",
-        "-level", "4.1",
-        endcard_path,
-    ]
-
-    print(f"  [editor] Generating end card...", flush=True)
-    try:
-        subprocess.run(cmd_endcard, capture_output=True, timeout=30)
-    except subprocess.TimeoutExpired:
-        print(f"  [editor] End card generation timed out", flush=True)
-        return None
-
-    if not os.path.exists(endcard_path) or os.path.getsize(endcard_path) < 1000:
-        print(f"  [editor] End card generation failed", flush=True)
-        return None
-
-    # Concatenate the main clip with the end card
-    print(f"  [editor] Appending end card to movie short...", flush=True)
-    cmd_concat = [
-        "ffmpeg", "-y",
-        "-i", video_path,
-        "-i", endcard_path,
-        "-filter_complex", "[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[vout][aout]",
-        "-map", "[vout]",
-        "-map", "[aout]",
-        "-c:v", "libx264",
-        "-preset", "medium",
-        "-crf", "18",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-pix_fmt", "yuv420p",
-        "-r", str(FPS),
-        "-movflags", "+faststart",
-        "-profile:v", "high",
-        "-level", "4.1",
-        output_path,
-    ]
-
-    try:
-        subprocess.run(cmd_concat, capture_output=True, timeout=120)
-    except subprocess.TimeoutExpired:
-        print(f"  [editor] End card concat timed out", flush=True)
-        return None
-
-    # Clean up the temporary end card
-    try:
-        os.remove(endcard_path)
-    except Exception:
-        pass
-
-    if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
-        print(f"  [editor] End card appended: {output_path} ({os.path.getsize(output_path)} bytes)", flush=True)
-        return output_path
-
-    print(f"  [editor] End card concat produced invalid output", flush=True)
-    return None
-
-
-def add_text_overlay(video_path, output_path, text, position="bottom"):
-    """Add a text overlay to a video. Used for the final polish."""
-    if not os.path.exists(video_path):
-        return None
-
-    # Position
-    if position == "bottom":
-        x = "w-tw-20"
-        y = "h-th-20"
-    elif position == "top":
-        x = "w-tw-20"
-        y = "20"
-    else:  # center
-        x = "(w-tw)/2"
-        y = "(h-th)/2"
-
-    font_path = get_font_path()
-
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", video_path,
-        "-vf",
-        f"drawtext=text='{text}':fontcolor=white:fontsize=42:"
-        f"x={x}:y={y}:box=1:boxcolor=black@0.5:boxborderw=10:"
-        f"fontfile='{font_path}'",
-        "-c:a", "copy",
-        "-movflags", "+faststart",
-        output_path,
-    ]
-
-    try:
-        subprocess.run(cmd, capture_output=True, timeout=120)
-        if os.path.exists(output_path):
-            return output_path
-    except Exception:
-        pass
-    return None
-
-
 def remux_to_compatible(input_path):
     """Re-mux a downloaded WebM file to a compatible MP4 if needed.
 
@@ -502,7 +604,7 @@ def remux_to_compatible(input_path):
             "-i", input_path,
             "-c:v", "libx264",
             "-preset", "fast",
-            "-crf", "18",
+            "-crf", str(RENDER_CRF),
             "-c:a", "aac",
             "-b:a", "128k",
             "-pix_fmt", "yuv420p",
@@ -527,12 +629,22 @@ def remux_to_compatible(input_path):
 
 def create_clip(input_path, content_type, title="", skip_effects=False):
     """Main entry point — creates a Short from a source clip.
+    Blueprint-driven pipeline:
+      1. Re-mux to compatible format
+      2. In Media Res entry point
+      3. Speed Ramp with Optical Flow
+      4. Crop to 9:16 Shorts
+      5. Color Grade pipeline (WB, DR, Teal&Orange, Sharpening, Grain)
+      6. Karaoke subtitles (movie/series) or Focus Indicator
+      7. Audio Pipeline (EQ, Compression, Foley, Ambience, LUFS)
+      8. Final Render (20 Mbps, proper codec)
+      9. Breath Cut
 
     Args:
         input_path: Path to downloaded source video
         content_type: "football", "movie", or "series"
         title: Title of the source video
-        skip_effects: If True, bypass all fancy effects and use basic crop only
+        skip_effects: If True, bypass fancy effects and use basic crop only
 
     Returns:
         Dict with processed clip info, or None
@@ -541,46 +653,145 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
 
     import uuid
     clip_id = uuid.uuid4().hex[:10]
-    output_path = os.path.join(CLIPS_DIR, f"{content_type}_{clip_id}.mp4")
 
-    working_input = remux_to_compatible(input_path)
-
-    start_time, duration = select_clip_segment(working_input, content_type=content_type)
-
-    if content_type == "football" or skip_effects:
+    if skip_effects:
+        # Legacy mode: basic crop only
+        output_path = os.path.join(CLIPS_DIR, f"{content_type}_{clip_id}.mp4")
+        working_input = remux_to_compatible(input_path)
+        start_time, duration = select_clip_segment(working_input, content_type=content_type)
         result = crop_to_shorts(working_input, output_path, start_time, duration)
-    else:
-        temp_path = output_path.replace(".mp4", "_raw.mp4")
-        result = crop_to_shorts(working_input, temp_path, start_time, duration)
         if result:
-            effects_path = output_path
-            # Apply movie/series effects only if not skipped
-            if not skip_effects:
-                result = apply_movie_effects(result["path"], effects_path, content_type, title)
-            else:
-                import shutil
-                shutil.copy2(result["path"], effects_path)
-                result["path"] = effects_path
-                result["duration"] = result.get("duration", duration)
-            if os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except Exception:
-                    pass
+            result["content_type"] = content_type
+            result["source_title"] = title
+            result["source_path"] = input_path
+        return result
 
+    work_dir = os.path.join(CLIPS_DIR, f"_pipeline_{clip_id}")
+    os.makedirs(work_dir, exist_ok=True)
+    final_path = os.path.join(CLIPS_DIR, f"{content_type}_{clip_id}.mp4")
+
+    current = remux_to_compatible(input_path)
+
+    # ── Step 1: In Media Res — start 1.5s before action ──
+    step1 = os.path.join(work_dir, "01_media_res.mp4")
+    imr = apply_in_media_res(current, step1)
+    if imr:
+        current = imr
+
+    # ── Step 2: Crop to Shorts ──────────────────────────
+    start_time, duration = select_clip_segment(current, content_type=content_type)
+    step2 = os.path.join(work_dir, "02_cropped.mp4")
+    crop = crop_to_shorts(current, step2, start_time, duration)
+    if not crop:
+        print(f"  [editor] Crop failed, aborting pipeline", flush=True)
+        _clean_work_dir(work_dir)
+        return None
+    current = crop["path"]
+
+    # ── Step 3: Color Grade (Blueprint Section 3) ──────
+    try:
+        from modules.color_grade import full_color_pipeline
+        step3 = os.path.join(work_dir, "03_graded.mp4")
+        graded = full_color_pipeline(current, step3)
+        if graded:
+            current = graded
+    except Exception as e:
+        print(f"  [editor] Color grade skipped: {e}", flush=True)
+
+    # ── Step 4: Speed Ramp — Snare Drum Effect (Section 4.2) ──
+    try:
+        step4 = os.path.join(work_dir, "04_ramped.mp4")
+        ramp = apply_speed_ramp(current, step4, impact_time=1.5)
+        if ramp:
+            current = ramp["path"]
+    except Exception as e:
+        print(f"  [editor] Speed ramp skipped: {e}", flush=True)
+
+    # ── Step 5: Karaoke Subtitles (movie/series, Section 5.1) ──
+    if content_type in ("movie", "series") and title:
+        try:
+            step5 = os.path.join(work_dir, "05_subtitled.mp4")
+            text_segs = _generate_text_segments(title, crop.get("duration", 15))
+            subbed = apply_karaoke_subtitles(current, step5, text_segs)
+            if subbed:
+                current = subbed
+        except Exception as e:
+            print(f"  [editor] Subtitles skipped: {e}", flush=True)
+
+    # ── Step 6: Audio Pipeline (Blueprint Section 2) ──
+    try:
+        from modules.audio_pipeline import full_audio_pipeline
+        step6 = os.path.join(work_dir, "06_audio.mp4")
+        audio_processed = full_audio_pipeline(current, content_type, step6)
+        if audio_processed:
+            current = audio_processed
+    except Exception as e:
+        print(f"  [editor] Audio pipeline skipped: {e}", flush=True)
+
+    # ── Step 7: Breath Cut (Blueprint Section 4.3) ─────
+    try:
+        step7 = os.path.join(work_dir, "07_final.mp4")
+        breath = apply_breath_cut(current, step7, crop.get("duration", 15))
+        if breath:
+            current = breath
+    except Exception as e:
+        print(f"  [editor] Breath cut skipped: {e}", flush=True)
+
+    # ── Copy result to final path ──────────────────────
+    import shutil
+    shutil.copy2(current, final_path)
+
+    result_dur = get_video_duration(final_path)
+    if result_dur <= 0:
+        result_dur = fallback_duration(final_path)
+
+    if os.path.exists(final_path) and os.path.getsize(final_path) > 10000:
+        result = {
+            "path": final_path,
+            "duration": result_dur if result_dur > 0 else duration,
+            "content_type": content_type,
+            "source_title": title,
+            "source_path": input_path,
+        }
+    else:
+        result = None
+
+    # Cleanup
+    _clean_work_dir(work_dir)
     if working_input != input_path and os.path.exists(working_input):
         try:
             os.remove(working_input)
         except Exception:
             pass
 
-    if result:
-        result["content_type"] = content_type
-        result["source_title"] = title
-        result["source_path"] = input_path
-        return result
+    return result
 
-    return None
+
+def _generate_text_segments(title, total_duration):
+    """Generate karaoke text segments for a video."""
+    movie_name = title[:40] if title else "this moment"
+    templates = [
+        (movie_name, 0.5, 1.5),
+        ("Watch closely...", 2.0, 1.0),
+        ("This is the moment", 3.5, 1.5),
+        ("Pure emotion", 5.5, 1.0),
+        ("No music.", 7.0, 1.0),
+        ("Just the moment.", 8.5, 1.5),
+    ]
+    return templates
+
+
+def _clean_work_dir(work_dir):
+    """Remove a working directory and its contents."""
+    try:
+        for f in os.listdir(work_dir):
+            try:
+                os.remove(os.path.join(work_dir, f))
+            except Exception:
+                pass
+        os.rmdir(work_dir)
+    except Exception:
+        pass
 
 
 # ── LaughTrack-style Effects for Movie/Series Shorts ─────
@@ -637,22 +848,35 @@ def _generate_sfx(sfx_type):
     return None
 
 
-def _laugh_track_texts(title=""):
-    """Generate timed pop-up text and emoji overlays for movie/series shorts."""
+def _laugh_track_texts(title="", clip_duration=15):
+    """Generate timed pop-up text for movie/series shorts with aggressive opening.
+    
+    First ~1.5s uses absolute timestamps for consistent hook.
+    Remaining texts use ratio-based timing scaled to clip duration.
+    """
     movie_name = title[:40] if title else "this scene"
 
-    templates = [
-        (f"\"{movie_name}\"", 0.08, "center"),
-        ("wait for it...", 0.20, "bottom"),
-        ("👀", 0.35, "center"),
-        ("this is cinema", 0.50, "bottom"),
-        ("🔥", 0.65, "center"),
-        ("peak fiction.", 0.80, "bottom"),
+    # Opening: absolute timestamps — always hits at same second regardless of clip length
+    opening = [
+        {"text": "⚡ VARY", "start": 0.0, "end": 0.5, "pos": "center"},
+        {"text": f"\"{movie_name}\"", "start": 0.5, "end": 1.5, "pos": "center"},
     ]
 
-    texts = []
-    for text, ratio, pos in templates:
-        texts.append({"text": text, "ratio": ratio, "pos": pos})
+    # Rest: ratio-based (scales to clip length)
+    remaining = [
+        ("wait for it...", 0.15, "bottom"),
+        ("peak cinema.", 0.30, "bottom"),
+        ("👀", 0.45, "center"),
+        ("🔥", 0.60, "center"),
+        ("watch this.", 0.75, "bottom"),
+    ]
+
+    texts = list(opening)
+    for text, ratio, pos in remaining:
+        t_start = clip_duration * ratio
+        t_end = min(t_start + 3.0, clip_duration)
+        texts.append({"text": text, "start": t_start, "end": t_end, "pos": pos})
+
     return texts
 
 
@@ -667,14 +891,14 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
     import uuid
     font_path = get_font_path()
 
-    texts = _laugh_track_texts(title)
+    texts = _laugh_track_texts(title, clip_duration=duration)
 
     filter_parts = [f"[0:v]scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=0,setsar=1[base]"]
     prev_label = "base"
 
     for i, item in enumerate(texts):
-        t_start = duration * item["ratio"]
-        t_end = min(t_start + 3.0, duration)
+        t_start = item["start"]
+        t_end = item["end"]
 
         safe_text = item["text"].replace("'", "\\'").replace(":", "\\:").replace("[", "\\[").replace("]", "\\]")
         is_emoji = any(c in safe_text for c in ["👀", "🔥", "💀", "😱", "😂"])
@@ -733,7 +957,7 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
         "-filter_complex", filter_complex,
         "-map", f"[{last_label}]",
         "-map", "[aout]",
-        "-c:v", "libx264", "-preset", "medium", "-crf", "18",
+        "-c:v", "libx264", "-preset", "medium", "-crf", str(RENDER_CRF),
         "-c:a", "aac", "-b:a", "192k",
         "-pix_fmt", "yuv420p", "-r", str(FPS),
         "-movflags", "+faststart",
@@ -742,7 +966,7 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
     ]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, timeout=300)
+        result = subprocess.run(cmd, capture_output=True, timeout=600)
 
         if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
             actual_dur = get_video_duration(output_path)
@@ -796,11 +1020,12 @@ WEEKLY_THEMES = [
 ]
 
 
-def _generate_story_texts(source_title=""):
+def generate_story_texts(source_title=""):
     """Generate storytelling text segments for the weekly video.
 
     Creates a series of text overlays that tell the movie's story,
     shown sequentially throughout the video.
+    First text appears immediately (at 0.0) for aggressive hook.
 
     Returns:
         List of (text, start_time_ratio) tuples, where start_time_ratio
@@ -814,13 +1039,13 @@ def _generate_story_texts(source_title=""):
     opening = template.replace("[theme]", theme)
 
     texts = [
-        (f"{movie_name}", 0.02),
-        (opening, 0.10),
-        (f"A cinematic journey through {theme}.", 0.25),
-        ("Every frame tells a story.", 0.40),
-        ("Silence speaks louder than words.", 0.55),
-        ("The director's vision unfolds.", 0.70),
-        ("This is why cinema matters.", 0.85),
+        (f"⚡ {movie_name}", 0.00),              # aggressive: appear immediately
+        (opening, 0.08),                          # fast follow-up
+        (f"A cinematic journey through {theme}.", 0.20),
+        ("Every frame tells a story.", 0.35),
+        ("Silence speaks louder than words.", 0.50),
+        ("The director's vision unfolds.", 0.65),
+        ("This is why cinema matters.", 0.80),
     ]
     return texts
 
@@ -953,7 +1178,7 @@ def _generate_intro_cinematic(target_width, target_height, source_title=""):
             if source_title else f"[vout]"
         ),
         "-map", "[vout]", "-map", "1:a",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-c:v", "libx264", "-preset", "fast", "-crf", str(RENDER_CRF),
         "-c:a", "aac", "-b:a", "64k",
         "-pix_fmt", "yuv420p", "-r", str(FPS),
         "-profile:v", "high", "-level", "4.1",
@@ -1017,7 +1242,7 @@ def _generate_intro_split(target_width, target_height, source_title=""):
             if source_title else f"[vout]"
         ),
         "-map", "[vout]", "-map", "1:a",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-c:v", "libx264", "-preset", "fast", "-crf", str(RENDER_CRF),
         "-c:a", "aac", "-b:a", "64k",
         "-pix_fmt", "yuv420p", "-r", str(FPS),
         "-profile:v", "high", "-level", "4.1",
@@ -1074,7 +1299,7 @@ def _generate_intro_minimal(target_width, target_height, source_title=""):
             f"fontsize=30:x=(w-text_w)/2:y='ih/2+40':fontfile='{font_path}'[vout]"
         ),
         "-map", "[vout]", "-map", "1:a",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-c:v", "libx264", "-preset", "fast", "-crf", str(RENDER_CRF),
         "-c:a", "aac", "-b:a", "64k",
         "-pix_fmt", "yuv420p", "-r", str(FPS),
         "-profile:v", "high", "-level", "4.1",
@@ -1133,7 +1358,7 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
     font_path = get_font_path()
 
     # Generate story text segments
-    story_texts = _generate_story_texts(source_title)
+    story_texts = generate_story_texts(source_title)
 
     # Determine target dimensions enforcing minimum 720p
     target_width = min(in_w, 1920)
@@ -1237,7 +1462,7 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
         "-map", audio_map,
         "-c:v", "libx264",
         "-preset", "medium",
-        "-crf", "22",  # Slightly better quality for longer content
+        "-crf", str(RENDER_CRF),
         "-c:a", "aac",
         "-b:a", "192k",
         "-pix_fmt", "yuv420p",

@@ -144,14 +144,13 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
 
     # ── Step 3: Edit Clip ────────────────────────────────
     register_stage(pipeline_id, "editing")
-    print(f"\n>>> Step 3/9: Editing clip to Shorts format...")
-    # Skip effects to avoid hang - only do smart crop for now
-    skip_effects = False
+    print(f"\n>>> Step 3/9: Editing clip — Full Blueprint Pipeline...")
+    print(f"  [pipeline] In Media Res → Crop → Color Grade → Speed Ramp → Text → Audio → Breath Cut", flush=True)
     clip_result = create_clip(
         download_result["path"],
         content_info["type"],
         title=download_result["title"],
-        skip_effects=skip_effects,
+        skip_effects=False,
     )
 
     if not clip_result:
@@ -162,7 +161,7 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
 
     # ── Step 4: Generate Thumbnails (A/B variants) ──────
     register_stage(pipeline_id, "thumbnails")
-    print(f"\n>>> Step 4/9: Generating thumbnails...")
+    print(f"\n>>> Step 4/9: Generating thumbnails (Peak Action Frame)...")
     thumbnails = generate_thumbnails(
         clip_result["path"],
         download_result["title"][:50],
@@ -175,9 +174,9 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
 
     log_result("thumbnails", "success" if thumbnails else "skipped", {"variants": list(thumbnails.keys())})
 
-    # ── Step 5: Generate SEO ─────────────────────────────
+    # ── Step 5: Generate SEO (Tri-Part Titles + Rich Description) ──
     register_stage(pipeline_id, "seo")
-    print(f"\n>>> Step 5/9: Generating SEO metadata...")
+    print(f"\n>>> Step 5/9: Generating SEO metadata (Tri-Part Title + 250w Description)...")
     seo = generate_metadata(
         download_result["title"],
         content_info["type"],

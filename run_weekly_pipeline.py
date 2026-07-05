@@ -27,9 +27,10 @@ from config import (
     LOG_DIR, DOWNLOADS_DIR, CLIPS_DIR, MOVIE_KEYWORDS,
 )
 from modules.clip_downloader import download_best_match
-from modules.clip_editor import create_weekly_video, remux_to_compatible, get_video_duration
+from modules.clip_editor import create_weekly_video, generate_story_texts, remux_to_compatible, get_video_duration
 
 from modules.seo_generator import generate_weekly_metadata
+from modules.voiceover_generator import generate_voiceover, cleanup_voiceover
 from modules.thumbnail_generator import generate_weekly_thumbnails
 from modules.space_manager import full_cleanup
 from modules.content_selector import load_used_scenes, save_used_scene, save_history
@@ -135,11 +136,29 @@ def run_weekly_pipeline(force_query=None, pipeline_id=None):
     import uuid
     output_path = os.path.join(CLIPS_DIR, f"weekly_{uuid.uuid4().hex[:10]}.mp4")
 
+    # Generate voiceover from story texts
+    voiceover_path = None
+    try:
+        story_texts = generate_story_texts(download_result["title"])
+        voiceover_path = generate_voiceover(story_texts, download_result["title"])
+        if voiceover_path:
+            print(f"  Voiceover generated: {voiceover_path}", flush=True)
+        else:
+            print(f"  Voiceover generation skipped (falling back to text-only)", flush=True)
+    except Exception as e:
+        print(f"  Voiceover generation failed: {e} (continuing without)", flush=True)
+        voiceover_path = None
+
     weekly_result = create_weekly_video(
         download_result["path"],
         output_path,
         source_title=download_result["title"],
+        voiceover_path=voiceover_path,
     )
+
+    # Clean up voiceover temp file
+    if voiceover_path:
+        cleanup_voiceover(voiceover_path)
 
     if not weekly_result:
         raise Exception("Weekly video creation failed")
