@@ -149,7 +149,9 @@ def select_clip_segment(video_path, target_duration=None, content_type="movie"):
 
     Returns: (start_time, duration) in seconds
     """
+    print(f"  [editor] Getting video duration for: {os.path.basename(video_path)}", flush=True)
     duration = get_video_duration(video_path)
+    print(f"  [editor] Video duration: {duration:.1f}s", flush=True)
     if duration <= 0:
         return (0, CLIP_MIN_DURATION)
 
@@ -523,13 +525,14 @@ def remux_to_compatible(input_path):
     return input_path
 
 
-def create_clip(input_path, content_type, title=""):
+def create_clip(input_path, content_type, title="", skip_effects=False):
     """Main entry point — creates a Short from a source clip.
 
     Args:
         input_path: Path to downloaded source video
         content_type: "football", "movie", or "series"
         title: Title of the source video
+        skip_effects: If True, bypass all fancy effects and use basic crop only
 
     Returns:
         Dict with processed clip info, or None
@@ -544,14 +547,21 @@ def create_clip(input_path, content_type, title=""):
 
     start_time, duration = select_clip_segment(working_input, content_type=content_type)
 
-    if content_type == "football":
+    if content_type == "football" or skip_effects:
         result = crop_to_shorts(working_input, output_path, start_time, duration)
     else:
         temp_path = output_path.replace(".mp4", "_raw.mp4")
         result = crop_to_shorts(working_input, temp_path, start_time, duration)
         if result:
             effects_path = output_path
-            result = apply_movie_effects(result["path"], effects_path, content_type, title)
+            # Apply movie/series effects only if not skipped
+            if not skip_effects:
+                result = apply_movie_effects(result["path"], effects_path, content_type, title)
+            else:
+                import shutil
+                shutil.copy2(result["path"], effects_path)
+                result["path"] = effects_path
+                result["duration"] = result.get("duration", duration)
             if os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
