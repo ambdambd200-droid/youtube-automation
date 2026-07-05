@@ -38,7 +38,7 @@ def get_authenticated_service():
                 client_secret=YOUTUBE_CLIENT_SECRET,
                 scopes=SCOPES
             )
-            if creds.expired and creds.refresh_token:
+            if creds.refresh_token:
                 creds.refresh(Request())
             if creds and creds.valid:
                 return build("youtube", "v3", credentials=creds)
@@ -51,7 +51,7 @@ def get_authenticated_service():
             with open(TOKEN_FILE, "rb") as token:
                 creds = pickle.load(token)
             if creds:
-                if creds.expired and creds.refresh_token:
+                if creds.refresh_token:
                     creds.refresh(Request())
                 if creds and creds.valid:
                     return build("youtube", "v3", credentials=creds)
