@@ -675,6 +675,7 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
     final_path = os.path.join(CLIPS_DIR, f"{content_type}_{clip_id}.mp4")
 
     current = remux_to_compatible(input_path)
+    working_input = current
 
     # ── Step 1: In Media Res — start 1.5s before action ──
     step1 = os.path.join(work_dir, "01_media_res.mp4")
