@@ -12,11 +12,6 @@ jobs:
   create-and-upload:
     runs-on: self-hosted
     timeout-minutes: 180
-    env:
-      YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-      YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-      YOUTUBE_TOKEN_B64: ${{ secrets.YOUTUBE_TOKEN_B64 }}
 
     steps:
       - name: Checkout repo
@@ -55,10 +50,6 @@ jobs:
         id: weekly
         shell: cmd
         run: |
-          set YOUTUBE_CLIENT_ID=${{ secrets.YOUTUBE_CLIENT_ID }}
-          set YOUTUBE_CLIENT_SECRET=${{ secrets.YOUTUBE_CLIENT_SECRET }}
-          set YOUTUBE_REFRESH_TOKEN=${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-          set YOUTUBE_TOKEN_B64=${{ secrets.YOUTUBE_TOKEN_B64 }}
           setlocal enabledelayedexpansion
           set MAX_RETRIES=1
           set RETRY_DELAY=60
