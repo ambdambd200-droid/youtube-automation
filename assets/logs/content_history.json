@@ -104,7 +104,17 @@
       "type": "movie",
       "search_query": "thriller classic film scene",
       "date": "2026-07-02T20:08:24.587776"
+    },
+    {
+      "type": "football",
+      "search_query": "football insane skills",
+      "date": "2026-07-05T15:25:06.053587"
+    },
+    {
+      "type": "movie",
+      "search_query": "classic film scene",
+      "date": "2026-07-05T15:45:31.326807"
     }
   ],
-  "total_count": 21
+  "total_count": 23
 }

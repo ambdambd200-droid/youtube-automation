@@ -24,7 +24,7 @@ jobs:
       - name: Copy local credentials
         shell: cmd
         run: |
-          if exist "C:\Users\A\Desktop\Movies\.env" copy "C:\Users\A\Desktop\Movies\.env" .env
+          if exist "C:\Users\A\Desktop\Movies\.env" copy /Y "C:\Users\A\Desktop\Movies\.env" .env
 
       - name: Install Python dependencies
         shell: cmd
@@ -36,15 +36,6 @@ jobs:
         run: |
           py -3.12 -m compileall . -q
 
-      - name: Debug YouTube env vars
-        shell: cmd
-        run: |
-          echo === DEBUG: YouTube Env Vars ===
-          if "%YOUTUBE_CLIENT_ID%"=="" (echo CLIENT_ID: MISSING) else (echo CLIENT_ID: SET)
-          if "%YOUTUBE_CLIENT_SECRET%"=="" (echo CLIENT_SECRET: MISSING) else (echo CLIENT_SECRET: SET)
-          if "%YOUTUBE_REFRESH_TOKEN%"=="" (echo REFRESH_TOKEN: MISSING) else (echo REFRESH_TOKEN: SET)
-          if "%YOUTUBE_TOKEN_B64%"=="" (echo TOKEN_B64: MISSING) else (echo TOKEN_B64: SET)
-          echo === END DEBUG ===
 
       - name: Create assets directories
         shell: cmd

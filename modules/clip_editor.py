@@ -406,6 +406,10 @@ def select_clip_segment(video_path, target_duration=None, content_type="movie"):
     if duration <= 0:
         return (0, CLIP_MIN_DURATION)
 
+    # For short videos, use the whole thing immediately
+    if duration <= CLIP_MIN_DURATION:
+        return (0, duration)
+
     if target_duration is None:
         # Use evolved clip duration bounds from evolution engine
         try:

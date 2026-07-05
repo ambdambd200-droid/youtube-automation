@@ -16,6 +16,7 @@ assets/logs/pipeline_state.json
 
 # YouTube OAuth token
 youtube_token.pickle
+upload_token.pickle
 
 # Python cache
 __pycache__/
@@ -32,3 +33,6 @@ cookies_*.txt
 Thumbs.db
 .DS_Store
 nul
+
+# Misc junk
+New Text Document.txt

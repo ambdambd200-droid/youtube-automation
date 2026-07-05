@@ -49,7 +49,7 @@ cmd = [
     "-map", "[aout]",
     "-c:v", "libx264",
     "-preset", "ultrafast",
-    "-crf", "22",
+    "-crf", "14",
     "-c:a", "aac",
     "-b:a", "128k",
     "-pix_fmt", "yuv420p",

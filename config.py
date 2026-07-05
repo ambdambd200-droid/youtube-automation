@@ -6,6 +6,10 @@ import os
 from datetime import datetime, timedelta, date
 from dotenv import load_dotenv
 load_dotenv()
+# Fallback: read directly from the known local path (self-hosted runner)
+_local_env = r"C:\Users\A\Desktop\Movies\.env"
+if os.path.exists(_local_env):
+    load_dotenv(_local_env, override=True)
 
 # ── YouTube API ──────────────────────────────────────────────
 YOUTUBE_CLIENT_ID = os.getenv("YOUTUBE_CLIENT_ID", "")

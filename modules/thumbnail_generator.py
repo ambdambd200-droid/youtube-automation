@@ -13,10 +13,34 @@ from config import THUMBNAILS_DIR, THUMBNAILS_VARIANTS_DIR, SHORTS_WIDTH, SHORTS
 from modules.utils import get_font_path
 
 
+def extract_peak_action_frame(video_path, output_path):
+    """Blueprint Section 1.3: Extract the Peak Action Frame.
+    Uses ffmpeg's 'thumbnail' filter to find the frame with highest
+    kinetic energy / visual interest from the video stream.
+    Falls back to middle-third random frame if detection fails.
+    """
+    cmd = [
+        "ffmpeg", "-y", "-i", video_path,
+        "-vf", f"thumbnail=n=30,scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=2,crop={SHORTS_WIDTH}:{SHORTS_HEIGHT}",
+        "-vframes", "1",
+        "-q:v", "1",
+        "-frames:v", "1",
+        output_path,
+    ]
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=30)
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+            return output_path
+    except Exception:
+        pass
+
+    # Fallback: middle-third random frame
+    return extract_frame(video_path, output_path)
+
+
 def extract_frame(video_path, output_path, at_time=None):
     """Extract a frame from a video at the best time."""
     if at_time is None:
-        # Pick a random frame from the middle third (most interesting)
         try:
             duration_cmd = [
                 "ffprobe", "-v", "error",
@@ -26,7 +50,6 @@ def extract_frame(video_path, output_path, at_time=None):
             ]
             result = subprocess.run(duration_cmd, capture_output=True, text=True, timeout=15)
             duration = float(result.stdout.strip())
-            # Pick from 25% to 65% into the video
             at_time = random.uniform(duration * 0.25, duration * 0.65)
         except (ValueError, subprocess.TimeoutExpired):
             at_time = 5.0
@@ -44,6 +67,27 @@ def extract_frame(video_path, output_path, at_time=None):
     try:
         subprocess.run(cmd, capture_output=True, timeout=30)
         if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+            return output_path
+    except Exception:
+        pass
+    return None
+
+
+def apply_contrast_enhancement(frame_path, output_path):
+    """Blueprint Section 1.3: Contrast Enhancement for thumbnail.
+    Crush shadows (darker), pop highlights (brighter) for HDR-like punch.
+    """
+    cmd = [
+        "ffmpeg", "-y", "-i", frame_path,
+        "-vf",
+        "curves=all='0/0.02 0.5/0.5 1/0.98', "
+        "eq=contrast=1.15:brightness=0.02:saturation=1.1",
+        "-q:v", "1",
+        output_path,
+    ]
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=15)
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 500:
             return output_path
     except Exception:
         pass
@@ -161,14 +205,30 @@ def generate_thumbnails(video_path, title, content_type):
     os.makedirs(THUMBNAILS_DIR, exist_ok=True)
     os.makedirs(THUMBNAILS_VARIANTS_DIR, exist_ok=True)
 
-    # Extract a base frame
+    # Blueprint Section 1.3: Extract Peak Action Frame
     import uuid
     frame_id = uuid.uuid4().hex[:8]
     frame_path = os.path.join(THUMBNAILS_DIR, f"frame_{frame_id}.jpg")
 
-    if not extract_frame(video_path, frame_path):
-        print("  [thumbnail] Failed to extract frame", flush=True)
+    raw_path = os.path.join(THUMBNAILS_DIR, f"raw_{frame_id}.jpg")
+    peak = extract_peak_action_frame(video_path, raw_path)
+
+    if not peak:
+        print("  [thumbnail] Failed to extract peak frame", flush=True)
         return None
+
+    # Apply contrast enhancement (crush shadows, pop highlights)
+    enhanced = apply_contrast_enhancement(raw_path, frame_path) or raw_path
+    if enhanced != frame_path:
+        import shutil
+        shutil.copy2(raw_path, frame_path)
+
+    # Clean up raw
+    try:
+        if os.path.exists(raw_path):
+            os.remove(raw_path)
+    except Exception:
+        pass
 
     variants = {}
 
