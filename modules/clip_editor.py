@@ -1445,12 +1445,12 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
             sub_idx += 1
             texts_added += 1
 
-    # Use forward slashes to avoid ffmpeg treating \ as escape chars
-    srt_posix = srt_path.replace("\\", "/")
-    # Escape colon to avoid ffmpeg parsing it as key-value separator
-    srt_escaped = srt_posix.replace(":", "\\:")
+    # Use relative path from project root with forward slashes
+    # (avoids Windows drive-letter colon and backslash escape issues in ffmpeg filter syntax)
+    from config import BASE_DIR as _BASE_DIR
+    srt_rel = os.path.relpath(srt_path, _BASE_DIR).replace("\\", "/")
     video_chain += (
-        f",subtitles={srt_escaped}:"
+        f",subtitles={srt_rel}:"
         f"force_style='FontName=Arial,FontSize=34,"
         f"PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,"
         f"BorderStyle=1,Outline=2,Shadow=0,"
