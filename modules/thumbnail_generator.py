@@ -21,7 +21,7 @@ def extract_peak_action_frame(video_path, output_path):
     """
     cmd = [
         "ffmpeg", "-y", "-i", video_path,
-        "-vf", f"thumbnail=n=30,scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=2,crop={SHORTS_WIDTH}:{SHORTS_HEIGHT}",
+        "-vf", f"thumbnail=n=30,scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=2:flags=lanczos,crop={SHORTS_WIDTH}:{SHORTS_HEIGHT}",
         "-vframes", "1",
         "-q:v", "1",
         "-frames:v", "1",
@@ -60,7 +60,7 @@ def extract_frame(video_path, output_path, at_time=None):
         "-i", video_path,
         "-vframes", "1",
         "-q:v", "2",
-        "-vf", f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=2,crop={SHORTS_WIDTH}:{SHORTS_HEIGHT}",
+        "-vf", f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=2:flags=lanczos,crop={SHORTS_WIDTH}:{SHORTS_HEIGHT}",
         output_path,
     ]
 
@@ -288,7 +288,7 @@ def extract_landscape_frame(video_path, output_path, at_time=None):
         "-i", video_path,
         "-vframes", "1",
         "-q:v", "2",
-        "-vf", f"scale={LANDSCAPE_THUMB_WIDTH}:{LANDSCAPE_THUMB_HEIGHT}:force_original_aspect_ratio=1,"
+        "-vf", f"scale={LANDSCAPE_THUMB_WIDTH}:{LANDSCAPE_THUMB_HEIGHT}:force_original_aspect_ratio=1:flags=lanczos,"
                 f"pad={LANDSCAPE_THUMB_WIDTH}:{LANDSCAPE_THUMB_HEIGHT}:(ow-iw)/2:(oh-ih)/2",
         output_path,
     ]

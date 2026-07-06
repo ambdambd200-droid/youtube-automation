@@ -122,12 +122,6 @@ def generate_search_query(content_type):
         kws = _load_evolved_keywords(content_type) or FOOTBALL_KEYWORDS
         kw = random.choice(kws)
 
-        teams = ["", "Real Madrid", "Barcelona", "Manchester City", "Liverpool",
-                 "Bayern Munich", "PSG", "Arsenal", "Juventus", "AC Milan"]
-        if random.random() < 0.3:
-            team = random.choice(teams)
-            kw = f"{kw} {team}"
-
         return {
             "type": "football",
             "search_query": kw,
@@ -138,12 +132,6 @@ def generate_search_query(content_type):
         kws = _load_evolved_keywords(content_type) or SERIES_KEYWORDS
         kw = random.choice(kws)
 
-        shows = ["", "Game of Thrones", "Breaking Bad", "Stranger Things",
-                 "The Crown", "Squid Game", "The Office", "Friends"]
-        if random.random() < 0.3:
-            show = random.choice(shows)
-            kw = f"{kw} {show}"
-
         return {
             "type": "series",
             "search_query": kw,
@@ -153,12 +141,6 @@ def generate_search_query(content_type):
     else:
         kws = _load_evolved_keywords(content_type) or MOVIE_KEYWORDS
         kw = random.choice(kws)
-
-        genres = ["", "action", "drama", "comedy", "thriller", "sci-fi",
-                   "romance", "horror", "animated", "classic", "award winning"]
-        if random.random() < 0.3:
-            genre = random.choice(genres)
-            kw = f"{genre} {kw}"
 
         return {
             "type": "movie",

@@ -509,7 +509,7 @@ def crop_to_shorts(input_path, output_path, start_time=0, duration=None):
     video_chain = (
         f"[0:v]trim=start={start_time}:duration={duration},setpts=PTS-STARTPTS,"
         f"crop={crop_w}:{crop_h}:{x}:{y},"
-        f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=0"
+        f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=0:flags=lanczos"
     )
 
     # Assemble full filtergraph: video chain + audio chain, each with its own output label
@@ -993,7 +993,10 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
         "-filter_complex", filter_complex,
         "-map", f"[{last_label}]",
         "-map", "[aout]",
-        "-c:v", "libx264", "-preset", "medium", "-crf", str(RENDER_CRF),
+        "-c:v", "libx264", "-preset", "slow", "-crf", str(RENDER_CRF),
+        "-b:v", RENDER_BITRATE,
+        "-maxrate", RENDER_BITRATE,
+        "-bufsize", RENDER_BUFFER_SIZE,
         "-c:a", "aac", "-b:a", "192k",
         "-pix_fmt", "yuv420p", "-r", str(FPS),
         "-movflags", "+faststart",
@@ -1032,7 +1035,7 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
 
 WEEKLY_SEGMENT_DURATION = 20  # seconds per text segment
 WEEKLY_MAX_DURATION = 480      # 8 minutes max for weekly videos
-WEEKLY_MIN_DURATION = 90       # 1.5 minutes minimum
+WEEKLY_MIN_DURATION = 120      # 2 minutes minimum (avoid Shorts classification)
 
 WEEKLY_STORY_TEMPLATES = [
     "A story of [theme].",
@@ -1137,14 +1140,16 @@ def generate_weekly_intro(target_width, target_height, source_title=""):
     """Generate an animated intro card for weekly videos.
 
     Rotates between multiple animation styles each week for variety.
-    Currently available styles:
-      - cinematic: Deep blue, fading text, gold accents, movie name
-      - split: Two-tone background, VARY/WEEKLY on each side, gold divider
-      - minimal: Almost-black, scale-up VARY, understated underline
+    Skips gracefully if no system font is available.
 
     Returns:
         Path to the generated intro MP4, or None on failure.
     """
+    from modules.utils import get_font_path
+    if not get_font_path():
+        print(f"  [editor] No system font found, skipping intro", flush=True)
+        return None
+
     style = select_intro_style()
     print(f"  [editor] Weekly intro style: {style}", flush=True)
 
@@ -1214,7 +1219,7 @@ def _generate_intro_cinematic(target_width, target_height, source_title=""):
             if source_title else f"[vout]"
         ),
         "-map", "[vout]", "-map", "1:a",
-        "-c:v", "libx264", "-preset", "fast", "-crf", str(RENDER_CRF),
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", str(RENDER_CRF),
         "-c:a", "aac", "-b:a", "64k",
         "-pix_fmt", "yuv420p", "-r", str(FPS),
         "-profile:v", "high", "-level", "4.1",
@@ -1223,9 +1228,12 @@ def _generate_intro_cinematic(target_width, target_height, source_title=""):
 
     print(f"  [editor] Generating cinematic intro...", flush=True)
     try:
-        subprocess.run(cmd, capture_output=True, timeout=60)
+        result = subprocess.run(cmd, capture_output=True, timeout=120)
+        if result.returncode != 0:
+            err = result.stderr.decode("utf-8", errors="replace")[-300:]
+            print(f"  [editor] Cinematic intro ffmpeg error: {err}", flush=True)
     except subprocess.TimeoutExpired:
-        print(f"  [editor] Intro generation timed out", flush=True)
+        print(f"  [editor] Intro generation timed out (120s)", flush=True)
         return None
     except Exception as e:
         print(f"  [editor] Intro generation error: {e}", flush=True)
@@ -1251,34 +1259,27 @@ def _generate_intro_split(target_width, target_height, source_title=""):
 
     cmd = [
         "ffmpeg", "-y",
-        # Base: dark navy (left half)
         "-f", "lavfi", "-i", f"color=c=0x0A1628:s={target_width}x{target_height}:d={d}",
         "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
         "-filter_complex", (
             "[0:v]format=yuv420p[base];"
-            # Right half overlay (dark teal)
             f"[base]drawbox=x={hw}:y=0:w={hw}:h=ih:color=0x0F2A3F:t=fill[split_bg];"
-            # Vertical divider line at center — draws from 0.2s to 0.7s
-            f"[split_bg]drawbox=x={hw - 1}:y=0:"
-            f"w=2:h='if(lt(t,0.2),1,if(lt(t,0.7),ih*(t-0.2)/0.5,ih))':color=gold@0.7:t=fill[center_line];"
-            # VARY on the left side — fades in from 0.3s
+            f"[split_bg]drawbox=x={hw - 1}:y=0:w=2:h=ih:color=gold@0.7:t=fill[center_line];"
             f"[center_line]drawtext=text='VARY':fontcolor=white:"
-            f"alpha='if(lt(t,0.3),0,if(lt(t,0.8),(t-0.3)/0.5,1))':"
+            f"alpha='if(lt(t,0.5),(t)/0.5,1)':"
             f"fontsize=72:x=80:y=(h-text_h)/2:fontfile='{font_path}'[left_text];"
-            # WEEKLY on the right side — fades in from 0.8s
             f"[left_text]drawtext=text='WEEKLY':fontcolor=gold:"
-            f"alpha='if(lt(t,0.8),0,if(lt(t,1.3),(t-0.8)/0.5,0.9))':"
+            f"alpha='if(lt(t,1.0),0,if(lt(t,1.5),(t-1.0)/0.5,0.9))':"
             f"fontsize=42:x={hw + 60}:y=(h-text_h)/2:fontfile='{font_path}'[right_text];"
             f"[right_text]"
         ) + (
-            # Movie name at bottom center
             f"drawtext=text='{_extract_movie_name(source_title)}':fontcolor=white@0.55:"
-            f"alpha='if(lt(t,1.8),0,if(lt(t,2.5),(t-1.8)/0.7,0.55))':"
+            f"alpha='if(lt(t,1.5),0,if(lt(t,2.2),(t-1.5)/0.7,0.55))':"
             f"fontsize=24:x=(w-text_w)/2:y=h-60:fontfile='{font_path}'[vout]"
             if source_title else f"[vout]"
         ),
         "-map", "[vout]", "-map", "1:a",
-        "-c:v", "libx264", "-preset", "fast", "-crf", str(RENDER_CRF),
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", str(RENDER_CRF),
         "-c:a", "aac", "-b:a", "64k",
         "-pix_fmt", "yuv420p", "-r", str(FPS),
         "-profile:v", "high", "-level", "4.1",
@@ -1287,9 +1288,12 @@ def _generate_intro_split(target_width, target_height, source_title=""):
 
     print(f"  [editor] Generating split-frame intro...", flush=True)
     try:
-        subprocess.run(cmd, capture_output=True, timeout=60)
+        result = subprocess.run(cmd, capture_output=True, timeout=120)
+        if result.returncode != 0:
+            err = result.stderr.decode("utf-8", errors="replace")[-300:]
+            print(f"  [editor] Split intro ffmpeg error: {err}", flush=True)
     except subprocess.TimeoutExpired:
-        print(f"  [editor] Split intro timed out", flush=True)
+        print(f"  [editor] Split intro timed out (120s)", flush=True)
         return None
     except Exception as e:
         print(f"  [editor] Split intro error: {e}", flush=True)
@@ -1344,9 +1348,12 @@ def _generate_intro_minimal(target_width, target_height, source_title=""):
 
     print(f"  [editor] Generating minimal intro...", flush=True)
     try:
-        subprocess.run(cmd, capture_output=True, timeout=60)
+        result = subprocess.run(cmd, capture_output=True, timeout=120)
+        if result.returncode != 0:
+            err = result.stderr.decode("utf-8", errors="replace")[-300:]
+            print(f"  [editor] Minimal intro ffmpeg error: {err}", flush=True)
     except subprocess.TimeoutExpired:
-        print(f"  [editor] Minimal intro timed out", flush=True)
+        print(f"  [editor] Minimal intro timed out (120s)", flush=True)
         return None
     except Exception as e:
         print(f"  [editor] Minimal intro error: {e}", flush=True)
@@ -1382,7 +1389,10 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
     if video_duration <= 0:
         video_duration = WEEKLY_MIN_DURATION
 
-    # Use the full video if it's under max duration
+    if video_duration < WEEKLY_MIN_DURATION:
+        print(f"  [weekly] Video too short ({video_duration:.0f}s), extending to {WEEKLY_MIN_DURATION}s", flush=True)
+        video_duration = WEEKLY_MIN_DURATION
+
     if video_duration > WEEKLY_MAX_DURATION:
         print(f"  [weekly] Video too long ({video_duration:.0f}s), truncating to {WEEKLY_MAX_DURATION}s", flush=True)
         video_duration = WEEKLY_MAX_DURATION
@@ -1423,7 +1433,7 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
     # Base video filter: trim and scale (enforce min 720p)
     video_chain = (
         f"[0:v]trim=0:{video_duration},setpts=PTS-STARTPTS,"
-        f"scale={target_width}:{target_height}:force_original_aspect_ratio=1,"
+        f"scale={target_width}:{target_height}:force_original_aspect_ratio=1:flags=lanczos,"
         f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2,format=yuv420p"
     )
 
@@ -1437,10 +1447,8 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
         if text_end <= text_start:
             continue
 
-        # Escape special characters for ffmpeg
         safe_text = text.replace("'", "\\'").replace(":", "\\:").replace("[", "\\[").replace("]", "\\]")
 
-        # Bottom-aligned text overlay with semi-transparent background box
         video_chain += (
             f",drawtext=text='{safe_text}':fontcolor=white:fontsize=38:"
             f"x=(w-text_w)/2:y=h-th-80:"
@@ -1452,23 +1460,35 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
 
     print(f"  [weekly] Added {texts_added} story text overlays", flush=True)
 
-    # Audio chain: trim to match video duration
-    audio_chain = f"[0:a]atrim=0:{video_duration},asetpts=PTS-STARTPTS[a_src]"
-
-    # Handle voiceover if provided
+    # ── Build input file list and audio chain ────────────
     has_voiceover = voiceover_path and os.path.exists(voiceover_path)
-    if has_voiceover:
-        input_files = ["-i", input_path, "-i", voiceover_path]
-        # Voiceover at 100%, original audio ducked to 25%
-        audio_chain += f";[2:a]volume=1.0[a_vo];[a_src]volume=0.25[a_src_d];[a_vo][a_src_d]amix=inputs=2:duration=first:weights=1 0.25[aout_raw]"
-        audio_map_label = "[aout_raw]"
-        print(f"  [weekly] Mixing voiceover: {voiceover_path}", flush=True)
+
+    if has_intro:
+        input_files = ["-i", input_path, "-i", intro_path]
+        if has_voiceover:
+            input_files += [voiceover_path]
     else:
         input_files = ["-i", input_path]
-        audio_chain += f";[a_src]acopy[aout_raw]"
+        if has_voiceover:
+            input_files += [voiceover_path]
+
+    # Audio chain: trim source audio + mix voiceover if present
+    audio_chain = f"[0:a]atrim=0:{video_duration},asetpts=PTS-STARTPTS[a_src]"
+
+    if has_voiceover:
+        vo_idx = len(input_files) - 1
+        audio_chain += (
+            f";[{vo_idx}:a]volume=1.0[a_vo];"
+            f"[a_src]volume=0.25[a_src_d];"
+            f"[a_vo][a_src_d]amix=inputs=2:duration=first:weights=1 0.25[aout_raw]"
+        )
+        audio_map_label = "[aout_raw]"
+        print(f"  [weekly] Mixing voiceover: {voiceover_path} (input idx {vo_idx})", flush=True)
+    else:
+        audio_chain += ";[a_src]acopy[aout_raw]"
         audio_map_label = "[aout_raw]"
 
-    # ── Concatenate intro + main video with smooth crossfade ──
+    # ── Build filtergraph ────────────────────────────────
     if has_intro:
         crossfade_dur = WEEKLY_INTRO_CROSSFADE
         xfade_offset = WEEKLY_INTRO_DURATION - crossfade_dur
@@ -1479,14 +1499,9 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
             f"duration={crossfade_dur}:offset={xfade_offset}[vout];"
             f"[1:a][{audio_map_label}]acrossfade=d={crossfade_dur}[aout]"
         )
-        input_files = ["-i", input_path, "-i", intro_path]
-        if has_voiceover:
-            input_files += [voiceover_path]
         audio_map = "[aout]"
     else:
         filter_complex = f"{video_chain}[vout];{audio_chain}"
-        if not has_voiceover:
-            input_files = ["-i", input_path]
         audio_map = audio_map_label
 
     # Build ffmpeg command
@@ -1497,8 +1512,11 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
         "-map", "[vout]",
         "-map", audio_map,
         "-c:v", "libx264",
-        "-preset", "medium",
+        "-preset", "slow",
         "-crf", str(RENDER_CRF),
+        "-b:v", RENDER_BITRATE,
+        "-maxrate", RENDER_BITRATE,
+        "-bufsize", RENDER_BUFFER_SIZE,
         "-c:a", "aac",
         "-b:a", "192k",
         "-pix_fmt", "yuv420p",
@@ -1510,9 +1528,12 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
     ]
 
     try:
-        subprocess.run(cmd, capture_output=True, timeout=600)
+        result = subprocess.run(cmd, capture_output=True, timeout=900)
+        if result.returncode != 0:
+            stderr_tail = result.stderr.decode("utf-8", errors="replace")[-500:]
+            print(f"  [weekly] FFmpeg error (rc={result.returncode}): {stderr_tail}", flush=True)
     except subprocess.TimeoutExpired:
-        print(f"  [weekly] FFmpeg timed out (600s)", flush=True)
+        print(f"  [weekly] FFmpeg timed out (900s)", flush=True)
         return None
     except Exception as e:
         print(f"  [weekly] Error: {e}", flush=True)

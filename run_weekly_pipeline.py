@@ -31,6 +31,7 @@ from modules.clip_editor import create_weekly_video, generate_story_texts, remux
 
 from modules.seo_generator import generate_weekly_metadata
 from modules.voiceover_generator import generate_voiceover, cleanup_voiceover
+from modules.quality_optimizer import QualityOptimizer, VideoAnalyzer
 from modules.thumbnail_generator import generate_weekly_thumbnails
 from modules.space_manager import full_cleanup
 from modules.content_selector import load_used_scenes, save_used_scene, save_history
@@ -130,49 +131,131 @@ def run_weekly_pipeline(force_query=None, pipeline_id=None):
     print(f"  Downloaded: {download_result['title']}", flush=True)
     log_result("download", "success", download_result)
 
-    # ── Step 3: Edit Weekly Video ────────────────────────
+    # ── Step 3: Quality Analysis ──────────────────────────
+    register_stage(pipeline_id, "quality_analysis")
+    print(f"\n>>> Step 3/8: Analyzing source quality...")
+    source_analyzer = VideoAnalyzer(download_result["path"])
+    src_summary = source_analyzer.summary()
+    print(f"  Source: {src_summary['resolution']} @ {src_summary['bitrate_kbps']}kbps, {src_summary['codec']}, {src_summary['fps']}fps", flush=True)
+    log_result("quality_analysis", "success", src_summary)
+
+    target_res = source_analyzer.suggest_target_resolution()
+    print(f"  Target resolution: {target_res[0]}x{target_res[1]}", flush=True)
+
+    quality_opt = QualityOptimizer(download_result["path"], content_type="movie")
+    quality_opt.validate_encode(download_result["path"])
+    log_result("quality_optimizer", "ready", {"target_resolution": f"{target_res[0]}x{target_res[1]}"})
+
+    # ── Step 4: Edit Weekly Video (with validation + retry) ──
     register_stage(pipeline_id, "editing")
-    print(f"\n>>> Step 3/7: Creating weekly video with story text...")
-    import uuid
-    output_path = os.path.join(CLIPS_DIR, f"weekly_{uuid.uuid4().hex[:10]}.mp4")
+    print(f"\n>>> Step 4/8: Creating weekly video with story text...")
 
-    # Generate voiceover from story texts
-    voiceover_path = None
-    try:
-        story_texts = generate_story_texts(download_result["title"])
-        voiceover_path = generate_voiceover(story_texts, download_result["title"])
-        if voiceover_path:
-            print(f"  Voiceover generated: {voiceover_path}", flush=True)
-        else:
-            print(f"  Voiceover generation skipped (falling back to text-only)", flush=True)
-    except Exception as e:
-        print(f"  Voiceover generation failed: {e} (continuing without)", flush=True)
+    from modules.clip_validator import validate_weekly
+
+    max_retries = 3
+    weekly_result = None
+    last_issues = []
+
+    for attempt in range(max_retries):
+        if attempt > 0:
+            print(f"\n  [weekly] Retry {attempt+1}/{max_retries}: {'; '.join(last_issues)}", flush=True)
+
+        import uuid
+        output_path = os.path.join(CLIPS_DIR, f"weekly_{uuid.uuid4().hex[:10]}.mp4")
+
+        # Generate voiceover from story texts
         voiceover_path = None
+        try:
+            story_texts = generate_story_texts(download_result["title"])
+            voiceover_path = generate_voiceover(story_texts, download_result["title"])
+            if voiceover_path:
+                print(f"  Voiceover generated: {voiceover_path}", flush=True)
+            else:
+                print(f"  Voiceover generation skipped (falling back to text-only)", flush=True)
+        except Exception as e:
+            print(f"  Voiceover generation failed: {e} (continuing without)", flush=True)
+            voiceover_path = None
 
-    weekly_result = create_weekly_video(
-        download_result["path"],
-        output_path,
-        source_title=download_result["title"],
-        voiceover_path=voiceover_path,
-    )
+        weekly_result = create_weekly_video(
+            download_result["path"],
+            output_path,
+            source_title=download_result["title"],
+            voiceover_path=voiceover_path,
+        )
 
-    # Clean up voiceover temp file
-    if voiceover_path:
-        cleanup_voiceover(voiceover_path)
+        # Clean up voiceover temp file
+        if voiceover_path:
+            cleanup_voiceover(voiceover_path)
+
+        if not weekly_result:
+            print(f"  [weekly] Video creation failed on attempt {attempt+1}", flush=True)
+            continue
+
+        print(f"  Weekly video duration: {weekly_result.get('duration', 0):.1f}s", flush=True)
+
+        # Validate
+        passed, last_issues = validate_weekly(weekly_result["path"])
+        if passed:
+            print(f"  Weekly video validated OK", flush=True)
+            log_result("editing", "success", weekly_result)
+            break
+
+        print(f"  Weekly validation failed: {'; '.join(last_issues)}", flush=True)
+        log_result("editing", "retry", {"attempt": attempt+1, "issues": last_issues})
+
+        # Clean up failed output
+        if os.path.exists(weekly_result["path"]):
+            try:
+                os.remove(weekly_result["path"])
+            except Exception:
+                pass
 
     if not weekly_result:
-        raise Exception("Weekly video creation failed")
+        # All retries with current source failed — try a different download
+        print(f"\n  [weekly] All retries failed, trying different source...", flush=True)
+        alt_query = random.choice([q for q in WEEKLY_KEYWORDS if q != search_query] or WEEKLY_KEYWORDS)
+        print(f"  New query: {alt_query}", flush=True)
+        new_dl = download_best_match(alt_query, used_ids=used_ids, content_type="movie")
+        if new_dl:
+            download_result = new_dl
+            output_path = os.path.join(CLIPS_DIR, f"weekly_{uuid.uuid4().hex[:10]}.mp4")
+            weekly_result = create_weekly_video(
+                download_result["path"],
+                output_path,
+                source_title=download_result["title"],
+                voiceover_path=None,
+            )
+            if weekly_result:
+                passed, _ = validate_weekly(weekly_result["path"])
+                if not passed:
+                    if os.path.exists(weekly_result["path"]):
+                        try:
+                            os.remove(weekly_result["path"])
+                        except Exception:
+                            pass
+                    weekly_result = None
 
-    print(f"  Weekly video duration: {weekly_result.get('duration', 0):.1f}s", flush=True)
-    log_result("editing", "success", weekly_result)
+    if not weekly_result:
+        raise Exception("Weekly video creation failed after all retries")
 
-    # ── Step 4: Critique (disabled — was causing hangs) ──
+    # ── Step 5: Critique (disabled — was causing hangs) ──
     critique_result = None
     print(f"  [SKIP] Critique disabled (was causing ffmpeg hangs)", flush=True)
 
-    # ── Step 5: Generate Thumbnails (landscape variants) ──
+    # ── Step 6: Quality Validation ────────────────────────
+    register_stage(pipeline_id, "quality_validation")
+    print(f"\n>>> Step 6/8: Validating output quality...")
+    qa_passed, qa_issues = quality_opt.validate_encode(weekly_result["path"], reference_path=download_result["path"])
+    if qa_passed:
+        print(f"  Output quality validated OK", flush=True)
+    else:
+        for issue in qa_issues:
+            print(f"  [WARN] {issue}", flush=True)
+    log_result("quality_validation", "passed" if qa_passed else "warn", {"issues": qa_issues})
+
+    # ── Step 7: Generate Thumbnails (landscape variants) ──
     register_stage(pipeline_id, "thumbnails")
-    print(f"\n>>> Step 5/7: Generating landscape thumbnails...")
+    print(f"\n>>> Step 7/8: Generating landscape thumbnails...")
     thumbnails = generate_weekly_thumbnails(
         weekly_result["path"],
         download_result["title"][:50],
@@ -184,9 +267,9 @@ def run_weekly_pipeline(force_query=None, pipeline_id=None):
 
     log_result("thumbnails", "success" if thumbnails else "skipped", {"variants": list(thumbnails.keys())})
 
-    # ── Step 6: Generate SEO ─────────────────────────────
+    # ── Step 8: Generate SEO ─────────────────────────────
     register_stage(pipeline_id, "seo")
-    print(f"\n>>> Step 6/7: Generating SEO metadata...")
+    print(f"\n>>> Step 8/8: Generating SEO metadata...")
     seo = generate_weekly_metadata(
         download_result["title"],
         source_url=download_result.get("url"),
@@ -195,9 +278,9 @@ def run_weekly_pipeline(force_query=None, pipeline_id=None):
     print(f"  Title: {seo['title']}", flush=True)
     print(f"  Tags: {len(seo['tags'])} tags", flush=True)
 
-    # ── Step 7: Upload to YouTube ────────────────────────
+    # ── Upload (after SEO) ───────────────────────────────
     register_stage(pipeline_id, "upload")
-    print(f"\n>>> Step 7/7: Uploading to YouTube...")
+    print(f"\n>>> Uploading to YouTube...")
     from config import YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN
 
     print(f"  [DEBUG] CLIENT_ID: {'SET' if YOUTUBE_CLIENT_ID else 'MISSING'}", flush=True)

@@ -146,13 +146,14 @@ def _try_with_client_fallback(operation_fn, timeout=30):
 def search_youtube(query, max_results=10):
     """Search YouTube for videos matching the query using yt-dlp.
 
+    Returns full metadata including view_count and channel for quality filtering.
     Tries multiple player clients to bypass bot detection.
     """
     def _search(client, timeout):
         cmd = [
             "yt-dlp",
-            "--flat-playlist",
             "-J",
+            "--flat-playlist",
             f"ytsearch{max_results}:{query}",
         ] + _get_info_args(player_client=client)
         try:
@@ -172,6 +173,9 @@ def search_youtube(query, max_results=10):
                 title = entry.get("title", "")
                 duration = entry.get("duration", 0)
                 url = entry.get("webpage_url", f"https://youtu.be/{video_id}")
+                view_count = entry.get("view_count", 0) or 0
+                channel = entry.get("channel", "") or entry.get("uploader", "") or ""
+                channel_id = entry.get("channel_id", "") or ""
 
                 if duration and duration > 600:
                     continue
@@ -181,6 +185,9 @@ def search_youtube(query, max_results=10):
                     "title": title,
                     "url": url,
                     "duration": duration,
+                    "view_count": view_count,
+                    "channel": channel,
+                    "channel_id": channel_id,
                 })
 
             if videos:
@@ -313,18 +320,28 @@ def download_clip(video_url, output_template=None, video_id=None):
 _CONTENT_TERMS = {
     "football": ["football", "soccer", "goal", "match", "fifa", "uefa",
                  "champion", "league", "player", "sport", "athletic", "stadium",
-                 "highlight", "skills", "top play", "best moment", "viral"],
+                 "highlight", "skills", "top play", "best moment", "viral",
+                 "world cup", "cup", "free kick", "penalty", "save"],
     "movie": ["movie", "film", "scene", "trailer", "clip", "cinema", "cinematic",
               "actor", "actress", "director", "hollywood", "animated",
-              "behind the scenes", "iconic", "masterpiece", "4k hd"],
+              "behind the scenes", "iconic", "masterpiece", "4k hd",
+              "blockbuster", "award", "movie moment"],
     "series": ["episode", "series", "show", "tv", "television", "netflix",
-               "season", "finale", "season", "drama", "comedy", "sitcom",
-               "hit show", "tv series"],
+               "season", "finale", "drama", "comedy", "sitcom",
+               "hit show", "tv series", "hbo", "amazon prime"],
 }
 _BLACKLIST_TITLE = [
     "documentary", "history of", "explained", "tutorial", "how to",
     "review", "reaction", "analysis", "deep dive", "interview",
     "behind the news", "mystery of", "story of",
+    # Gaming / non-relevant content
+    "gameplay", "walkthrough", "let's play", "minecraft", "fortnite",
+    "among us", "gta", "roblox", "pubg", "call of duty", "fifa gameplay",
+    # Low-effort / compilation garbage
+    "compilation", "memes", "funny fails", "try not to laugh",
+    "satisfying", "oddly satisfying", "amazing moments",
+    # Non-English content that slips through
+    "shorts", "#shorts", "youtube shorts",
 ]
 
 
@@ -341,6 +358,9 @@ def _is_relevant(title, content_type):
 def download_best_match(search_query, used_ids=None, content_type=None):
     """Search and download the best matching video.
 
+    Filters by quality (view count, relevance) before selecting.
+    Picks the best candidate, not a random one.
+
     Args:
         search_query: Search query for YouTube
         used_ids: Set of already-used video IDs to avoid repeats
@@ -354,27 +374,53 @@ def download_best_match(search_query, used_ids=None, content_type=None):
 
     videos = search_youtube(search_query, max_results=15)
 
-    # Filter out already-used videos + irrelevant titles
-    fresh_videos = [v for v in videos
-                    if v["id"] not in used_ids
-                    and _is_relevant(v["title"], content_type)]
+    fresh = [v for v in videos
+             if v["id"] not in used_ids
+             and _is_relevant(v["title"], content_type)]
 
-    # If filtering leaves nothing, retry without title filter
-    if not fresh_videos:
-        fresh_videos = [v for v in videos if v["id"] not in used_ids]
+    if not fresh:
+        fresh = [v for v in videos if v["id"] not in used_ids]
 
-    if not fresh_videos:
+    if not fresh:
         if videos:
             print("  [downloader] All recent videos used, picking best available", flush=True)
-            fresh_videos = videos
+            fresh = videos
         else:
             print("  [downloader] No videos found for query", flush=True)
             return None
 
-    # Pick a random video from the results
-    chosen = random.choice(fresh_videos[:8])
+    # ── Quality gates ────────────────────────────────────
+    # Reject very low-view videos (weird/obscure content)
+    quality_candidates = [v for v in fresh if v.get("view_count", 0) >= 10000]
+    if not quality_candidates:
+        quality_candidates = [v for v in fresh if v.get("view_count", 0) >= 1000]
+    if not quality_candidates:
+        quality_candidates = fresh
+
+    # Reject videos from clearly non-relevant channels (gaming, music, news etc)
+    filtered = []
+    for v in quality_candidates:
+        channel = (v.get("channel") or "").lower()
+        title = (v.get("title") or "").lower()
+        # Skip gaming/music/news channels unless the title clearly matches
+        if any(skip in channel for skip in ["gaming", "gameplay", "music", "news", "press", "tv"]):
+            if content_type == "football" and any(ft in channel for ft in ["sport", "football", "goal"]):
+                filtered.append(v)
+            elif content_type in ("movie", "series") and any(mt in channel for mt in ["movie", "film", "scene", "clip", "trailer"]):
+                filtered.append(v)
+            else:
+                continue
+        else:
+            filtered.append(v)
+    if filtered:
+        quality_candidates = filtered
+
+    # Sort by view count descending, pick from top 5
+    quality_candidates.sort(key=lambda v: v.get("view_count", 0), reverse=True)
+    chosen = random.choice(quality_candidates[:5])
 
     print(f"  [downloader] Downloading: {chosen['title']}", flush=True)
+    print(f"  [downloader] Channel: {chosen.get('channel', '?')} | Views: {chosen.get('view_count', 0):,}", flush=True)
     filepath = download_clip(chosen["url"], video_id=chosen["id"])
 
     if filepath:

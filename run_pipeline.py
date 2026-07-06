@@ -35,6 +35,7 @@ from modules.clip_editor import create_clip
 from modules.thumbnail_generator import generate_thumbnails
 from modules.seo_generator import generate_metadata
 from modules.space_manager import full_cleanup
+from modules.quality_optimizer import VideoAnalyzer
 from modules.pipeline_watchdog import (
     register_run_start, register_stage, register_run_complete, register_run_failure,
 )
@@ -86,7 +87,7 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
 
     # ── Step 1: Content Selection ────────────────────────
     register_stage(pipeline_id, "content_selection")
-    print(f">>> Step 1/9: Selecting content...")
+    print(f">>> Step 1/10: Selecting content...")
     if force_type:
         keyword_map = {"football": FOOTBALL_KEYWORDS, "movie": MOVIE_KEYWORDS, "series": SERIES_KEYWORDS}
         content_info = {
@@ -113,7 +114,7 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
 
     # ── Step 2: Download Clip ────────────────────────────
     register_stage(pipeline_id, "download")
-    print(f"\n>>> Step 2/9: Downloading clip...")
+    print(f"\n>>> Step 2/10: Downloading clip...")
     used = load_used_scenes()
     used_ids = set()
     for key in ["movie_scenes", "football_matches", "series_scenes"]:
@@ -142,9 +143,20 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
     print(f"  Downloaded: {download_result['title']}", flush=True)
     log_result("download", "success", download_result)
 
-    # ── Step 3: Edit Clip ────────────────────────────────
+    # ── Step 3: Quality Analysis ─────────────────────────
+    register_stage(pipeline_id, "quality_analysis")
+    print(f"\n>>> Step 3/10: Analyzing source quality...")
+    src_info = VideoAnalyzer(download_result["path"])
+    src_summary = src_info.summary()
+    print(f"  Source: {src_summary['resolution']} @ {src_summary['bitrate_kbps']}kbps, {src_summary['codec']}, {src_summary['fps']}fps", flush=True)
+
+    target_res = src_info.suggest_target_resolution()
+    print(f"  Target: {target_res[0]}x{target_res[1]}", flush=True)
+    log_result("quality_analysis", "success", src_summary)
+
+    # ── Step 4: Edit Clip ────────────────────────────────
     register_stage(pipeline_id, "editing")
-    print(f"\n>>> Step 3/9: Editing clip — Full Blueprint Pipeline...")
+    print(f"\n>>> Step 4/10: Editing clip — Full Blueprint Pipeline...")
     print(f"  [pipeline] Select → In Media Res → Crop → Color → Speed Ramp → Text → Audio → Breath Cut", flush=True)
     clip_result = create_clip(
         download_result["path"],
@@ -159,9 +171,9 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
     print(f"  Clip duration: {clip_result.get('duration', 0):.1f}s", flush=True)
     log_result("editing", "success", clip_result)
 
-    # ── Step 4: Generate Thumbnails (A/B variants) ──────
+    # ── Step 5: Generate Thumbnails (A/B variants) ──────
     register_stage(pipeline_id, "thumbnails")
-    print(f"\n>>> Step 4/9: Generating thumbnails (Peak Action Frame)...")
+    print(f"\n>>> Step 5/10: Generating thumbnails (Peak Action Frame)...")
     thumbnails = generate_thumbnails(
         clip_result["path"],
         download_result["title"][:50],
@@ -174,9 +186,9 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
 
     log_result("thumbnails", "success" if thumbnails else "skipped", {"variants": list(thumbnails.keys())})
 
-    # ── Step 5: Generate SEO (Tri-Part Titles + Rich Description) ──
+    # ── Step 6: Generate SEO (Tri-Part Titles + Rich Description) ──
     register_stage(pipeline_id, "seo")
-    print(f"\n>>> Step 5/9: Generating SEO metadata (Tri-Part Title + 250w Description)...")
+    print(f"\n>>> Step 6/10: Generating SEO metadata (Tri-Part Title + 250w Description)...")
     seo = generate_metadata(
         download_result["title"],
         content_info["type"],
@@ -186,13 +198,13 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
     print(f"  Title: {seo['title']}", flush=True)
     print(f"  Tags: {len(seo['tags'])} tags", flush=True)
 
-    # ── Step 6: Critique (disabled — was causing hangs) ──
+    # ── Step 7: Critique (disabled — was causing hangs) ──
     critique_result = None
     print(f"  [SKIP] Critique disabled (was causing ffmpeg hangs)", flush=True)
 
-    # ── Step 7: Upload to YouTube ────────────────────────
+    # ── Step 8: Upload to YouTube ────────────────────────
     register_stage(pipeline_id, "upload")
-    print(f"\n>>> Step 7/9: Uploading to YouTube...")
+    print(f"\n>>> Step 8/10: Uploading to YouTube...")
     from config import YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN
     from modules.youtube_uploader import upload_video
 
@@ -254,9 +266,9 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
             print(f"  [SKIP] Performance register error: {e}", flush=True)
             log_result("performance_register", "skipped", {"error": str(e)})
 
-    # ── Step 8: Evolution — self-improvement cycle ────────
+    # ── Step 9: Evolution — self-improvement cycle ────────
     register_stage(pipeline_id, "evolution")
-    print(f"\n>>> Step 8/9: Running evolution cycle...")
+    print(f"\n>>> Step 9/10: Running evolution cycle...")
     evolution_result = None
     try:
         from modules.evolution_engine import evolve
@@ -272,9 +284,9 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
         print(f"  [SKIP] Evolution error: {e}", flush=True)
         log_result("evolution", "skipped", {"error": str(e)})
 
-    # ── Step 9: Space Cleanup ─────────────────────────────
+    # ── Step 10: Space Cleanup ────────────────────────────
     register_stage(pipeline_id, "cleanup")
-    print(f"\n>>> Step 9/9: Cleaning up all downloaded files...")
+    print(f"\n>>> Step 10/10: Cleaning up all downloaded files...")
     # Build list of everything to delete: source download + processed clip + thumbnails
     paths_to_clean = [download_result["path"]]
     if clip_result:

@@ -109,20 +109,24 @@ FOOTBALL_KEYWORDS = [
 ]
 
 MOVIE_KEYWORDS = [
-    "iconic movie scene",
-    "best movie moments",
-    "classic film scene",
-    "cinematic masterpiece scene",
-    "movie trailer epic",
-    "film scene amazing",
+    "iconic movie scene 4k",
+    "best movie moments 4k",
+    "cinematic movie scene",
+    "movie clip epic scene",
+    "famous movie scene hd",
+    "award winning film scene",
+    "hollywood movie iconic moment",
+    "blockbuster movie scene",
+    "film scene masterpiece hd",
 ]
 
 SERIES_KEYWORDS = [
-    "tv series best scene",
-    "tv show viral moment",
-    "series most iconic scene",
-    "tv series epic moment",
-    "show best scene ever",
+    "tv series best scene hd",
+    "tv show iconic moment",
+    "series most famous scene",
+    "tv series epic moment hd",
+    "tv show dramatic scene",
+    "hit series best clip",
 ]
 
 # ── Channel Branding ─────────────────────────────────────────
