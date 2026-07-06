@@ -484,38 +484,33 @@ def crop_to_shorts(input_path, output_path, start_time=0, duration=None):
     # Get original dimensions
     in_w, in_h = get_video_dimensions(input_path)
 
-    # Smart crop to 9:16 (1080x1920)
-    # For landscape video: crop center portion to 9:16 ratio
-    # For portrait/vertical: resize to fit
+    # Smart crop to exactly 9:16 (1080x1920) — YouTube Shorts requirement
+    # For ANY source ratio, we produce a true 9:16 frame (no stretch/distortion)
+    crop_w = in_w
+    crop_h = in_h
+    target_9_16 = SHORTS_WIDTH / SHORTS_HEIGHT  # 0.5625
 
-    target_ratio = SHORTS_WIDTH / SHORTS_HEIGHT  # 1080/1920 = 0.5625
-
-    # Build the video filter chain (without output label)
-    if in_w > in_h:
-        # Landscape video
-        # Crop height = 100%, width = height * 0.5625
-        crop_height = in_h
-        crop_width = int(crop_height * target_ratio * (SHORTS_HEIGHT / SHORTS_WIDTH))
-        if crop_width > in_w:
-            crop_width = in_w
-            crop_height = int(crop_width / target_ratio * (SHORTS_WIDTH / SHORTS_HEIGHT))
-
-        # Center crop
-        x = (in_w - crop_width) // 2
-        y = 0
-
-        video_chain = (
-            f"[0:v]trim=start={start_time}:duration={duration},setpts=PTS-STARTPTS,"
-            f"crop={crop_width}:{crop_height}:{x}:{y},"
-            f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=0"
-        )
+    if in_w / in_h > target_9_16:
+        # Source is wider than 9:16 → crop width to fit 9:16
+        crop_h = in_h
+        crop_w = int(crop_h * target_9_16)
     else:
-        # Portrait or square video
-        video_chain = (
-            f"[0:v]trim=start={start_time}:duration={duration},setpts=PTS-STARTPTS,"
-            f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=1,"
-            f"pad={SHORTS_WIDTH}:{SHORTS_HEIGHT}:(ow-iw)/2:(oh-ih)/2"
-        )
+        # Source is taller than 9:16 (or square) → crop height to fit 9:16
+        crop_w = in_w
+        crop_h = int(crop_w / target_9_16)
+        if crop_h > in_h:
+            crop_h = in_h
+            crop_w = int(crop_h * target_9_16)
+
+    # Center crop
+    x = (in_w - crop_w) // 2
+    y = (in_h - crop_h) // 2
+
+    video_chain = (
+        f"[0:v]trim=start={start_time}:duration={duration},setpts=PTS-STARTPTS,"
+        f"crop={crop_w}:{crop_h}:{x}:{y},"
+        f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=0"
+    )
 
     # Assemble full filtergraph: video chain + audio chain, each with its own output label
     filter_complex = (
@@ -675,21 +670,25 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
     seg_start, seg_duration, impact_point = select_clip_segment(current, content_type=content_type)
 
     # ── Step 2: In Media Res — start 1.5s before impact (Blueprint 4.1) ──
-    if impact_point is not None:
+    if impact_point is not None and impact_point > TEMP_PRE_ACTION_WINDOW:
         # impact_point is absolute timestamp in the full video
-        # Adjust clip to start 1.5s before the impact
-        refined_start = max(0, impact_point - TEMP_PRE_ACTION_WINDOW)
-        # Keep the end the same (or extend slightly)
-        seg_end = seg_start + seg_duration
-        refined_duration = seg_end - refined_start
-        # Ensure minimum duration
-        if refined_duration < CLIP_MIN_DURATION:
-            refined_duration = min(CLIP_MAX_DURATION, get_video_duration(current) - refined_start)
-        seg_start = refined_start
-        seg_duration = min(CLIP_MAX_DURATION, refined_duration)
+        # We want: start 1.5s BEFORE impact, keep full action + reaction
+        full_end = min(get_video_duration(current), seg_start + seg_duration)
+        desired_start = max(0, impact_point - TEMP_PRE_ACTION_WINDOW)
+        # Ensure we keep at least CLIP_MIN_DURATION of content
+        new_start = min(seg_start, desired_start)  # start earlier if needed
+        new_duration = full_end - new_start
+        if new_duration < CLIP_MIN_DURATION:
+            # Extend end to meet minimum
+            new_end = min(get_video_duration(current), new_start + CLIP_MIN_DURATION)
+            new_duration = new_end - new_start
+        seg_start = new_start
+        seg_duration = min(CLIP_MAX_DURATION, new_duration)
         print(f"  [editor] In media res: start {seg_start:.1f}s (impact at {impact_point:.1f}s), dur {seg_duration:.0f}s", flush=True)
     else:
-        print(f"  [editor] No impact point, keeping segment: {seg_start:.1f}s - {seg_start + seg_duration:.1f}s ({seg_duration:.0f}s)", flush=True)
+        if impact_point is not None:
+            print(f"  [editor] Impact too early ({impact_point:.1f}s), keeping original segment", flush=True)
+        print(f"  [pipeline] Segment: {seg_start:.1f}s - {seg_start + seg_duration:.1f}s ({seg_duration:.0f}s)", flush=True)
 
     # Compute the impact time RELATIVE to the final clip (for speed ramp / breath cut)
     rel_impact = (impact_point - seg_start) if impact_point else 1.5
