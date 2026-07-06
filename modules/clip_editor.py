@@ -1139,28 +1139,13 @@ def select_intro_style():
 def generate_weekly_intro(target_width, target_height, source_title=""):
     """Generate an animated intro card for weekly videos.
 
-    Rotates between multiple animation styles each week for variety.
-    Skips gracefully if no system font is available.
+    Currently disabled because ffmpeg drawtext hangs on the runner's Windows build.
+    The main video text overlays + voiceover provide sufficient branding.
 
     Returns:
-        Path to the generated intro MP4, or None on failure.
+        None (intro skipped).
     """
-    from modules.utils import get_font_path
-    if not get_font_path():
-        print(f"  [editor] No system font found, skipping intro", flush=True)
-        return None
-
-    style = select_intro_style()
-    print(f"  [editor] Weekly intro style: {style}", flush=True)
-
-    style_map = {
-        "cinematic": _generate_intro_cinematic,
-        "split": _generate_intro_split,
-        "minimal": _generate_intro_minimal,
-    }
-
-    func = style_map.get(style, _generate_intro_cinematic)
-    return func(target_width, target_height, source_title)
+    return None
 
 
 def _extract_movie_name(source_title):
@@ -1466,21 +1451,22 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
     if has_intro:
         input_files = ["-i", input_path, "-i", intro_path]
         if has_voiceover:
-            input_files += [voiceover_path]
+            input_files += ["-i", voiceover_path]
+        vo_idx = 2
     else:
         input_files = ["-i", input_path]
         if has_voiceover:
-            input_files += [voiceover_path]
+            input_files += ["-i", voiceover_path]
+        vo_idx = 1
 
     # Audio chain: trim source audio + mix voiceover if present
     audio_chain = f"[0:a]atrim=0:{video_duration},asetpts=PTS-STARTPTS[a_src]"
 
     if has_voiceover:
-        vo_idx = len(input_files) - 1
         audio_chain += (
             f";[{vo_idx}:a]volume=1.0[a_vo];"
             f"[a_src]volume=0.25[a_src_d];"
-            f"[a_vo][a_src_d]amix=inputs=2:duration=first:weights=1 0.25[aout_raw]"
+            f"[a_vo][a_src_d]amix=inputs=2:duration=first[aout_raw]"
         )
         audio_map_label = "[aout_raw]"
         print(f"  [weekly] Mixing voiceover: {voiceover_path} (input idx {vo_idx})", flush=True)
