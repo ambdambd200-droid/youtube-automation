@@ -1391,24 +1391,8 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
     # Generate story text segments
     story_texts = generate_story_texts(source_title)
 
-    # Determine target dimensions enforcing minimum 720p
-    target_width = min(in_w, 1920)
-    if in_w > 0:
-        # Scale by width first
-        scale_factor = target_width / in_w
-        target_height = int(in_h * scale_factor)
-        # Enforce minimum 720p height — if scaling to 1920w gives <720h,
-        # scale based on height instead to maintain quality
-        if target_height < 720:
-            target_height = 720
-            target_width = int(in_w * (720 / in_h))
-            # Clamp to original width and reasonable max
-            target_width = min(target_width, in_w)
-        # Ensure even dimensions (required by libx264)
-        target_height = target_height if target_height % 2 == 0 else target_height + 1
-        target_width = target_width if target_width % 2 == 0 else target_width + 1
-    else:
-        target_width, target_height = 1280, 720  # Minimum 720p fallback
+    # Always output 1920x720 (scale+pad handle aspect ratio, upscale to 720p)
+    target_width, target_height = 1920, 720
 
     # ── Generate animated intro card ─────────────────────
     intro_path = generate_weekly_intro(target_width, target_height, source_title)

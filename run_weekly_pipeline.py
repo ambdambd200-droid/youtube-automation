@@ -203,8 +203,8 @@ def run_weekly_pipeline(force_query=None, pipeline_id=None):
         print(f"  Weekly validation failed: {'; '.join(last_issues)}", flush=True)
         log_result("editing", "retry", {"attempt": attempt+1, "issues": last_issues})
 
-        # Clean up failed output
-        if os.path.exists(weekly_result["path"]):
+        # Clean up failed output (keep last attempt for upload despite issues)
+        if attempt < max_retries - 1 and os.path.exists(weekly_result["path"]):
             try:
                 os.remove(weekly_result["path"])
             except Exception:
