@@ -666,120 +666,138 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
     current = remux_to_compatible(input_path)
     working_input = current
 
-    # ── Step 1: Select clip segment from full video ────
-    seg_start, seg_duration, impact_point = select_clip_segment(current, content_type=content_type)
+    from modules.clip_validator import validate_short
 
-    # ── Step 2: In Media Res — start 1.5s before impact (Blueprint 4.1) ──
-    if impact_point is not None and impact_point > TEMP_PRE_ACTION_WINDOW:
-        # impact_point is absolute timestamp in the full video
-        # We want: start 1.5s BEFORE impact, keep full action + reaction
-        full_end = min(get_video_duration(current), seg_start + seg_duration)
-        desired_start = max(0, impact_point - TEMP_PRE_ACTION_WINDOW)
-        # Ensure we keep at least CLIP_MIN_DURATION of content
-        new_start = min(seg_start, desired_start)  # start earlier if needed
-        new_duration = full_end - new_start
-        if new_duration < CLIP_MIN_DURATION:
-            # Extend end to meet minimum
-            new_end = min(get_video_duration(current), new_start + CLIP_MIN_DURATION)
-            new_duration = new_end - new_start
-        seg_start = new_start
-        seg_duration = min(CLIP_MAX_DURATION, new_duration)
-        print(f"  [editor] In media res: start {seg_start:.1f}s (impact at {impact_point:.1f}s), dur {seg_duration:.0f}s", flush=True)
-    else:
-        if impact_point is not None:
-            print(f"  [editor] Impact too early ({impact_point:.1f}s), keeping original segment", flush=True)
-        print(f"  [pipeline] Segment: {seg_start:.1f}s - {seg_start + seg_duration:.1f}s ({seg_duration:.0f}s)", flush=True)
+    max_retries = 3
+    last_issues = []
 
-    # Compute the impact time RELATIVE to the final clip (for speed ramp / breath cut)
-    rel_impact = (impact_point - seg_start) if impact_point else 1.5
+    for attempt in range(max_retries):
+        if attempt > 0:
+            print(f"  [editor] Retry {attempt+1}/{max_retries}: {'; '.join(last_issues)}", flush=True)
+            # Create new work_dir for retry
+            clip_id = __import__('uuid').uuid4().hex[:10]
+            work_dir = os.path.join(CLIPS_DIR, f"_pipeline_{clip_id}")
+            os.makedirs(work_dir, exist_ok=True)
+            final_path = os.path.join(CLIPS_DIR, f"{content_type}_{clip_id}.mp4")
+            current = remux_to_compatible(input_path)
+            working_input = current
 
-    # ── Step 3: Crop to Shorts ──────────────────────────
-    step1 = os.path.join(work_dir, "01_cropped.mp4")
-    crop = crop_to_shorts(current, step1, seg_start, seg_duration)
-    if not crop:
-        print(f"  [editor] Crop failed, aborting pipeline", flush=True)
-        _clean_work_dir(work_dir)
-        return None
-    current = crop["path"]
-    clip_duration = crop.get("duration", seg_duration)
+        # ── Step 1: Select clip segment from full video ────
+        seg_start, seg_duration, impact_point = select_clip_segment(current, content_type=content_type)
 
-    # ── Step 4: Color Grade (Blueprint Section 3) ──────
-    try:
-        from modules.color_grade import full_color_pipeline
-        step2 = os.path.join(work_dir, "02_graded.mp4")
-        graded = full_color_pipeline(current, step2)
-        if graded:
-            current = graded
-    except Exception as e:
-        print(f"  [editor] Color grade skipped: {e}", flush=True)
+        # ── Step 2: In Media Res — start 1.5s before impact (Blueprint 4.1) ──
+        if impact_point is not None and impact_point > TEMP_PRE_ACTION_WINDOW:
+            full_end = min(get_video_duration(current), seg_start + seg_duration)
+            desired_start = max(0, impact_point - TEMP_PRE_ACTION_WINDOW)
+            new_start = min(seg_start, desired_start)
+            new_duration = full_end - new_start
+            if new_duration < CLIP_MIN_DURATION:
+                new_end = min(get_video_duration(current), new_start + CLIP_MIN_DURATION)
+                new_duration = new_end - new_start
+            seg_start = new_start
+            seg_duration = min(CLIP_MAX_DURATION, new_duration)
+            print(f"  [editor] In media res: start {seg_start:.1f}s (impact at {impact_point:.1f}s), dur {seg_duration:.0f}s", flush=True)
+        else:
+            if impact_point is not None:
+                print(f"  [editor] Impact too early ({impact_point:.1f}s), keeping original segment", flush=True)
+            print(f"  [pipeline] Segment: {seg_start:.1f}s - {seg_start + seg_duration:.1f}s ({seg_duration:.0f}s)", flush=True)
 
-    # ── Step 5: Speed Ramp — Snare Drum Effect (Section 4.2) ──
-    try:
-        step3 = os.path.join(work_dir, "03_ramped.mp4")
-        ramp = apply_speed_ramp(current, step3, impact_time=rel_impact)
-        if ramp:
-            current = ramp["path"]
-    except Exception as e:
-        print(f"  [editor] Speed ramp skipped: {e}", flush=True)
+        rel_impact = (impact_point - seg_start) if impact_point else 1.5
 
-    # ── Step 6: Karaoke Subtitles (movie/series, Section 5.1) ──
-    if content_type in ("movie", "series") and title:
+        # ── Step 3: Crop to Shorts ──────────────────────────
+        step1 = os.path.join(work_dir, "01_cropped.mp4")
+        crop = crop_to_shorts(current, step1, seg_start, seg_duration)
+        if not crop:
+            _clean_work_dir(work_dir)
+            continue
+        current = crop["path"]
+        clip_duration = crop.get("duration", seg_duration)
+
+        # ── Step 4: Color Grade (Blueprint Section 3) ──────
         try:
-            step4 = os.path.join(work_dir, "04_subtitled.mp4")
-            text_segs = _generate_text_segments(title, clip_duration)
-            subbed = apply_karaoke_subtitles(current, step4, text_segs)
-            if subbed:
-                current = subbed
+            from modules.color_grade import full_color_pipeline
+            step2 = os.path.join(work_dir, "02_graded.mp4")
+            graded = full_color_pipeline(current, step2)
+            if graded:
+                current = graded
         except Exception as e:
-            print(f"  [editor] Subtitles skipped: {e}", flush=True)
+            print(f"  [editor] Color grade skipped: {e}", flush=True)
 
-    # ── Step 7: Audio Pipeline (Blueprint Section 2) ──
-    try:
-        from modules.audio_pipeline import full_audio_pipeline
-        step5 = os.path.join(work_dir, "05_audio.mp4")
-        audio_processed = full_audio_pipeline(current, content_type, step5)
-        if audio_processed:
-            current = audio_processed
-    except Exception as e:
-        print(f"  [editor] Audio pipeline skipped: {e}", flush=True)
-
-    # ── Step 8: Breath Cut (Blueprint Section 4.3) ─────
-    try:
-        step6 = os.path.join(work_dir, "06_final.mp4")
-        breath = apply_breath_cut(current, step6, clip_duration)
-        if breath:
-            current = breath
-    except Exception as e:
-        print(f"  [editor] Breath cut skipped: {e}", flush=True)
-
-    # ── Copy result to final path ──────────────────────
-    import shutil
-    shutil.copy2(current, final_path)
-
-    result_dur = get_video_duration(final_path)
-    if result_dur <= 0:
-        result_dur = fallback_duration(final_path)
-
-    if os.path.exists(final_path) and os.path.getsize(final_path) > 10000:
-        result = {
-            "path": final_path,
-            "duration": result_dur if result_dur > 0 else seg_duration,
-            "content_type": content_type,
-            "source_title": title,
-            "source_path": input_path,
-        }
-    else:
-        result = None
-
-    # Cleanup
-    _clean_work_dir(work_dir)
-    if working_input != input_path and os.path.exists(working_input):
+        # ── Step 5: Speed Ramp — Snare Drum Effect (Section 4.2) ──
         try:
-            os.remove(working_input)
-        except Exception:
-            pass
+            step3 = os.path.join(work_dir, "03_ramped.mp4")
+            ramp = apply_speed_ramp(current, step3, impact_time=rel_impact)
+            if ramp:
+                current = ramp["path"]
+        except Exception as e:
+            print(f"  [editor] Speed ramp skipped: {e}", flush=True)
 
-    return result
+        # ── Step 6: Karaoke Subtitles (movie/series, Section 5.1) ──
+        if content_type in ("movie", "series") and title:
+            try:
+                step4 = os.path.join(work_dir, "04_subtitled.mp4")
+                text_segs = _generate_text_segments(title, clip_duration)
+                subbed = apply_karaoke_subtitles(current, step4, text_segs)
+                if subbed:
+                    current = subbed
+            except Exception as e:
+                print(f"  [editor] Subtitles skipped: {e}", flush=True)
+
+        # ── Step 7: Audio Pipeline (Blueprint Section 2) ──
+        try:
+            from modules.audio_pipeline import full_audio_pipeline
+            step5 = os.path.join(work_dir, "05_audio.mp4")
+            audio_processed = full_audio_pipeline(current, content_type, step5)
+            if audio_processed:
+                current = audio_processed
+        except Exception as e:
+            print(f"  [editor] Audio pipeline skipped: {e}", flush=True)
+
+        # ── Step 8: Breath Cut (Blueprint Section 4.3) ─────
+        try:
+            step6 = os.path.join(work_dir, "06_final.mp4")
+            breath = apply_breath_cut(current, step6, clip_duration)
+            if breath:
+                current = breath
+        except Exception as e:
+            print(f"  [editor] Breath cut skipped: {e}", flush=True)
+
+        # ── Copy result to final path ──────────────────────
+        import shutil
+        shutil.copy2(current, final_path)
+
+        result_dur = get_video_duration(final_path)
+        if result_dur <= 0:
+            result_dur = fallback_duration(final_path)
+
+        if not (os.path.exists(final_path) and os.path.getsize(final_path) > 10000):
+            _clean_work_dir(work_dir)
+            continue
+
+        # ── Validate final output ──────────────────────────
+        passed, last_issues = validate_short(final_path)
+        if passed:
+            result = {
+                "path": final_path,
+                "duration": result_dur if result_dur > 0 else seg_duration,
+                "content_type": content_type,
+                "source_title": title,
+                "source_path": input_path,
+            }
+            _clean_work_dir(work_dir)
+            if working_input != input_path and os.path.exists(working_input):
+                try:
+                    os.remove(working_input)
+                except Exception:
+                    pass
+            return result
+
+        # Validation failed — log and clean up for retry
+        print(f"  [editor] Validation failed: {'; '.join(last_issues)}", flush=True)
+        _clean_work_dir(work_dir)
+
+    print(f"  [editor] All {max_retries} attempts failed — no valid clip produced", flush=True)
+    return None
 
 
 def _generate_text_segments(title, total_duration):
