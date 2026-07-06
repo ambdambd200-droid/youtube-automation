@@ -1413,6 +1413,7 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
     # ── Generate animated intro card ─────────────────────
     intro_path = generate_weekly_intro(target_width, target_height, source_title)
     has_intro = intro_path is not None
+    srt_path = None  # will hold subtitle temp file if created
 
     # ── Process main video ───────────────────────────────
     # Base video filter: trim and scale (enforce min 720p)
@@ -1422,28 +1423,37 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
         f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2,format=yuv420p"
     )
 
-    # Add timed text overlays using drawtext with enable=between(t,start,end)
-    # Each text segment appears for WEEKLY_SEGMENT_DURATION seconds
+    # Write timed text overlays as SRT subtitle file (avoid ffmpeg drawtext escaping issues)
+    import uuid
+    srt_path = os.path.join(CLIPS_DIR, f"_subs_{uuid.uuid4().hex[:8]}.srt")
     texts_added = 0
-    for text, start_ratio in story_texts:
-        text_start = video_duration * start_ratio
-        text_end = min(text_start + WEEKLY_SEGMENT_DURATION, video_duration)
+    with open(srt_path, "w", encoding="utf-8") as f:
+        sub_idx = 1
+        for text, start_ratio in story_texts:
+            text_start = video_duration * start_ratio
+            text_end = min(text_start + WEEKLY_SEGMENT_DURATION, video_duration)
+            if text_end <= text_start:
+                continue
 
-        if text_end <= text_start:
-            continue
+            def _srt_ts(sec):
+                h = int(sec // 3600)
+                m = int((sec % 3600) // 60)
+                s = sec % 60
+                return f"{h:02d}:{m:02d}:{s:06.3f}".replace(".", ",")
 
-        safe_text = text.replace("'", "\\'").replace(":", "\\:").replace("[", "\\[").replace("]", "\\]")
+            f.write(f"{sub_idx}\n{_srt_ts(text_start)} --> {_srt_ts(text_end)}\n{text}\n\n")
+            sub_idx += 1
+            texts_added += 1
 
-        video_chain += (
-            f",drawtext=text='{safe_text}':fontcolor=white:fontsize=38:"
-            f"x=(w-text_w)/2:y=h-th-80:"
-            f"box=1:boxcolor=black@0.55:boxborderw=14:"
-            f"fontfile='{font_path}':"
-            f"enable='between(t,{text_start},{text_end})'"
-        )
-        texts_added += 1
-
-    print(f"  [weekly] Added {texts_added} story text overlays", flush=True)
+    escaped_srt = srt_path.replace(":", "\\:")
+    video_chain += (
+        f",subtitles='{escaped_srt}':"
+        f"force_style='FontName=Arial,FontSize=34,"
+        f"PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,"
+        f"BorderStyle=1,Outline=2,Shadow=0,"
+        f"MarginV=60'"
+    )
+    print(f"  [weekly] Added {texts_added} story text overlays (SRT)", flush=True)
 
     # ── Build input file list and audio chain ────────────
     has_voiceover = voiceover_path and os.path.exists(voiceover_path)
@@ -1485,18 +1495,22 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
             f"duration={crossfade_dur}:offset={xfade_offset}[vout];"
             f"[1:a][{audio_map_label}]acrossfade=d={crossfade_dur}[aout]"
         )
-        audio_map = "[aout]"
+        cmd = [
+            "ffmpeg", "-y",
+        ] + input_files + [
+            "-filter_complex", filter_complex,
+            "-map", "[vout]",
+            "-map", "[aout]",
+        ]
     else:
-        filter_complex = f"{video_chain}[vout];{audio_chain}"
-        audio_map = audio_map_label
+        cmd = [
+            "ffmpeg", "-y",
+        ] + input_files + [
+            "-vf", video_chain,
+            "-af", audio_chain.replace("[0:a]", "").replace("[a_src]", ""),
+        ]
 
-    # Build ffmpeg command
-    cmd = [
-        "ffmpeg", "-y",
-    ] + input_files + [
-        "-filter_complex", filter_complex,
-        "-map", "[vout]",
-        "-map", audio_map,
+    cmd += [
         "-c:v", "libx264",
         "-preset", "slow",
         "-crf", str(RENDER_CRF),
@@ -1525,12 +1539,17 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
         print(f"  [weekly] Error: {e}", flush=True)
         return None
 
-    # Clean up the intro temp file
+    # Clean up temp files
     if has_intro and os.path.exists(intro_path):
         try:
             os.remove(intro_path)
         except Exception:
             pass
+    try:
+        if srt_path and os.path.exists(srt_path):
+            os.remove(srt_path)
+    except Exception:
+        pass
 
     # Calculate final duration including intro minus crossfade overlap
     final_duration = video_duration + (WEEKLY_INTRO_DURATION - (WEEKLY_INTRO_CROSSFADE if has_intro else 0))
