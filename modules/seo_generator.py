@@ -250,6 +250,17 @@ CURIOSITY_GAPS_SERIES = [
 ]
 
 
+def _clean_source_title(title):
+    """Strip junk from source titles: '(3/7)', '| Movieclips', channel names, etc."""
+    if not title:
+        return "This moment"
+    import re
+    cleaned = re.sub(r'\s*\(\d+/\d+\)\s*', '', title)
+    cleaned = re.sub(r'\s*\|\s*[A-Za-z0-9\s]+$', '', cleaned)
+    cleaned = cleaned.strip().strip('-').strip()
+    return cleaned if cleaned else "This moment"
+
+
 def build_tripart_title(content_type, source_title=None):
     """Blueprint Section 1.1: Tri-Part Title Structure.
     Segment A: Emotional Anchor (0-25 chars) — visceral feeling
@@ -268,10 +279,10 @@ def build_tripart_title(content_type, source_title=None):
         anchor = random.choice(EMOTIONAL_ANCHORS_MOVIE)
         gap = random.choice(CURIOSITY_GAPS_MOVIE)
 
-    # Extract short source name for Segment B
+    # Extract short source name for Segment B (cleaned)
     source_segment = ""
     if source_title:
-        short = source_title[:30].strip()
+        short = _clean_source_title(source_title)[:30].strip()
         if short:
             source_segment = f" — {short}"
 
@@ -292,9 +303,7 @@ def build_tripart_title(content_type, source_title=None):
 
 
 def build_short_description(source_title, content_type, source_url=None):
-    """Short description for daily shorts — concise, high-density.
-    YouTube Shorts descriptions work best at 1-3 lines.
-    """
+    """Short description for daily shorts — just name + hashtags."""
     if content_type == "football":
         hashtags = "#Shorts #Football #WorldCup2026"
     elif content_type == "series":
@@ -302,13 +311,8 @@ def build_short_description(source_title, content_type, source_url=None):
     else:
         hashtags = "#Shorts #Cinema #RawEmotion"
 
-    source_line = source_title or "This moment"
-    parts = [source_line, "", f"VARY — daily clips", hashtags]
-
-    if source_url:
-        parts.insert(0, f"Source: {source_url}")
-
-    return "\n".join(parts)
+    name = _clean_source_title(source_title)
+    return f"{name}\n\n{hashtags}"
 
 
 def generate_metadata(source_title, content_type, source_url=None):
