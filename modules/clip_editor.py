@@ -1502,12 +1502,21 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
             "-map", "[vout]",
             "-map", "[aout]",
         ]
+    elif has_voiceover:
+        filter_complex = f"{video_chain}[vout];{audio_chain}"
+        cmd = [
+            "ffmpeg", "-y",
+        ] + input_files + [
+            "-filter_complex", filter_complex,
+            "-map", "[vout]",
+            "-map", audio_map_label,
+        ]
     else:
         cmd = [
             "ffmpeg", "-y",
         ] + input_files + [
             "-vf", video_chain,
-            "-af", audio_chain.replace("[0:a]", "").replace("[a_src]", ""),
+            "-af", f"atrim=0:{video_duration},asetpts=PTS-STARTPTS",
         ]
 
     cmd += [
