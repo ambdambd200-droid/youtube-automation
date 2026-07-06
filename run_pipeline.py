@@ -145,7 +145,7 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
     # ── Step 3: Edit Clip ────────────────────────────────
     register_stage(pipeline_id, "editing")
     print(f"\n>>> Step 3/9: Editing clip — Full Blueprint Pipeline...")
-    print(f"  [pipeline] Select Segment → Crop → Color Grade → Speed Ramp → Text → Audio → Breath Cut", flush=True)
+    print(f"  [pipeline] Select → In Media Res → Crop → Color → Speed Ramp → Text → Audio → Breath Cut", flush=True)
     clip_result = create_clip(
         download_result["path"],
         content_info["type"],

@@ -398,20 +398,19 @@ def select_clip_segment(video_path, target_duration=None, content_type="movie"):
     Respects evolution engine's scene threshold if available.
     For short videos, uses the whole thing. Falls back to random selection.
 
-    Returns: (start_time, duration) in seconds
+    Returns: (start_time, duration, impact_point) in seconds.
+      impact_point is the detected action moment within the segment (or None).
     """
     print(f"  [editor] Getting video duration for: {os.path.basename(video_path)}", flush=True)
     duration = get_video_duration(video_path)
     print(f"  [editor] Video duration: {duration:.1f}s", flush=True)
     if duration <= 0:
-        return (0, CLIP_MIN_DURATION)
+        return (0, CLIP_MIN_DURATION, None)
 
-    # For short videos, use the whole thing immediately
     if duration <= CLIP_MIN_DURATION:
-        return (0, duration)
+        return (0, duration, None)
 
     if target_duration is None:
-        # Use evolved clip duration bounds from evolution engine
         try:
             from modules.evolution_engine import get_parameter
             evo_min = get_parameter("clip_min_duration", CLIP_MIN_DURATION)
@@ -423,43 +422,38 @@ def select_clip_segment(video_path, target_duration=None, content_type="movie"):
         except Exception:
             target_duration = random.randint(CLIP_MIN_DURATION, min(CLIP_MAX_DURATION, int(duration)))
 
-    # For short videos, use the whole thing
     if duration <= target_duration + 10:
-        return (0, duration)
+        return (0, duration, None)
 
-    # Try scene detection first
     scenes = detect_scenes(video_path)
+    impact_point = None
 
     if scenes:
-        # We have scene changes — find the densest cluster of scene changes
-        # within a window of target_duration seconds
-        best_start = 5  # default: skip intro
+        best_start = 5
         best_density = 0
 
         for i, scene_time in enumerate(scenes):
             window_end = scene_time + target_duration
-            # Count how many scenes fall within this window
             density = sum(1 for s in scenes if scene_time <= s <= window_end)
             if density > best_density and scene_time + target_duration < duration:
-                # Weight by how far into the video (middle is usually better)
                 middle_bonus = 1.0 - abs(scene_time - duration / 2) / (duration / 2)
                 weighted = density * (0.7 + 0.3 * middle_bonus)
                 if weighted > best_density:
                     best_density = weighted
                     best_start = scene_time
 
-        # Add a small random offset for variety
+        mid_of_segment = best_start + target_duration / 2
+        impact_point = min(scenes, key=lambda s: abs(s - mid_of_segment))
+
         offset = random.uniform(-3, 3)
         best_start = max(1, min(best_start + offset, duration - target_duration - 1))
         print(f"  [editor] Scene-smart segment: {best_start:.1f}s - {best_start + target_duration:.1f}s ({len(scenes)} scenes detected)", flush=True)
-        return (best_start, target_duration)
+        return (best_start, target_duration, impact_point)
 
-    # Fallback: pick a random segment
     print(f"  [editor] No scenes detected, using random segment", flush=True)
     max_start = max(1, int(duration) - target_duration - 1)
     start_time = random.randint(5, max_start) if max_start > 5 else 1
 
-    # Sometimes pick from the middle (often the most interesting part)
     if random.random() < 0.4 and duration > 60:
         middle = duration / 2
         start_time = random.randint(
@@ -467,7 +461,7 @@ def select_clip_segment(video_path, target_duration=None, content_type="movie"):
             min(int(middle) + target_duration, int(duration) - target_duration)
         )
 
-    return (start_time, target_duration)
+    return (start_time, target_duration, None)
 
 
 def crop_to_shorts(input_path, output_path, start_time=0, duration=None):
@@ -662,7 +656,7 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
         # Legacy mode: basic crop only
         output_path = os.path.join(CLIPS_DIR, f"{content_type}_{clip_id}.mp4")
         working_input = remux_to_compatible(input_path)
-        start_time, duration = select_clip_segment(working_input, content_type=content_type)
+        start_time, duration, _ = select_clip_segment(working_input, content_type=content_type)
         result = crop_to_shorts(working_input, output_path, start_time, duration)
         if result:
             result["content_type"] = content_type
@@ -678,62 +672,82 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
     working_input = current
 
     # ── Step 1: Select clip segment from full video ────
-    start_time, duration = select_clip_segment(current, content_type=content_type)
-    print(f"  [pipeline] Selected segment: {start_time:.1f}s - {start_time + duration:.1f}s ({duration:.0f}s)", flush=True)
+    seg_start, seg_duration, impact_point = select_clip_segment(current, content_type=content_type)
 
-    # ── Step 2: Crop to Shorts ──────────────────────────
+    # ── Step 2: In Media Res — start 1.5s before impact (Blueprint 4.1) ──
+    if impact_point is not None:
+        # impact_point is absolute timestamp in the full video
+        # Adjust clip to start 1.5s before the impact
+        refined_start = max(0, impact_point - TEMP_PRE_ACTION_WINDOW)
+        # Keep the end the same (or extend slightly)
+        seg_end = seg_start + seg_duration
+        refined_duration = seg_end - refined_start
+        # Ensure minimum duration
+        if refined_duration < CLIP_MIN_DURATION:
+            refined_duration = min(CLIP_MAX_DURATION, get_video_duration(current) - refined_start)
+        seg_start = refined_start
+        seg_duration = min(CLIP_MAX_DURATION, refined_duration)
+        print(f"  [editor] In media res: start {seg_start:.1f}s (impact at {impact_point:.1f}s), dur {seg_duration:.0f}s", flush=True)
+    else:
+        print(f"  [editor] No impact point, keeping segment: {seg_start:.1f}s - {seg_start + seg_duration:.1f}s ({seg_duration:.0f}s)", flush=True)
+
+    # Compute the impact time RELATIVE to the final clip (for speed ramp / breath cut)
+    rel_impact = (impact_point - seg_start) if impact_point else 1.5
+
+    # ── Step 3: Crop to Shorts ──────────────────────────
     step1 = os.path.join(work_dir, "01_cropped.mp4")
-    crop = crop_to_shorts(current, step1, start_time, duration)
+    crop = crop_to_shorts(current, step1, seg_start, seg_duration)
     if not crop:
         print(f"  [editor] Crop failed, aborting pipeline", flush=True)
         _clean_work_dir(work_dir)
         return None
     current = crop["path"]
+    clip_duration = crop.get("duration", seg_duration)
 
-    # ── Step 3: Color Grade (Blueprint Section 3) ──────
+    # ── Step 4: Color Grade (Blueprint Section 3) ──────
     try:
         from modules.color_grade import full_color_pipeline
-        step3 = os.path.join(work_dir, "03_graded.mp4")
-        graded = full_color_pipeline(current, step3)
+        step2 = os.path.join(work_dir, "02_graded.mp4")
+        graded = full_color_pipeline(current, step2)
         if graded:
             current = graded
     except Exception as e:
         print(f"  [editor] Color grade skipped: {e}", flush=True)
 
-    # ── Step 4: Speed Ramp — Snare Drum Effect (Section 4.2) ──
+    # ── Step 5: Speed Ramp — Snare Drum Effect (Section 4.2) ──
     try:
-        step4 = os.path.join(work_dir, "04_ramped.mp4")
-        ramp = apply_speed_ramp(current, step4, impact_time=1.5)
+        step3 = os.path.join(work_dir, "03_ramped.mp4")
+        ramp = apply_speed_ramp(current, step3, impact_time=rel_impact)
         if ramp:
             current = ramp["path"]
     except Exception as e:
         print(f"  [editor] Speed ramp skipped: {e}", flush=True)
 
-    # ── Step 5: Karaoke Subtitles (movie/series, Section 5.1) ──
+    # ── Step 6: Karaoke Subtitles (movie/series, Section 5.1) ──
     if content_type in ("movie", "series") and title:
         try:
-            step5 = os.path.join(work_dir, "05_subtitled.mp4")
-            text_segs = _generate_text_segments(title, crop.get("duration", 15))
-            subbed = apply_karaoke_subtitles(current, step5, text_segs)
+            step4 = os.path.join(work_dir, "04_subtitled.mp4")
+            text_segs = _generate_text_segments(title, clip_duration)
+            subbed = apply_karaoke_subtitles(current, step4, text_segs)
             if subbed:
                 current = subbed
         except Exception as e:
             print(f"  [editor] Subtitles skipped: {e}", flush=True)
 
-    # ── Step 6: Audio Pipeline (Blueprint Section 2) ──
+    # ── Step 7: Audio Pipeline (Blueprint Section 2) ──
     try:
         from modules.audio_pipeline import full_audio_pipeline
-        step6 = os.path.join(work_dir, "06_audio.mp4")
-        audio_processed = full_audio_pipeline(current, content_type, step6)
+        step5 = os.path.join(work_dir, "05_audio.mp4")
+        audio_processed = full_audio_pipeline(current, content_type, step5)
         if audio_processed:
             current = audio_processed
     except Exception as e:
         print(f"  [editor] Audio pipeline skipped: {e}", flush=True)
 
-    # ── Step 7: Breath Cut (Blueprint Section 4.3) ─────
+    # ── Step 8: Breath Cut (Blueprint Section 4.3) ─────
     try:
-        step7 = os.path.join(work_dir, "07_final.mp4")
-        breath = apply_breath_cut(current, step7, crop.get("duration", 15))
+        step6 = os.path.join(work_dir, "06_final.mp4")
+        breath = apply_breath_cut(current, step6, clip_duration)
         if breath:
             current = breath
     except Exception as e:
@@ -750,7 +764,7 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
     if os.path.exists(final_path) and os.path.getsize(final_path) > 10000:
         result = {
             "path": final_path,
-            "duration": result_dur if result_dur > 0 else duration,
+            "duration": result_dur if result_dur > 0 else seg_duration,
             "content_type": content_type,
             "source_title": title,
             "source_path": input_path,
