@@ -369,7 +369,7 @@ def detect_scenes(video_path):
     try:
         cmd = [
             "ffmpeg", "-i", video_path,
-            "-filter:v", "select='gt(scene,0.3)',showinfo",
+            "-filter:v", "select='gt(scene,0.2)',showinfo",
             "-f", "null",
             "-",
         ]
@@ -677,16 +677,13 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
     current = remux_to_compatible(input_path)
     working_input = current
 
-    # ── Step 1: In Media Res — start 1.5s before action ──
-    step1 = os.path.join(work_dir, "01_media_res.mp4")
-    imr = apply_in_media_res(current, step1)
-    if imr:
-        current = imr
+    # ── Step 1: Select clip segment from full video ────
+    start_time, duration = select_clip_segment(current, content_type=content_type)
+    print(f"  [pipeline] Selected segment: {start_time:.1f}s - {start_time + duration:.1f}s ({duration:.0f}s)", flush=True)
 
     # ── Step 2: Crop to Shorts ──────────────────────────
-    start_time, duration = select_clip_segment(current, content_type=content_type)
-    step2 = os.path.join(work_dir, "02_cropped.mp4")
-    crop = crop_to_shorts(current, step2, start_time, duration)
+    step1 = os.path.join(work_dir, "01_cropped.mp4")
+    crop = crop_to_shorts(current, step1, start_time, duration)
     if not crop:
         print(f"  [editor] Crop failed, aborting pipeline", flush=True)
         _clean_work_dir(work_dir)
@@ -773,15 +770,18 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
 
 
 def _generate_text_segments(title, total_duration):
-    """Generate karaoke text segments for a video."""
+    """Generate karaoke text segments spread across the full clip duration."""
     movie_name = title[:40] if title else "this moment"
+    if total_duration < 10:
+        total_duration = 15
+    step = total_duration / 6
     templates = [
-        (movie_name, 0.5, 1.5),
-        ("Watch closely...", 2.0, 1.0),
-        ("This is the moment", 3.5, 1.5),
-        ("Pure emotion", 5.5, 1.0),
-        ("No music.", 7.0, 1.0),
-        ("Just the moment.", 8.5, 1.5),
+        (movie_name, step * 0.2, min(2.0, step * 0.5)),
+        ("Watch closely...", step * 1.2, min(1.5, step * 0.4)),
+        ("This is the moment", step * 2.2, min(2.0, step * 0.5)),
+        ("Pure emotion", step * 3.2, min(1.5, step * 0.4)),
+        ("No music.", step * 4.2, min(1.5, step * 0.4)),
+        ("Just the moment.", step * 5.2, min(2.0, step * 0.5)),
     ]
     return templates
 
