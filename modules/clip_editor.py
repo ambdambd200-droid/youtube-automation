@@ -1445,9 +1445,12 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
             sub_idx += 1
             texts_added += 1
 
-    escaped_srt = srt_path.replace(":", "\\:")
+    # Use forward slashes to avoid ffmpeg treating \ as escape chars
+    srt_posix = srt_path.replace("\\", "/")
+    # Escape colon to avoid ffmpeg parsing it as key-value separator
+    srt_escaped = srt_posix.replace(":", "\\:")
     video_chain += (
-        f",subtitles='{escaped_srt}':"
+        f",subtitles={srt_escaped}:"
         f"force_style='FontName=Arial,FontSize=34,"
         f"PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,"
         f"BorderStyle=1,Outline=2,Shadow=0,"
