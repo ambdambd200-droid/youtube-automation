@@ -355,7 +355,21 @@ def _is_relevant(title, content_type):
     return True
 
 
-def download_best_match(search_query, used_ids=None, content_type=None):
+def get_video_dimensions_simple(video_path):
+    """Quick ffprobe call to get video resolution."""
+    import json, subprocess
+    cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
+           "-show_entries", "stream=width,height", "-of", "json", video_path]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=15).stdout
+        data = json.loads(out)
+        s = data.get("streams", [{}])[0]
+        return int(s.get("width", 0)), int(s.get("height", 0))
+    except Exception:
+        return 0, 0
+
+
+def download_best_match(search_query, used_ids=None, content_type=None, min_resolution=None):
     """Search and download the best matching video.
 
     Filters by quality (view count, relevance) before selecting.
@@ -417,13 +431,28 @@ def download_best_match(search_query, used_ids=None, content_type=None):
 
     # Sort by view count descending, pick from top 5
     quality_candidates.sort(key=lambda v: v.get("view_count", 0), reverse=True)
-    chosen = random.choice(quality_candidates[:5])
 
-    print(f"  [downloader] Downloading: {chosen['title']}", flush=True)
-    print(f"  [downloader] Channel: {chosen.get('channel', '?')} | Views: {chosen.get('view_count', 0):,}", flush=True)
-    filepath = download_clip(chosen["url"], video_id=chosen["id"])
+    # Try each candidate in order until one passes resolution check
+    for chosen in quality_candidates[:5]:
+        print(f"  [downloader] Downloading: {chosen['title']}", flush=True)
+        print(f"  [downloader] Channel: {chosen.get('channel', '?')} | Views: {chosen.get('view_count', 0):,}", flush=True)
+        filepath = download_clip(chosen["url"], video_id=chosen["id"])
 
-    if filepath:
+        if not filepath:
+            continue
+
+        # Check resolution minimum if specified
+        if min_resolution:
+            w, h = get_video_dimensions_simple(filepath)
+            min_w, min_h = min_resolution
+            if w < min_w or h < min_h:
+                print(f"  [downloader] Rejected: {w}x{h} — below {min_w}x{min_h} minimum", flush=True)
+                try:
+                    os.remove(filepath)
+                except Exception:
+                    pass
+                continue
+
         return {
             "path": filepath,
             "title": chosen["title"],

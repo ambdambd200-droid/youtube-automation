@@ -1429,6 +1429,13 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
             sub_idx += 1
             texts_added += 1
 
+        # Add "Thanks for watching" end card
+        thanks_start = max(0, video_duration - 4)
+        if thanks_start < video_duration:
+            f.write(f"{sub_idx}\n{_srt_ts(thanks_start)} --> {_srt_ts(video_duration)}\nThanks for watching\n\n")
+            sub_idx += 1
+            texts_added += 1
+
     # Use relative path from project root with forward slashes
     # (avoids Windows drive-letter colon and backslash escape issues in ffmpeg filter syntax)
     from config import BASE_DIR as _BASE_DIR
@@ -1438,9 +1445,10 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
         f"force_style='FontName=Arial,FontSize=34,"
         f"PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,"
         f"BorderStyle=1,Outline=2,Shadow=0,"
-        f"MarginV=60'"
+        f"MarginV=60',"
+        f"fade=t=out:st={video_duration-1.5}:d=1.5"
     )
-    print(f"  [weekly] Added {texts_added} story text overlays (SRT)", flush=True)
+    print(f"  [weekly] Added {texts_added} story text overlays (SRT) + fade-out", flush=True)
 
     # ── Build input file list and audio chain ────────────
     has_voiceover = voiceover_path and os.path.exists(voiceover_path)
@@ -1459,16 +1467,21 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
     # Audio chain: trim source audio + mix voiceover if present
     audio_chain = f"[0:a]atrim=0:{video_duration},asetpts=PTS-STARTPTS[a_src]"
 
+    audio_fade_start = max(0, video_duration - 2)
     if has_voiceover:
         audio_chain += (
             f";[{vo_idx}:a]volume=1.0[a_vo];"
             f"[a_src]volume=0.25[a_src_d];"
-            f"[a_vo][a_src_d]amix=inputs=2:duration=first[aout_raw]"
+            f"[a_vo][a_src_d]amix=inputs=2:duration=first[a_mix];"
+            f"[a_mix]afade=t=out:st={audio_fade_start}:d=2[aout_raw]"
         )
         audio_map_label = "[aout_raw]"
         print(f"  [weekly] Mixing voiceover: {voiceover_path} (input idx {vo_idx})", flush=True)
     else:
-        audio_chain += ";[a_src]acopy[aout_raw]"
+        audio_chain += (
+            f";[a_src]acopy[a_mix];"
+            f"[a_mix]afade=t=out:st={audio_fade_start}:d=2[aout_raw]"
+        )
         audio_map_label = "[aout_raw]"
 
     # ── Build filtergraph ────────────────────────────────
