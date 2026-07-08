@@ -525,7 +525,7 @@ def crop_to_shorts(input_path, output_path, start_time=0, duration=None):
         "-map", "[vout]",
         "-map", "[aout]",
         "-c:v", RENDER_CODEC,
-        "-preset", "medium",
+        "-preset", "slow",
         "-crf", str(RENDER_CRF),
         "-b:v", RENDER_BITRATE,
         "-maxrate", RENDER_BITRATE,
@@ -1391,8 +1391,27 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
     # Generate story text segments
     story_texts = generate_story_texts(source_title)
 
-    # Always output 1920x720 (scale+pad handle aspect ratio, upscale to 720p)
-    target_width, target_height = 1920, 720
+    # Determine target dimensions: maintain source aspect ratio, enforce minimum 720p landscape
+    if in_w > 0:
+        target_width = min(in_w, 1920)
+        target_height = int(target_width * in_h / in_w)
+        # Enforce minimum 720p height
+        if target_height < 720:
+            target_height = 720
+            target_width = int(target_height * in_w / in_h)
+        # Enforce minimum 1280 width
+        if target_width < 1280:
+            target_width = 1280
+            target_height = int(target_width * in_h / in_w)
+        # Cap at 1920 (ultrawide sources)
+        if target_width > 1920:
+            target_width = 1920
+            target_height = int(target_width * in_h / in_w)
+        # Ensure even dimensions
+        target_height = target_height if target_height % 2 == 0 else target_height + 1
+        target_width = target_width if target_width % 2 == 0 else target_width + 1
+    else:
+        target_width, target_height = 1280, 720  # fallback
 
     # ── Generate animated intro card ─────────────────────
     intro_path = generate_weekly_intro(target_width, target_height, source_title)
