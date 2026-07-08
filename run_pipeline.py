@@ -132,7 +132,7 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
         log_result("download", "failed", {"search": content_info["search_query"]})
         # Try one more time with a different query
         keyword_map = {"football": FOOTBALL_KEYWORDS, "movie": MOVIE_KEYWORDS, "series": SERIES_KEYWORDS}
-        alt_queries = keyword_map.get(content_info["type"], MOVIE_KEYWORDS)
+        alt_queries = keyword_map.get(content_info.get("type"), MOVIE_KEYWORDS)
         alt_query = random.choice([q for q in alt_queries if q != content_info["search_query"]] or alt_queries)
         print(f"  Retrying with: {alt_query}", flush=True)
         download_result = download_best_match(alt_query, used_ids=used_ids, content_type=content_info["type"])
@@ -334,15 +334,30 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="VARY — Daily Clip Pipeline")
-    parser.add_argument("--type", choices=["football", "movie", "series"], default=None,
+    parser.add_argument("--type", default=None, choices=["football", "movie", "series"],
                         help="Force a specific content type")
     parser.add_argument("--query", default=None,
                         help="Force a specific search query")
     args = parser.parse_args()
 
-    force_type = None
-    if args.type in ("football", "movie", "series"):
-        force_type = args.type
+    force_type = args.type
+    force_query = args.query
+
+    # Auto-detect content type from query keywords if not specified
+    if force_query and not force_type:
+        q = force_query.lower()
+        football_indicators = ["goal", "match", "vs", "player", "football", "soccer",
+                               "world cup", "champions", "league", "hat-trick", "fifa",
+                               "messi", "ronaldo", "neymar", "mbappe", "salah"]
+        movie_indicators = ["scene", "movie", "film", "trailer", "battle", "fight",
+                            "action", "blockbuster", "marvel", "dc", "hollywood"]
+        series_indicators = ["episode", "series", "season", "show", "tv"]
+        if any(i in q for i in football_indicators):
+            force_type = "football"
+        elif any(i in q for i in movie_indicators):
+            force_type = "movie"
+        elif any(i in q for i in series_indicators):
+            force_type = "series"
 
     from modules.pipeline_watchdog import register_run_start, register_run_failure
     pipeline_id = register_run_start("daily")

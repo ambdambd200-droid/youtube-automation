@@ -3,12 +3,8 @@ name: VARY — Daily Shorts (×2)
 on:
   workflow_dispatch:
     inputs:
-      type:
-        description: 'Content type (football, movie, series, or auto)'
-        required: false
-        default: ''
       query:
-        description: 'Custom search query'
+        description: 'Search query (e.g., "Messi goal 2026", "Argentina vs Egypt full match") — leave empty for auto'
         required: false
         default: ''
 
@@ -60,9 +56,7 @@ jobs:
               echo Retry attempt !ATTEMPT!/!MAX_RETRIES! after !RETRY_DELAY! seconds...
               timeout /t !RETRY_DELAY! /nobreak > nul
           )
-          if not "${{ github.event.inputs.type }}"=="" (
-              py -3.12 run_pipeline.py --type ${{ github.event.inputs.type }}
-          ) else if not "${{ github.event.inputs.query }}"=="" (
+          if not "${{ github.event.inputs.query }}"=="" (
               py -3.12 run_pipeline.py --query "${{ github.event.inputs.query }}"
           ) else (
               py -3.12 run_pipeline.py

@@ -19,6 +19,24 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import DOWNLOADS_DIR, YT_COOKIES_FILE, BASE_DIR
 
 
+# ── Copyright / Freshness filters ───────────────────────
+# Major studios with aggressive Content ID (skip these channels)
+_COPYRIGHT_BLACKLIST = [
+    "marvel", "disney", "pixar", "warner bros", "universal pictures",
+    "sony pictures", "paramount", "20th century", "fox", "netflix",
+    "hbo", "hbo max", "dc comics", "nbc", "abc", "cbs",
+    "dreamworks", "illumination", "studio ghibli",
+    # Football broadcasters with strict copyright
+    "fifa", "uefa", "premier league", "laliga", "serie a",
+    "espn fc", "sky sports", "bt sport", "bein sports",
+]
+# But allow these specific copyright-safe channels
+_COPYRIGHT_SAFE_CHANNELS = [
+    "jo blo", "jolo", "shaeel", "now you see it",
+    "kimer", "vibey", "yellow sub", "uday",
+]
+
+
 # ── Cookie sanitisation ─────────────────────────────────────
 
 def _sanitize_cookies():
@@ -176,6 +194,7 @@ def search_youtube(query, max_results=10):
                 view_count = entry.get("view_count", 0) or 0
                 channel = entry.get("channel", "") or entry.get("uploader", "") or ""
                 channel_id = entry.get("channel_id", "") or ""
+                upload_date = entry.get("upload_date", "") or ""  # YYYYMMDD
 
                 if duration and duration > 600:
                     continue
@@ -188,6 +207,7 @@ def search_youtube(query, max_results=10):
                     "view_count": view_count,
                     "channel": channel,
                     "channel_id": channel_id,
+                    "upload_date": upload_date,
                 })
 
             if videos:
@@ -410,6 +430,48 @@ def download_best_match(search_query, used_ids=None, content_type=None, min_reso
         quality_candidates = [v for v in fresh if v.get("view_count", 0) >= 1000]
     if not quality_candidates:
         quality_candidates = fresh
+
+    # ── Copyright avoidance: reject major studio channels ─
+    copyright_safe = []
+    for v in quality_candidates:
+        channel = (v.get("channel") or "").lower()
+        # Skip major studio channels (aggressive Content ID)
+        if any(studio in channel for studio in _COPYRIGHT_BLACKLIST):
+            # But allow if channel is in the safe list
+            if not any(safe in channel for safe in _COPYRIGHT_SAFE_CHANNELS):
+                continue
+        copyright_safe.append(v)
+    if copyright_safe and len(copyright_safe) >= 2:
+        quality_candidates = copyright_safe
+
+    # ── Freshness: prefer recent uploads ──────────────────
+    from datetime import datetime, timedelta
+    now = datetime.now()
+    max_age_days = 7 if content_type == "football" else 365
+    fresh_candidates = []
+    for v in quality_candidates:
+        upload_date = v.get("upload_date", "")
+        if upload_date and len(upload_date) == 8:
+            try:
+                vid_date = datetime.strptime(upload_date, "%Y%m%d")
+                if (now - vid_date).days <= max_age_days:
+                    fresh_candidates.append(v)
+            except ValueError:
+                fresh_candidates.append(v)
+        else:
+            fresh_candidates.append(v)  # No date info, keep
+    if fresh_candidates:
+        # Sort by recency (newest first), then by view count
+        def _freshness_score(v):
+            ud = v.get("upload_date", "")
+            try:
+                days_old = (now - datetime.strptime(ud, "%Y%m%d")).days if len(ud) == 8 else 999
+            except ValueError:
+                days_old = 999
+            views = v.get("view_count", 0)
+            return (-days_old, -views)  # newer + more views = higher
+        fresh_candidates.sort(key=_freshness_score)
+        quality_candidates = fresh_candidates
 
     # Reject videos from clearly non-relevant channels (gaming, music, news etc)
     filtered = []

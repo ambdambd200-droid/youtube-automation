@@ -1429,13 +1429,6 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
             sub_idx += 1
             texts_added += 1
 
-        # Add "Thanks for watching" end card
-        thanks_start = max(0, video_duration - 4)
-        if thanks_start < video_duration:
-            f.write(f"{sub_idx}\n{_srt_ts(thanks_start)} --> {_srt_ts(video_duration)}\nThanks for watching\n\n")
-            sub_idx += 1
-            texts_added += 1
-
     # Use relative path from project root with forward slashes
     # (avoids Windows drive-letter colon and backslash escape issues in ffmpeg filter syntax)
     from config import BASE_DIR as _BASE_DIR
