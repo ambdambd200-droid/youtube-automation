@@ -445,33 +445,35 @@ def download_best_match(search_query, used_ids=None, content_type=None, min_reso
         quality_candidates = copyright_safe
 
     # ── Freshness: prefer recent uploads ──────────────────
-    from datetime import datetime, timedelta
+    from datetime import datetime
     now = datetime.now()
-    max_age_days = 7 if content_type == "football" else 365
-    fresh_candidates = []
-    for v in quality_candidates:
-        upload_date = v.get("upload_date", "")
-        if upload_date and len(upload_date) == 8:
-            try:
-                vid_date = datetime.strptime(upload_date, "%Y%m%d")
-                if (now - vid_date).days <= max_age_days:
+    if content_type == "football":
+        # Football: only last 7 days
+        fresh_candidates = []
+        for v in quality_candidates:
+            upload_date = v.get("upload_date", "")
+            if upload_date and len(upload_date) == 8:
+                try:
+                    vid_date = datetime.strptime(upload_date, "%Y%m%d")
+                    if (now - vid_date).days <= 7:
+                        fresh_candidates.append(v)
+                except ValueError:
                     fresh_candidates.append(v)
-            except ValueError:
+            else:
                 fresh_candidates.append(v)
-        else:
-            fresh_candidates.append(v)  # No date info, keep
-    if fresh_candidates:
-        # Sort by recency (newest first), then by view count
-        def _freshness_score(v):
-            ud = v.get("upload_date", "")
-            try:
-                days_old = (now - datetime.strptime(ud, "%Y%m%d")).days if len(ud) == 8 else 999
-            except ValueError:
-                days_old = 999
-            views = v.get("view_count", 0)
-            return (-days_old, -views)  # newer + more views = higher
-        fresh_candidates.sort(key=_freshness_score)
-        quality_candidates = fresh_candidates
+        if fresh_candidates:
+            quality_candidates = fresh_candidates
+
+    # Sort by recency + views for all types
+    def _freshness_score(v):
+        ud = v.get("upload_date", "")
+        try:
+            days_old = (now - datetime.strptime(ud, "%Y%m%d")).days if len(ud) == 8 else 999
+        except ValueError:
+            days_old = 999
+        views = v.get("view_count", 0)
+        return (-days_old, -views)
+    quality_candidates.sort(key=_freshness_score)
 
     # Reject videos from clearly non-relevant channels (gaming, music, news etc)
     filtered = []
