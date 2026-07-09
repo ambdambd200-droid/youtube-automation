@@ -106,13 +106,6 @@ FOOTBALL_KEYWORDS = [
     "World Cup 2026 skills",
     "football World Cup 2026 moment",
     "World Cup 2026 top plays",
-    "viral football today",
-    "trending football moment",
-    "football goal today",
-    "match highlight viral",
-    "football crazy skills viral",
-    "soccer trending now",
-    "football viral plays this week",
 ]
 
 MOVIE_KEYWORDS = [
@@ -125,11 +118,6 @@ MOVIE_KEYWORDS = [
     "hollywood movie iconic moment",
     "blockbuster movie scene",
     "film scene masterpiece hd",
-    "viral movie scene today",
-    "trending film clip",
-    "movie scene trending now",
-    "cinematic viral moment",
-    "popular movie scene this week",
 ]
 
 SERIES_KEYWORDS = [
@@ -139,9 +127,6 @@ SERIES_KEYWORDS = [
     "tv series epic moment hd",
     "tv show dramatic scene",
     "hit series best clip",
-    "viral tv series scene",
-    "trending series moment",
-    "tv show trending now",
 ]
 
 # ── Channel Branding ─────────────────────────────────────────

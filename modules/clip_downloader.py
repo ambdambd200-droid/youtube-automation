@@ -161,7 +161,7 @@ def _try_with_client_fallback(operation_fn, timeout=30):
     return None
 
 
-def search_youtube(query, max_results=10):
+def search_youtube(query, max_results=30):
     """Search YouTube for videos matching the query using yt-dlp.
 
     Returns full metadata including view_count and channel for quality filtering.
@@ -406,7 +406,7 @@ def download_best_match(search_query, used_ids=None, content_type=None, min_reso
     if used_ids is None:
         used_ids = set()
 
-    videos = search_youtube(search_query, max_results=15)
+    videos = search_youtube(search_query, max_results=30)
 
     fresh = [v for v in videos
              if v["id"] not in used_ids
@@ -464,16 +464,16 @@ def download_best_match(search_query, used_ids=None, content_type=None, min_reso
         if fresh_candidates:
             quality_candidates = fresh_candidates
 
-    # Sort by viral score (views per day) — prioritizes trending content
-    def _viral_score(v):
+    # Sort by recency + views for all types
+    def _freshness_score(v):
         ud = v.get("upload_date", "")
-        views = v.get("view_count", 0) or 0
         try:
-            days_old = max(1, (now - datetime.strptime(ud, "%Y%m%d")).days) if len(ud) == 8 else 1
+            days_old = (now - datetime.strptime(ud, "%Y%m%d")).days if len(ud) == 8 else 999
         except ValueError:
-            days_old = 1
-        return views / days_old  # higher = more viral
-    quality_candidates.sort(key=_viral_score, reverse=True)
+            days_old = 999
+        views = v.get("view_count", 0)
+        return (-days_old, -views)
+    quality_candidates.sort(key=_freshness_score)
 
     # Reject videos from clearly non-relevant channels (gaming, music, news etc)
     filtered = []
