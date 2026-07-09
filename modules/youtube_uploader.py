@@ -23,11 +23,8 @@ def _is_ci():
 
 def _build_youtube(creds):
     """Build youtube service with high timeout."""
-    import httplib2
-    http = httplib2.Http(timeout=UPLOAD_TIMEOUT)
-    http = creds.authorize(http)
     from googleapiclient.discovery import build
-    return build("youtube", "v3", http=http)
+    return build("youtube", "v3", credentials=creds)
 
 
 def get_authenticated_service():
