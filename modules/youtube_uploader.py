@@ -7,16 +7,28 @@ import json
 import os
 import sys
 import pickle
+import socket
+import time
 
 sys.path.insert(0, ".")
 from config import YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube"]
 TOKEN_FILE = "youtube_token.pickle"
+UPLOAD_TIMEOUT = 600  # 10-minute socket timeout for uploads
 
 def _is_ci():
     """Detect if running in CI (GitHub Actions, etc)."""
     return os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+
+def _build_youtube(creds):
+    """Build youtube service with high timeout."""
+    import httplib2
+    http = httplib2.Http(timeout=UPLOAD_TIMEOUT)
+    http = creds.authorize(http)
+    from googleapiclient.discovery import build
+    return build("youtube", "v3", http=http)
+
 
 def get_authenticated_service():
     """Get authenticated YouTube service using OAuth 2.0.
@@ -25,6 +37,7 @@ def get_authenticated_service():
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
 
+    socket.setdefaulttimeout(UPLOAD_TIMEOUT)
     errors = []
 
     # Attempt 1: Build from env vars
@@ -41,7 +54,7 @@ def get_authenticated_service():
             if creds.refresh_token:
                 creds.refresh(Request())
             if creds and creds.valid:
-                return build("youtube", "v3", credentials=creds)
+                return _build_youtube(creds)
         except Exception as e:
             errors.append(f"env: {e}")
 
@@ -54,7 +67,7 @@ def get_authenticated_service():
                 if creds.refresh_token:
                     creds.refresh(Request())
                 if creds and creds.valid:
-                    return build("youtube", "v3", credentials=creds)
+                    return _build_youtube(creds)
         except Exception as e:
             errors.append(f"pickle: {e}")
 
@@ -110,7 +123,7 @@ def verify_auth():
     return items
 
 def upload_video(video_path, title, description, tags, category_id="22", privacy_status="public", thumbnail_path=None):
-    """Upload video to YouTube."""
+    """Upload video to YouTube with retry logic for timeout errors."""
     try:
         from googleapiclient.http import MediaFileUpload
     except ImportError:
@@ -134,7 +147,11 @@ def upload_video(video_path, title, description, tags, category_id="22", privacy
         }
     }
 
-    media = MediaFileUpload(video_path, chunksize=-1, resumable=True,
+    file_size = os.path.getsize(video_path)
+    print(f"  Upload starting: {file_size / 1024 / 1024:.1f} MB, 50MB chunks", flush=True)
+    chunk_size = 50 * 1024 * 1024
+
+    media = MediaFileUpload(video_path, chunksize=chunk_size, resumable=True,
                             mimetype="video/*")
 
     request = youtube.videos().insert(
@@ -144,10 +161,32 @@ def upload_video(video_path, title, description, tags, category_id="22", privacy
     )
 
     response = None
-    while response is None:
-        status, response = request.next_chunk()
-        if status:
-            print(f"Upload progress: {int(status.progress() * 100)}%", file=sys.stderr)
+    max_retries = 5
+    attempt = 0
+
+    while response is None and attempt <= max_retries:
+        try:
+            status, response = request.next_chunk()
+            if status:
+                print(f"  Upload progress: {int(status.progress() * 100)}%", flush=True)
+        except Exception as e:
+            attempt += 1
+            err_str = str(e).lower()
+            is_timeout = any(t in err_str for t in ["timeout", "timed out", "deadline", "reset"])
+            if attempt > max_retries or not is_timeout:
+                raise
+            wait = min(30 * attempt, 120)
+            print(f"  Upload timeout (attempt {attempt}/{max_retries}), retrying in {wait}s...", flush=True)
+            time.sleep(wait)
+            media = MediaFileUpload(video_path, chunksize=chunk_size, resumable=True, mimetype="video/*")
+            request = youtube.videos().insert(
+                part="snippet,status",
+                body=body,
+                media_body=media
+            )
+
+    if response is None:
+        raise RuntimeError("Upload failed after all retries")
 
     video_id = response.get("id")
 
