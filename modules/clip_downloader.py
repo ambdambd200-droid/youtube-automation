@@ -464,16 +464,16 @@ def download_best_match(search_query, used_ids=None, content_type=None, min_reso
         if fresh_candidates:
             quality_candidates = fresh_candidates
 
-    # Sort by recency + views for all types
-    def _freshness_score(v):
+    # Sort by viral score (views per day) — prioritizes trending content
+    def _viral_score(v):
         ud = v.get("upload_date", "")
+        views = v.get("view_count", 0) or 0
         try:
-            days_old = (now - datetime.strptime(ud, "%Y%m%d")).days if len(ud) == 8 else 999
+            days_old = max(1, (now - datetime.strptime(ud, "%Y%m%d")).days) if len(ud) == 8 else 1
         except ValueError:
-            days_old = 999
-        views = v.get("view_count", 0)
-        return (-days_old, -views)
-    quality_candidates.sort(key=_freshness_score)
+            days_old = 1
+        return views / days_old  # higher = more viral
+    quality_candidates.sort(key=_viral_score, reverse=True)
 
     # Reject videos from clearly non-relevant channels (gaming, music, news etc)
     filtered = []
