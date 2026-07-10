@@ -94,7 +94,7 @@ def _generate_wav_sine(output_path, freq, duration, sample_rate=48000, amplitude
         f.write(struct.pack("<I", 36 + data_size))
         f.write(b"WAVE")
         f.write(b"fmt ")
-        f.write(struct.pack("<IHHIIHH", 16, 1, n_channels, framerate, framerate * n_channels * sampwidth, n_channels * sampwidth, sampwidth))
+        f.write(struct.pack("<IHHIIHH", 16, 1, n_channels, framerate, framerate * n_channels * sampwidth, n_channels * sampwidth, sampwidth * 8))
         f.write(b"data")
         f.write(struct.pack("<I", data_size))
         for i in range(n_samples):
@@ -135,7 +135,7 @@ def _generate_wav_noise(output_path, noise_type="pink", duration=0.5, sample_rat
         f.write(struct.pack("<I", 36 + data_size))
         f.write(b"WAVE")
         f.write(b"fmt ")
-        f.write(struct.pack("<IHHIIHH", 16, 1, n_channels, framerate, framerate * n_channels * sampwidth, n_channels * sampwidth, sampwidth))
+        f.write(struct.pack("<IHHIIHH", 16, 1, n_channels, framerate, framerate * n_channels * sampwidth, n_channels * sampwidth, sampwidth * 8))
         f.write(b"data")
         f.write(struct.pack("<I", data_size))
         for s in samples:
@@ -165,7 +165,7 @@ def synthesize_impact(output_path, impact_type="thud"):
             f.write(struct.pack("<I", 36 + data_size))
             f.write(b"WAVE")
             f.write(b"fmt ")
-            f.write(struct.pack("<IHHIIHH", 16, 1, n_channels, framerate, framerate * n_channels * sampwidth, n_channels * sampwidth, sampwidth))
+            f.write(struct.pack("<IHHIIHH", 16, 1, n_channels, framerate, framerate * n_channels * sampwidth, n_channels * sampwidth, sampwidth * 8))
             f.write(b"data")
             f.write(struct.pack("<I", data_size))
             for s in samples:
