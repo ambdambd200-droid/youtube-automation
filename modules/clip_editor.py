@@ -31,6 +31,24 @@ from modules.utils import get_font_path
 
 # ── Blueprint Section 4: Temporal Dynamics ──────────────────
 
+def _atempo_chain(speed):
+    """Build atempo filter string for any speed factor, chaining if out of [0.5,2.0]."""
+    if speed == 1.0:
+        return ""
+    if 0.5 <= speed <= 2.0:
+        return f"atempo={speed}"
+    filters = []
+    r = speed
+    while r < 0.5:
+        filters.append("atempo=0.5")
+        r /= 0.5
+    while r > 2.0:
+        filters.append("atempo=2.0")
+        r /= 2.0
+    filters.append(f"atempo={r}")
+    return ",".join(filters)
+
+
 def apply_speed_ramp(input_path, output_path, impact_time=None):
     """Blueprint Section 4.2: Variable Speed Ramping (The Snare Drum Effect).
     Timeline:
@@ -40,7 +58,9 @@ def apply_speed_ramp(input_path, output_path, impact_time=None):
       4. Speed-Up (200%) — reaction/celebration
       5. Return to 100% — final emotional linger
 
-    Uses optical flow (minterpolate) for buttery slow-motion.
+    Uses per-segment trim+setpts+concat for monotonic PTS throughout.
+    Optical flow (minterpolate) only on the slow-mo segment.
+    Freeze frame via single-frame extract + loop.
     """
     if impact_time is None:
         impact_time = 1.5
@@ -51,59 +71,49 @@ def apply_speed_ramp(input_path, output_path, impact_time=None):
     speed_up_duration = 0.6
     post_duration = TEMP_REACTION_DURATION
 
-    total = pre_ramp_duration + slow_mo_duration + freeze_duration + speed_up_duration + post_duration
-
-    # Build setpts expressions for each segment
-    # Segment 1: normal speed
-    s1_start = 0
-    s1_end = pre_ramp_duration
-
-    # Segment 2: slow ramp 100% -> 40%
-    s2_start = s1_end
+    s2_start = pre_ramp_duration
     s2_end = s2_start + slow_mo_duration
+    s3_end = s2_end + freeze_duration
+    s4_end = s3_end + speed_up_duration
+    total = s4_end + post_duration
 
-    # Segment 3: freeze
-    s3_start = s2_end
-    s3_end = s3_start + freeze_duration
+    freeze_nframes = max(1, int(freeze_duration * FPS))
 
-    # Segment 4: speed up 200%
-    s4_start = s3_end
-    s4_end = s4_start + speed_up_duration
+    atempo_slow = _atempo_chain(TEMP_SLOW_MOTION_SPEED)
+    atempo_fast = _atempo_chain(TEMP_SPEED_UP_SPEED)
 
-    # Segment 5: normal again
-    s5_start = s4_end
-    s5_end = s5_start + post_duration
+    # Per-segment video filters
+    seg1v = f"[0:v]trim=0:{s2_start},setpts=PTS-STARTPTS"
+    seg2v = (f"[0:v]trim={s2_start}:{s2_end},setpts=PTS-STARTPTS,"
+             f"minterpolate=fps={FPS}:mi_mode=mci:mc_mode=aob:me_mode=bidir,"
+             f"setpts=PTS/{TEMP_SLOW_MOTION_SPEED}")
+    seg3v = (f"[0:v]trim={s2_end}:{s2_end + 0.04},setpts=PTS-STARTPTS,"
+             f"loop=loop={freeze_nframes - 1}:size=1,"
+             f"setpts=N/FRAME_RATE/TB")
+    seg4v = (f"[0:v]trim={s3_end}:{s4_end},setpts=PTS-STARTPTS,"
+             f"setpts=PTS/{TEMP_SPEED_UP_SPEED}")
+    seg5v = f"[0:v]trim={s4_end}:{total},setpts=PTS-STARTPTS"
 
-    select_filter = (
-        f"select='between(t,{s1_start},{s1_end})"
-        f"+between(t,{s2_start},{s2_end})"
-        f"+between(t,{s3_start},{s3_end})"
-        f"+between(t,{s4_start},{s4_end})"
-        f"+between(t,{s5_start},{s5_end})',setpts=N/FRAME_RATE/TB"
-    )
+    # Per-segment audio filters
+    seg1a = f"[0:a]atrim=0:{s2_start},asetpts=PTS-STARTPTS"
+    seg2a = f"[0:a]atrim={s2_start}:{s2_end},asetpts=PTS-STARTPTS,{atempo_slow}"
+    seg3a = f"[0:a]atrim={s2_end}:{s3_end},asetpts=PTS-STARTPTS"
+    seg4a = f"[0:a]atrim={s3_end}:{s4_end},asetpts=PTS-STARTPTS,{atempo_fast}"
+    seg5a = f"[0:a]atrim={s4_end}:{total},asetpts=PTS-STARTPTS"
 
-    # Use minterpolate for optical flow on the slow segment
-    vf = (
-        f"[0:v]trim=0:{total},setpts=PTS-STARTPTS,"
-        f"setpts=expr='if(between(T,{s2_start},{s2_end}),"
-        f"PTS/{TEMP_SLOW_MOTION_SPEED},"
-        f"if(between(T,{s3_start},{s3_end}),"
-        f"PTS*1000,"  # freeze
-        f"if(between(T,{s4_start},{s4_end}),"
-        f"PTS/{TEMP_SPEED_UP_SPEED},PTS)))',"
-        f"minterpolate=fps={FPS}:mi_mode=mci:mc_mode=aob:me_mode=bidir"
-    )
+    # Label outputs and build concat
+    v_labels = [f"[seg{i}v]" for i in range(5)]
+    a_labels = [f"[seg{i}a]" for i in range(5)]
 
-    af = (
-        f"[0:a]asetpts=PTS-STARTPTS,"
-        f"atempo=expr='if(between(T,{s2_start},{s2_end}),"
-        f"{1/TEMP_SLOW_MOTION_SPEED},"
-        f"if(between(T,{s3_start},{s3_end}),1,"
-        f"if(between(T,{s4_start},{s4_end}),"
-        f"{1/TEMP_SPEED_UP_SPEED},1)))'"
-    )
+    filter_parts = []
+    for i in range(5):
+        filter_parts.append(f"{[seg1v, seg2v, seg3v, seg4v, seg5v][i]}{v_labels[i]}")
+        filter_parts.append(f"{[seg1a, seg2a, seg3a, seg4a, seg5a][i]}{a_labels[i]}")
 
-    filter_complex = f"{vf}[vout];{af}[aout]"
+    concat_in = "".join(f"{vl}{al}" for vl, al in zip(v_labels, a_labels))
+    filter_parts.append(f"{concat_in}concat=n=5:v=1:a=1[vout][aout]")
+
+    filter_complex = ";".join(filter_parts)
 
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
@@ -117,11 +127,17 @@ def apply_speed_ramp(input_path, output_path, impact_time=None):
         output_path,
     ]
 
+    output_duration = (pre_ramp_duration
+                       + slow_mo_duration / TEMP_SLOW_MOTION_SPEED
+                       + freeze_duration
+                       + speed_up_duration / TEMP_SPEED_UP_SPEED
+                       + post_duration)
+
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
             print(f"  [editor] Speed ramp applied: {os.path.basename(output_path)}", flush=True)
-            return {"path": output_path, "duration": total}
+            return {"path": output_path, "duration": output_duration}
     except subprocess.TimeoutExpired:
         print("  [editor] Speed ramp timed out", flush=True)
     except Exception as e:
@@ -156,23 +172,28 @@ def apply_in_media_res(input_path, output_path, action_time=1.5, total_duration=
 
 
 def apply_breath_cut(input_path, output_path, action_end_time):
-    """Blueprint Section 4.3: Breath Cut — end 2s after action.
+    """Blueprint Section 4.3: Breath Cut — end 2s after action with smooth fade-out.
     Focus on the reaction (crowd silence, actor tear, player's response).
-    Hard cut (no fade) on the final frame to trigger the loop instinct.
+    Smooth 1.5s fade-out to black avoids abrupt cuts on loop.
     """
     cut_time = action_end_time + TEMP_REACTION_DURATION
+    fade_start = max(0, cut_time - 1.5)
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
         "-ss", "0",
         "-t", str(cut_time),
-        "-c", "copy",
-        "-avoid_negative_ts", "1",
+        "-vf", f"fade=t=out:st={fade_start}:d=1.5",
+        "-af", f"afade=t=out:st={fade_start}:d=1.5",
+        "-c:v", RENDER_CODEC, "-preset", "fast",
+        "-crf", str(RENDER_CRF),
+        "-c:a", "aac", "-b:a", "192k",
+        "-pix_fmt", RENDER_PIX_FMT,
         output_path,
     ]
     try:
-        subprocess.run(cmd, capture_output=True, timeout=60)
+        subprocess.run(cmd, capture_output=True, timeout=120)
         if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
-            print(f"  [editor] Breath cut: end at {cut_time:.1f}s (reaction: {TEMP_REACTION_DURATION}s)", flush=True)
+            print(f"  [editor] Breath cut: end at {cut_time:.1f}s + 1.5s fade-out", flush=True)
             return output_path
     except Exception as e:
         print(f"  [editor] Breath cut error: {e}", flush=True)
