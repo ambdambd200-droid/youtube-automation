@@ -149,38 +149,54 @@ def apply_s_curve_contrast(input_path, output_path):
 
 
 def apply_unsharp_mask(input_path, output_path):
-    """Phase 3: Micro-contrast sharpening via unsharp mask.
-    Low radius (0.5), high amount (50%) — enhances texture without halos.
+    """Phase 3: Micro-contrast sharpening via 3x3 convolution kernel.
+    Sharpens edges without halos using a simple sharpen kernel.
+    Falls back to eq contrast boost if convolution is unavailable.
     """
+    # 3x3 sharpen kernel: center-weighted difference
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
         "-vf",
-        f"unsharp=lx={COLOR_SHARPEN_RADIUS}:ly={COLOR_SHARPEN_RADIUS}:"
-        f"la={COLOR_SHARPEN_AMOUNT}",
+        "convolution='0 -1 0 -1 5 -1 0 -1 0:"
+        "0 -1 0 -1 5 -1 0 -1 0:"
+        "0 -1 0 -1 5 -1 0 -1 0:"
+        "0 -1 0 -1 5 -1 0 -1 0'",
         "-c:v", RENDER_CODEC, "-preset", "fast",
         "-crf", str(RENDER_CRF),
         "-c:a", "copy",
         "-pix_fmt", RENDER_PIX_FMT,
         output_path,
     ]
-    result = _run_ffmpeg(cmd, "unsharp mask")
+    result = _run_ffmpeg(cmd, "sharpen convolution")
     if result and os.path.exists(output_path):
-        print(f"  [color] Sharpened (radius={COLOR_SHARPEN_RADIUS}, amount={COLOR_SHARPEN_AMOUNT}%)", flush=True)
+        print(f"  [color] Sharpened (3x3 convolution kernel)", flush=True)
+        return output_path
+    # Fallback: simple contrast boost
+    print(f"  [color] Convolution unavailable, trying contrast fallback...", flush=True)
+    cmd2 = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", "eq=contrast=1.15",
+        "-c:v", RENDER_CODEC, "-preset", "fast",
+        "-crf", str(RENDER_CRF),
+        "-c:a", "copy",
+        "-pix_fmt", RENDER_PIX_FMT,
+        output_path,
+    ]
+    result2 = _run_ffmpeg(cmd2, "sharpen contrast fallback")
+    if result2 and os.path.exists(output_path):
         return output_path
     return None
 
 
 def apply_film_grain(input_path, output_path):
-    """Phase 3: Film grain injection for organic texture.
-    Adds monochromatic noise at low intensity to bind pixels and hide artifacts.
+    """Phase 3: Film grain using noise filter (mono, low intensity).
+    Adds subtle texture to prevent digital flatness.
     """
-    intensity = COLOR_GRAIN_INTENSITY / 100.0
-    grain_size = COLOR_GRAIN_SIZE
+    intensity = max(1, min(50, int(COLOR_GRAIN_INTENSITY * 2)))
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
         "-vf",
-        f"noise=alls={intensity * 50}:allf=t+u, "
-        f"geq=r='peek(0,r(X,Y))':g='peek(0,g(X,Y))':b='peek(0,b(X,Y))'",
+        f"noise=alls={intensity}:allf=t+u",
         "-c:v", RENDER_CODEC, "-preset", "fast",
         "-crf", str(RENDER_CRF),
         "-c:a", "copy",
@@ -191,6 +207,8 @@ def apply_film_grain(input_path, output_path):
     if result and os.path.exists(output_path):
         print(f"  [color] Film grain injected ({COLOR_GRAIN_INTENSITY}% intensity)", flush=True)
         return output_path
+    # Fallback: subtle noise via addroi (no-op visual, just continue)
+    print(f"  [color] Noise filter unavailable, skipping grain", flush=True)
     return None
 
 
@@ -244,6 +262,7 @@ def full_color_pipeline(input_path, output_path=None):
         ("s_curve", apply_s_curve_contrast),
         ("sharpen", apply_unsharp_mask),
         ("grain", apply_film_grain),
+        ("vignette", apply_vignette),
     ]
 
     for step_name, step_fn in steps:

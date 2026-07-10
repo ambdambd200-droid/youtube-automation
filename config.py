@@ -92,13 +92,14 @@ CONTENT_TYPES = ["football", "movie", "series"]
 
 # Equal weight by default — evolution engine adjusts over time
 CONTENT_WEIGHTS = {
-    "football": 0.34,
-    "movie": 0.33,
+    "movie": 0.34,
+    "football": 0.33,
     "series": 0.33,
 }
 
 # ── Keywords ─────────────────────────────────────────────────
 FOOTBALL_KEYWORDS = [
+    # Classic football moments
     "World Cup 2026 best moments",
     "World Cup 2026 amazing goal",
     "World Cup 2026 highlight",
@@ -106,9 +107,21 @@ FOOTBALL_KEYWORDS = [
     "World Cup 2026 skills",
     "football World Cup 2026 moment",
     "World Cup 2026 top plays",
+    # News-style / trending
+    "football news today",
+    "breaking football news",
+    "transfer news today football",
+    "goal updates today",
+    "football trending now",
+    "viral football clip today",
+    "match of the day highlights",
+    "football what's new today",
+    "soccer news this week",
+    "crazy football moment just now",
 ]
 
 MOVIE_KEYWORDS = [
+    # Classic movie moments
     "iconic movie scene 4k",
     "best movie moments 4k",
     "cinematic movie scene",
@@ -118,15 +131,34 @@ MOVIE_KEYWORDS = [
     "hollywood movie iconic moment",
     "blockbuster movie scene",
     "film scene masterpiece hd",
+    # News-style / trending
+    "movie news today",
+    "upcoming movie 2026",
+    "cinema news this week",
+    "film release today",
+    "trending movie clip now",
+    "viral film scene today",
+    "whats new in cinema 2026",
+    "new movie trailer moment",
+    "breaking movie news",
+    "film industry news today",
 ]
 
 SERIES_KEYWORDS = [
+    # Classic series moments
     "tv series best scene hd",
     "tv show iconic moment",
     "series most famous scene",
     "tv series epic moment hd",
     "tv show dramatic scene",
     "hit series best clip",
+    # News-style / trending
+    "tv series news today",
+    "new series 2026 trending",
+    "show trending this week",
+    "tv show what's new today",
+    "series viral moment today",
+    "breaking tv news today",
 ]
 
 # ── Channel Branding ─────────────────────────────────────────

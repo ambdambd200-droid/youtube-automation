@@ -714,53 +714,164 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
         clip_duration = crop.get("duration", seg_duration)
 
         # ── Step 4: Color Grade (Blueprint Section 3) ──────
-        try:
-            from modules.color_grade import full_color_pipeline
-            step2 = os.path.join(work_dir, "02_graded.mp4")
-            graded = full_color_pipeline(current, step2)
-            if graded:
-                current = graded
-        except Exception as e:
-            print(f"  [editor] Color grade skipped: {e}", flush=True)
+        color_success = False
+        color_errors = []
+        for color_attempt in range(2):
+            try:
+                from modules.color_grade import full_color_pipeline
+                step2 = os.path.join(work_dir, "02_graded.mp4")
+                graded = full_color_pipeline(current, step2)
+                if graded:
+                    current = graded
+                    color_success = True
+                    break
+            except Exception as e:
+                color_errors.append(str(e))
+                if color_attempt == 0:
+                    print(f"  [editor] Color grade attempt {color_attempt+1} failed, retrying...", flush=True)
+                    import time
+                    time.sleep(2)
+        if not color_success:
+            print(f"  [editor] Color grade failed after 2 attempts: {'; '.join(color_errors)}", flush=True)
+            # Last resort: do a simple contrast/saturation boost manually
+            try:
+                step2_fb = os.path.join(work_dir, "02_graded_fallback.mp4")
+                fb_cmd = [
+                    "ffmpeg", "-y", "-i", current,
+                    "-vf", "eq=contrast=1.1:saturation=1.1:brightness=0.02",
+                    "-c:v", RENDER_CODEC, "-preset", "fast",
+                    "-crf", str(RENDER_CRF),
+                    "-c:a", "copy",
+                    "-pix_fmt", RENDER_PIX_FMT,
+                    step2_fb,
+                ]
+                subprocess.run(fb_cmd, capture_output=True, timeout=120)
+                if os.path.exists(step2_fb) and os.path.getsize(step2_fb) > 10000:
+                    current = step2_fb
+                    print(f"  [editor] Color fallback applied (eq contrast+saturation)", flush=True)
+            except Exception:
+                print(f"  [editor] Color fallback also failed, continuing ungraded", flush=True)
 
         # ── Step 5: Speed Ramp — Snare Drum Effect (Section 4.2) ──
-        try:
-            step3 = os.path.join(work_dir, "03_ramped.mp4")
-            ramp = apply_speed_ramp(current, step3, impact_time=rel_impact)
-            if ramp:
-                current = ramp["path"]
-        except Exception as e:
-            print(f"  [editor] Speed ramp skipped: {e}", flush=True)
-
-        # ── Step 6: Karaoke Subtitles (movie/series, Section 5.1) ──
-        if content_type in ("movie", "series") and title:
+        speed_success = False
+        for speed_attempt in range(2):
             try:
-                step4 = os.path.join(work_dir, "04_subtitled.mp4")
-                text_segs = _generate_text_segments(title, clip_duration)
-                subbed = apply_karaoke_subtitles(current, step4, text_segs)
-                if subbed:
-                    current = subbed
+                step3 = os.path.join(work_dir, "03_ramped.mp4")
+                ramp = apply_speed_ramp(current, step3, impact_time=rel_impact)
+                if ramp:
+                    current = ramp["path"]
+                    speed_success = True
+                    break
             except Exception as e:
-                print(f"  [editor] Subtitles skipped: {e}", flush=True)
+                if speed_attempt == 0:
+                    print(f"  [editor] Speed ramp attempt {speed_attempt+1} failed, retrying...", flush=True)
+                    import time
+                    time.sleep(2)
+        if not speed_success:
+            # Fallback: simple constant speed (no optical flow)
+            try:
+                step3_fb = os.path.join(work_dir, "03_ramped_fallback.mp4")
+                fb_cmd = [
+                    "ffmpeg", "-y", "-i", current,
+                    "-vf", "setpts=PTS-STARTPTS",
+                    "-af", "asetpts=PTS-STARTPTS",
+                    "-c:v", RENDER_CODEC, "-preset", "fast",
+                    "-crf", str(RENDER_CRF),
+                    "-c:a", "aac", "-b:a", "192k",
+                    "-pix_fmt", RENDER_PIX_FMT,
+                    step3_fb,
+                ]
+                subprocess.run(fb_cmd, capture_output=True, timeout=120)
+                if os.path.exists(step3_fb) and os.path.getsize(step3_fb) > 10000:
+                    current = step3_fb
+                    print(f"  [editor] Speed ramp fallback: passthrough (no ramp)", flush=True)
+            except Exception:
+                print(f"  [editor] Speed ramp fallback also failed, continuing", flush=True)
+
+        # ── Step 6: Karaoke Subtitles (ALL content types, Section 5.1) ──
+        if title:
+            sub_success = False
+            for sub_attempt in range(2):
+                try:
+                    step4 = os.path.join(work_dir, "04_subtitled.mp4")
+                    text_segs = _generate_text_segments(title, clip_duration, content_type)
+                    subbed = apply_karaoke_subtitles(current, step4, text_segs)
+                    if subbed:
+                        current = subbed
+                        sub_success = True
+                        break
+                except Exception as e:
+                    if sub_attempt == 0:
+                        print(f"  [editor] Subtitles attempt {sub_attempt+1} failed: {e}, retrying...", flush=True)
+            if not sub_success:
+                print(f"  [editor] Subtitles failed, continuing without text overlays", flush=True)
 
         # ── Step 7: Audio Pipeline (Blueprint Section 2) ──
-        try:
-            from modules.audio_pipeline import full_audio_pipeline
-            step5 = os.path.join(work_dir, "05_audio.mp4")
-            audio_processed = full_audio_pipeline(current, content_type, step5)
-            if audio_processed:
-                current = audio_processed
-        except Exception as e:
-            print(f"  [editor] Audio pipeline skipped: {e}", flush=True)
+        audio_success = False
+        for audio_attempt in range(2):
+            try:
+                from modules.audio_pipeline import full_audio_pipeline
+                step5 = os.path.join(work_dir, "05_audio.mp4")
+                audio_processed = full_audio_pipeline(current, content_type, step5)
+                if audio_processed and audio_processed != current:
+                    current = audio_processed
+                    audio_success = True
+                    break
+            except Exception as e:
+                if audio_attempt == 0:
+                    print(f"  [editor] Audio pipeline attempt {audio_attempt+1} failed, retrying...", flush=True)
+                    import time
+                    time.sleep(2)
+        if not audio_success:
+            # Fallback: just normalize audio with ffmpeg loudnorm
+            try:
+                step5_fb = os.path.join(work_dir, "05_audio_fallback.mp4")
+                fb_cmd = [
+                    "ffmpeg", "-y", "-i", current,
+                    "-c:v", "copy",
+                    "-af", "loudnorm=I=-14:LRA=7:TP=-1",
+                    "-c:a", "aac", "-b:a", "192k",
+                    step5_fb,
+                ]
+                subprocess.run(fb_cmd, capture_output=True, timeout=120)
+                if os.path.exists(step5_fb) and os.path.getsize(step5_fb) > 10000:
+                    current = step5_fb
+                    print(f"  [editor] Audio fallback: loudnorm only", flush=True)
+            except Exception:
+                print(f"  [editor] Audio fallback also failed, keeping original audio", flush=True)
 
-        # ── Step 8: Breath Cut (Blueprint Section 4.3) ─────
+        # ── Step 8: VARY Watermark Overlay ────────────────
         try:
-            step6 = os.path.join(work_dir, "06_final.mp4")
-            breath = apply_breath_cut(current, step6, clip_duration)
-            if breath:
-                current = breath
+            step_wm = os.path.join(work_dir, "06_watermarked.mp4")
+            wm = apply_watermark(current, step_wm)
+            if wm:
+                current = wm
         except Exception as e:
-            print(f"  [editor] Breath cut skipped: {e}", flush=True)
+            print(f"  [editor] Watermark skipped: {e}", flush=True)
+
+        # ── Step 9: Breath Cut (Blueprint Section 4.3) ─────
+        breath_success = False
+        for breath_attempt in range(2):
+            try:
+                step7 = os.path.join(work_dir, "07_final.mp4")
+                breath = apply_breath_cut(current, step7, clip_duration)
+                if breath:
+                    current = breath
+                    breath_success = True
+                    break
+            except Exception as e:
+                if breath_attempt == 0:
+                    print(f"  [editor] Breath cut attempt {breath_attempt+1} failed, retrying...", flush=True)
+        if not breath_success:
+            # Fallback: copy as-is (no breath cut)
+            try:
+                step7_fb = os.path.join(work_dir, "07_final_fallback.mp4")
+                import shutil
+                shutil.copy2(current, step7_fb)
+                current = step7_fb
+                print(f"  [editor] Breath cut fallback: no trim (full clip)", flush=True)
+            except Exception:
+                print(f"  [editor] Breath cut fallback also failed", flush=True)
 
         # ── Copy result to final path ──────────────────────
         import shutil
@@ -800,20 +911,76 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
     return None
 
 
-def _generate_text_segments(title, total_duration):
-    """Generate karaoke text segments spread across the full clip duration."""
-    movie_name = title[:40] if title else "this moment"
+def apply_watermark(input_path, output_path):
+    """Overlay VARY branding watermark (bottom-right corner).
+    Semi-transparent white text with drop shadow, shown throughout the clip.
+    """
+    font_path = get_font_path()
+    if not font_path:
+        print(f"  [editor] Watermark: no font found, skipping", flush=True)
+        return None
+    vf = (
+        f"drawtext=text='VARY':fontcolor=white@0.35:fontsize=28:"
+        f"x=w-text_w-20:y=h-text_h-20:"
+        f"shadowcolor=black@0.5:shadowx=2:shadowy=2:"
+        f"fontfile='{font_path}'"
+    )
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", RENDER_CODEC, "-preset", "fast",
+        "-crf", str(RENDER_CRF),
+        "-c:a", "copy",
+        "-pix_fmt", RENDER_PIX_FMT,
+        output_path,
+    ]
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
+            print(f"  [editor] VARY watermark applied (bottom-right)", flush=True)
+            return output_path
+    except Exception as e:
+        print(f"  [editor] Watermark error: {e}", flush=True)
+    return None
+
+
+def _generate_text_segments(title, total_duration, content_type="movie"):
+    """Generate karaoke text segments spread across the full clip duration.
+    Content-type-aware templates: football gets action-focused text,
+    movies/series get cinematic praise text.
+    """
+    clip_name = title[:40] if title else "this moment"
     if total_duration < 10:
         total_duration = 15
     step = total_duration / 6
-    templates = [
-        (movie_name, step * 0.2, min(2.0, step * 0.5)),
-        ("Watch closely...", step * 1.2, min(1.5, step * 0.4)),
-        ("This is the moment", step * 2.2, min(2.0, step * 0.5)),
-        ("Pure emotion", step * 3.2, min(1.5, step * 0.4)),
-        ("No music.", step * 4.2, min(1.5, step * 0.4)),
-        ("Just the moment.", step * 5.2, min(2.0, step * 0.5)),
-    ]
+
+    if content_type == "football":
+        templates = [
+            (clip_name, step * 0.2, min(2.0, step * 0.5)),
+            ("Watch the build-up...", step * 1.2, min(1.5, step * 0.4)),
+            ("Pure skill.", step * 2.2, min(2.0, step * 0.5)),
+            ("Unreal technique.", step * 3.2, min(1.5, step * 0.4)),
+            ("No music.", step * 4.2, min(1.5, step * 0.4)),
+            ("Just the moment.", step * 5.2, min(2.0, step * 0.5)),
+        ]
+    elif content_type == "series":
+        templates = [
+            (clip_name, step * 0.2, min(2.0, step * 0.5)),
+            ("Watch closely...", step * 1.2, min(1.5, step * 0.4)),
+            ("This is the moment", step * 2.2, min(2.0, step * 0.5)),
+            ("Pure emotion", step * 3.2, min(1.5, step * 0.4)),
+            ("No music.", step * 4.2, min(1.5, step * 0.4)),
+            ("Just the moment.", step * 5.2, min(2.0, step * 0.5)),
+        ]
+    else:
+        templates = [
+            (clip_name, step * 0.2, min(2.0, step * 0.5)),
+            ("Watch closely...", step * 1.2, min(1.5, step * 0.4)),
+            ("This is cinema.", step * 2.2, min(2.0, step * 0.5)),
+            ("Pure emotion.", step * 3.2, min(1.5, step * 0.4)),
+            ("No music.", step * 4.2, min(1.5, step * 0.4)),
+            ("Just the moment.", step * 5.2, min(2.0, step * 0.5)),
+        ]
     return templates
 
 

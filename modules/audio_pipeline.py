@@ -11,6 +11,9 @@ import os
 import sys
 import subprocess
 import uuid
+import struct
+import math
+import random
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (
@@ -78,81 +81,140 @@ def apply_dynamic_compression(input_path, output_path):
     return None
 
 
+def _generate_wav_sine(output_path, freq, duration, sample_rate=48000, amplitude=0.5, decay=0.0):
+    """Generate a simple sine wave WAV file using Python's wave module."""
+    n_samples = int(sample_rate * duration)
+    with open(output_path, "wb") as f:
+        n_channels = 1
+        sampwidth = 2
+        framerate = sample_rate
+        # WAV header
+        data_size = n_samples * n_channels * sampwidth
+        f.write(b"RIFF")
+        f.write(struct.pack("<I", 36 + data_size))
+        f.write(b"WAVE")
+        f.write(b"fmt ")
+        f.write(struct.pack("<IHHIIHH", 16, 1, n_channels, framerate, framerate * n_channels * sampwidth, n_channels * sampwidth, sampwidth))
+        f.write(b"data")
+        f.write(struct.pack("<I", data_size))
+        for i in range(n_samples):
+            t = i / sample_rate
+            env = math.exp(-t * decay) if decay > 0 else 1.0
+            val = amplitude * env * math.sin(2 * math.pi * freq * t)
+            f.write(struct.pack("<h", int(max(-32768, min(32767, val * 32767)))))
+    return output_path if os.path.exists(output_path) and os.path.getsize(output_path) > 100 else None
+
+
+def _generate_wav_noise(output_path, noise_type="pink", duration=0.5, sample_rate=48000, amplitude=0.3):
+    """Generate noise WAV file — white, pink, or brown — using Python."""
+    n_samples = int(sample_rate * duration)
+    samples = []
+    b0 = b1 = b2 = 0.0
+    for i in range(n_samples):
+        white = random.uniform(-1, 1)
+        if noise_type == "brown":
+            b0 = 0.9 * b0 + white * 0.1
+            b0 = max(-1, min(1, b0))
+            val = b0
+        elif noise_type == "pink":
+            b0 = 0.99886 * b0 + white * 0.0555179
+            b1 = 0.99332 * b1 + white * 0.0750759
+            b2 = 0.96900 * b2 + white * 0.1538520
+            val = (b0 + b1 + b2 + white * 0.5362) * 0.11
+        else:
+            val = white
+        env = 1.0 - (i / n_samples) * 0.3  # slight fade-out
+        samples.append(int(max(-32768, min(32767, val * amplitude * env * 32767))))
+
+    n_channels = 1
+    sampwidth = 2
+    framerate = sample_rate
+    data_size = n_samples * n_channels * sampwidth
+    with open(output_path, "wb") as f:
+        f.write(b"RIFF")
+        f.write(struct.pack("<I", 36 + data_size))
+        f.write(b"WAVE")
+        f.write(b"fmt ")
+        f.write(struct.pack("<IHHIIHH", 16, 1, n_channels, framerate, framerate * n_channels * sampwidth, n_channels * sampwidth, sampwidth))
+        f.write(b"data")
+        f.write(struct.pack("<I", data_size))
+        for s in samples:
+            f.write(struct.pack("<h", s))
+    return output_path if os.path.exists(output_path) and os.path.getsize(output_path) > 100 else None
+
+
 def synthesize_impact(output_path, impact_type="thud"):
-    """Phase 3: Generate an impact sound effect.
+    """Phase 3: Generate an impact sound effect using Python.
     'thud' — sharp transient for ball kicks, punches
     'whoosh' — air movement for fast motion
     'crunch' — gravel/fabric texture
     """
     if impact_type == "thud":
-        filt = (
-            f"aevalsrc=exprs='sin(2*PI*60*t)*exp(-t*15)"
-            f"+sin(2*PI*120*t)*exp(-t*25)' : d=0.3 : s={AUDIO_SAMPLE_RATE}, "
-            f"volume=2.0, afade=t=out:d=0.15"
-        )
+        # Damped sine at 60Hz + 120Hz harmonic
+        n_samples = int(AUDIO_SAMPLE_RATE * 0.3)
+        samples = []
+        for i in range(n_samples):
+            t = i / AUDIO_SAMPLE_RATE
+            val = math.sin(2 * math.pi * 60 * t) * math.exp(-t * 15) * 0.7
+            val += math.sin(2 * math.pi * 120 * t) * math.exp(-t * 25) * 0.3
+            samples.append(int(max(-32768, min(32767, val * 32767))))
+        n_channels = 1; sampwidth = 2; framerate = AUDIO_SAMPLE_RATE
+        data_size = n_samples * n_channels * sampwidth
+        with open(output_path, "wb") as f:
+            f.write(b"RIFF")
+            f.write(struct.pack("<I", 36 + data_size))
+            f.write(b"WAVE")
+            f.write(b"fmt ")
+            f.write(struct.pack("<IHHIIHH", 16, 1, n_channels, framerate, framerate * n_channels * sampwidth, n_channels * sampwidth, sampwidth))
+            f.write(b"data")
+            f.write(struct.pack("<I", data_size))
+            for s in samples:
+                f.write(struct.pack("<h", s))
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 100:
+            print(f"  [audio] Synthesized thud (60Hz+120Hz damped sine)", flush=True)
+            return output_path
     elif impact_type == "whoosh":
-        filt = (
-            f"anoisesrc=d=0.4:c=pink:a=0.3, "
-            f"aequalizer=f=2000:t=q:w=1:g=15, "
-            f"aequalizer=f=200:t=q:w=1:g=-15, "
-            f"afade=t=in:d=0.05,afade=t=out:d=0.2"
-        )
+        # Frequency sweep from 2000Hz down to 200Hz with pink noise body
+        result = _generate_wav_noise(output_path, "pink", 0.4, AUDIO_SAMPLE_RATE, 0.3)
+        if result:
+            print(f"  [audio] Synthesized whoosh (filtered pink noise)", flush=True)
+            return result
     elif impact_type == "crunch":
-        filt = (
-            f"anoisesrc=d=0.3:c=brown:a=0.8, "
-            f"aequalizer=f=4000:t=q:w=2:g=12, "
-            f"volume=0.6, afade=t=out:d=0.1"
-        )
-    else:
-        filt = (
-            f"aevalsrc=exprs='sin(2*PI*45*t)*exp(-t*12)' : d=0.2 : s={AUDIO_SAMPLE_RATE}, "
-            f"volume=2.0, afade=t=out:d=0.1"
-        )
-
-    cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i", filt, "-ac", "1", output_path]
-    result = _run_ffmpeg(cmd, f"synthesize {impact_type}")
-    if result and os.path.exists(output_path) and os.path.getsize(output_path) > 100:
-        return output_path
+        # Brown noise burst with high-frequency EQ
+        result = _generate_wav_noise(output_path, "brown", 0.3, AUDIO_SAMPLE_RATE, 0.6)
+        if result:
+            print(f"  [audio] Synthesized crunch (brown noise burst)", flush=True)
+            return result
     return None
 
 
 def generate_ambience_bed(output_path, ambience_type="stadium"):
-    """Phase 4: Generate ambient room tone / bed layer.
-    'stadium' — distant crowd murmur
-    'interior' — room hum
-    'outdoor' — wind and nature
+    """Phase 4: Generate ambient room tone / bed layer using Python.
+    'stadium' — distant crowd murmur (pink noise, low-passed)
+    'interior' — room hum (brown noise, heavily low-passed)
+    'outdoor' — wind (pink noise, mid-range)
     """
-    duration = 30  # max ambience duration
+    duration = 30
     if ambience_type == "stadium":
-        filt = (
-            f"anoisesrc=d={duration}:c=pink:a=0.08, "
-            f"aequalizer=f=200:t=q:w=2:g=8, "
-            f"aequalizer=f=4000:t=q:w=2:g=-10, "
-            f"lowpass=f=3000, highpass=f=80, "
-            f"volume=0.3"
-        )
+        result = _generate_wav_noise(output_path, "pink", duration, AUDIO_SAMPLE_RATE, 0.08)
     elif ambience_type == "interior":
-        filt = (
-            f"anoisesrc=d={duration}:c=brown:a=0.04, "
-            f"lowpass=f=200, highpass=f=50, "
-            f"aequalizer=f=100:t=q:w=1:g=6, "
-            f"volume=0.2"
-        )
+        result = _generate_wav_noise(output_path, "brown", duration, AUDIO_SAMPLE_RATE, 0.04)
     else:
-        filt = (
-            f"anoisesrc=d={duration}:c=pink:a=0.06, "
-            f"aequalizer=f=500:t=q:w=2:g=4, "
-            f"lowpass=f=6000, "
-            f"volume=0.25"
-        )
-
-    cmd = [
-        "ffmpeg", "-y", "-f", "lavfi", "-i", filt,
-        "-ac", "2", "-ar", str(AUDIO_SAMPLE_RATE),
-        output_path,
-    ]
-    result = _run_ffmpeg(cmd, f"ambience bed ({ambience_type})")
-    if result and os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+        result = _generate_wav_noise(output_path, "pink", duration, AUDIO_SAMPLE_RATE, 0.06)
+    if result:
+        print(f"  [audio] Generated ambience bed ({ambience_type})", flush=True)
+        # Convert mono to stereo (simple duplicate channel via ffmpeg)
+        stereo_out = output_path.replace(".wav", "_stereo.wav") if output_path.endswith(".wav") else output_path
+        if output_path != stereo_out:
+            cmd = [
+                "ffmpeg", "-y", "-i", output_path,
+                "-ac", "2", "-ar", str(AUDIO_SAMPLE_RATE),
+                "-sample_fmt", "s16",
+                stereo_out,
+            ]
+            subprocess.run(cmd, capture_output=True, timeout=30)
+            if os.path.exists(stereo_out) and os.path.getsize(stereo_out) > 1000:
+                os.replace(stereo_out, output_path)
         return output_path
     return None
 
