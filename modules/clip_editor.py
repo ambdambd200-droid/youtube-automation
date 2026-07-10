@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 import random
+import time
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -198,7 +199,10 @@ def apply_karaoke_subtitles(input_path, output_path, text_segments, font_size=48
         if end_time <= start_time:
             continue
 
-        safe_text = text.replace("'", "\\'").replace(":", "\\:").replace("[", "\\[").replace("]", "\\]")
+        safe_text = (text.replace("\\", "\\\\").replace("'", "\\'")
+                         .replace(":", "\\:").replace("[", "\\[").replace("]", "\\]")
+                         .replace("%", "\\%").replace("{", "\\{").replace("}", "\\}")
+                         .replace(",", "\\,"))
 
         # White text with black drop shadow (default state)
         filter_str = (
@@ -729,7 +733,6 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
                 color_errors.append(str(e))
                 if color_attempt == 0:
                     print(f"  [editor] Color grade attempt {color_attempt+1} failed, retrying...", flush=True)
-                    import time
                     time.sleep(2)
         if not color_success:
             print(f"  [editor] Color grade failed after 2 attempts: {'; '.join(color_errors)}", flush=True)
@@ -765,7 +768,6 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
             except Exception as e:
                 if speed_attempt == 0:
                     print(f"  [editor] Speed ramp attempt {speed_attempt+1} failed, retrying...", flush=True)
-                    import time
                     time.sleep(2)
         if not speed_success:
             # Fallback: simple constant speed (no optical flow)
@@ -820,7 +822,6 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
             except Exception as e:
                 if audio_attempt == 0:
                     print(f"  [editor] Audio pipeline attempt {audio_attempt+1} failed, retrying...", flush=True)
-                    import time
                     time.sleep(2)
         if not audio_success:
             # Fallback: just normalize audio with ffmpeg loudnorm
@@ -862,6 +863,7 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
             except Exception as e:
                 if breath_attempt == 0:
                     print(f"  [editor] Breath cut attempt {breath_attempt+1} failed, retrying...", flush=True)
+                    time.sleep(2)
         if not breath_success:
             # Fallback: copy as-is (no breath cut)
             try:
@@ -1103,7 +1105,10 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
         t_start = item["start"]
         t_end = item["end"]
 
-        safe_text = item["text"].replace("'", "\\'").replace(":", "\\:").replace("[", "\\[").replace("]", "\\]")
+        safe_text = (item["text"].replace("\\", "\\\\").replace("'", "\\'")
+                         .replace(":", "\\:").replace("[", "\\[").replace("]", "\\]")
+                         .replace("%", "\\%").replace("{", "\\{").replace("}", "\\}")
+                         .replace(",", "\\,"))
         is_emoji = any(c in safe_text for c in ["👀", "🔥", "💀", "😱", "😂"])
 
         if is_emoji:

@@ -81,28 +81,18 @@ def apply_dynamic_compression(input_path, output_path):
     return None
 
 
-def _generate_wav_sine(output_path, freq, duration, sample_rate=48000, amplitude=0.5, decay=0.0):
-    """Generate a simple sine wave WAV file using Python's wave module."""
-    n_samples = int(sample_rate * duration)
-    with open(output_path, "wb") as f:
-        n_channels = 1
-        sampwidth = 2
-        framerate = sample_rate
-        # WAV header
-        data_size = n_samples * n_channels * sampwidth
-        f.write(b"RIFF")
-        f.write(struct.pack("<I", 36 + data_size))
-        f.write(b"WAVE")
-        f.write(b"fmt ")
-        f.write(struct.pack("<IHHIIHH", 16, 1, n_channels, framerate, framerate * n_channels * sampwidth, n_channels * sampwidth, sampwidth * 8))
-        f.write(b"data")
-        f.write(struct.pack("<I", data_size))
-        for i in range(n_samples):
-            t = i / sample_rate
-            env = math.exp(-t * decay) if decay > 0 else 1.0
-            val = amplitude * env * math.sin(2 * math.pi * freq * t)
-            f.write(struct.pack("<h", int(max(-32768, min(32767, val * 32767)))))
-    return output_path if os.path.exists(output_path) and os.path.getsize(output_path) > 100 else None
+def _write_wav_header(f, n_samples, n_channels, sampwidth, framerate):
+    """Write WAV header for PCM 16-bit mono/stereo audio."""
+    data_size = n_samples * n_channels * sampwidth
+    f.write(b"RIFF")
+    f.write(struct.pack("<I", 36 + data_size))
+    f.write(b"WAVE")
+    f.write(b"fmt ")
+    f.write(struct.pack("<IHHIIHH", 16, 1, n_channels, framerate,
+                        framerate * n_channels * sampwidth,
+                        n_channels * sampwidth, sampwidth * 8))
+    f.write(b"data")
+    f.write(struct.pack("<I", data_size))
 
 
 def _generate_wav_noise(output_path, noise_type="pink", duration=0.5, sample_rate=48000, amplitude=0.3):
@@ -129,15 +119,8 @@ def _generate_wav_noise(output_path, noise_type="pink", duration=0.5, sample_rat
     n_channels = 1
     sampwidth = 2
     framerate = sample_rate
-    data_size = n_samples * n_channels * sampwidth
     with open(output_path, "wb") as f:
-        f.write(b"RIFF")
-        f.write(struct.pack("<I", 36 + data_size))
-        f.write(b"WAVE")
-        f.write(b"fmt ")
-        f.write(struct.pack("<IHHIIHH", 16, 1, n_channels, framerate, framerate * n_channels * sampwidth, n_channels * sampwidth, sampwidth * 8))
-        f.write(b"data")
-        f.write(struct.pack("<I", data_size))
+        _write_wav_header(f, n_samples, n_channels, sampwidth, framerate)
         for s in samples:
             f.write(struct.pack("<h", s))
     return output_path if os.path.exists(output_path) and os.path.getsize(output_path) > 100 else None
@@ -159,15 +142,8 @@ def synthesize_impact(output_path, impact_type="thud"):
             val += math.sin(2 * math.pi * 120 * t) * math.exp(-t * 25) * 0.3
             samples.append(int(max(-32768, min(32767, val * 32767))))
         n_channels = 1; sampwidth = 2; framerate = AUDIO_SAMPLE_RATE
-        data_size = n_samples * n_channels * sampwidth
         with open(output_path, "wb") as f:
-            f.write(b"RIFF")
-            f.write(struct.pack("<I", 36 + data_size))
-            f.write(b"WAVE")
-            f.write(b"fmt ")
-            f.write(struct.pack("<IHHIIHH", 16, 1, n_channels, framerate, framerate * n_channels * sampwidth, n_channels * sampwidth, sampwidth * 8))
-            f.write(b"data")
-            f.write(struct.pack("<I", data_size))
+            _write_wav_header(f, n_samples, n_channels, sampwidth, framerate)
             for s in samples:
                 f.write(struct.pack("<h", s))
         if os.path.exists(output_path) and os.path.getsize(output_path) > 100:
@@ -212,8 +188,8 @@ def generate_ambience_bed(output_path, ambience_type="stadium"):
                 "-sample_fmt", "s16",
                 stereo_out,
             ]
-            subprocess.run(cmd, capture_output=True, timeout=30)
-            if os.path.exists(stereo_out) and os.path.getsize(stereo_out) > 1000:
+            result = subprocess.run(cmd, capture_output=True, timeout=30)
+            if result.returncode == 0 and os.path.exists(stereo_out) and os.path.getsize(stereo_out) > 1000:
                 os.replace(stereo_out, output_path)
         return output_path
     return None
@@ -264,7 +240,8 @@ def mix_ambience_and_foley(input_path, ambience_path, foley_paths=None, output_p
 
     # Build mix with optional sidechain ducking
     if duck_on_foley and foley_labels:
-        sidechain = f"[main][{foley_labels[0]}]sidechaincompress=threshold=-20:ratio=10:attack=5:release=50:level_sc={AUDIO_DUCK_DB / -1}[a_ducked]"
+        level_sc = 10 ** (AUDIO_DUCK_DB / 20)  # -6dB → 0.5 linear
+        sidechain = f"[main][{foley_labels[0]}]sidechaincompress=threshold=-20:ratio=10:attack=5:release=50:level_sc={level_sc}[a_ducked]"
         filter_parts.append(sidechain)
         mix_sources = f"[a_ducked]"
     else:
@@ -273,9 +250,7 @@ def mix_ambience_and_foley(input_path, ambience_path, foley_paths=None, output_p
     for label in foley_labels:
         mix_sources += f"[{label}]"
 
-    n_sources = 1 + len(foley_labels) + (1 if ambience_path else 0)
     if ambience_path:
-        n_amb_idx = 1
         # Mix ambience at low volume
         if duck_on_foley and foley_labels:
             filter_parts.append(f"[1:a]volume=0.25[a_amb]")

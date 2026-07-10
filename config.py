@@ -206,17 +206,16 @@ POSTING_TIMES_UTC_DEFAULT = [(8, 0), (14, 0), (19, 0)]
 def get_posting_times():
     """Return today's posting times based on the day of the week."""
     today = datetime.now().weekday()
-    our_day = (today + 1) % 7
 
     try:
         from modules.evolution_engine import get_evolved_posting_times
         evolved = get_evolved_posting_times()
-        if evolved and our_day in evolved:
-            return evolved[our_day]
+        if evolved and today in evolved:
+            return evolved[today]
     except Exception:
         pass
 
-    return POSTING_TIMES_BY_DAY.get(our_day, POSTING_TIMES_UTC_DEFAULT)
+    return POSTING_TIMES_BY_DAY.get(today, POSTING_TIMES_UTC_DEFAULT)
 
 
 def get_posting_times_formatted():

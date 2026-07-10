@@ -84,7 +84,7 @@ def run_weekly_pipeline(force_query=None, pipeline_id=None):
 
     # ── Step 1: Content Selection ────────────────────────
     register_stage(pipeline_id, "content_selection")
-    print(f">>> Step 1/7: Selecting content...")
+    print(f">>> Step 1/8: Selecting content...")
     if force_query:
         search_query = force_query
         print(f"  Custom query: {search_query}")
@@ -107,7 +107,7 @@ def run_weekly_pipeline(force_query=None, pipeline_id=None):
 
     # ── Step 2: Download Clip ────────────────────────────
     register_stage(pipeline_id, "download")
-    print(f"\n>>> Step 2/7: Downloading video...")
+    print(f"\n>>> Step 2/8: Downloading video...")
     # Load used scenes to avoid re-downloading the same videos
     used = load_used_scenes()
     used_ids = set()
@@ -239,7 +239,9 @@ def run_weekly_pipeline(force_query=None, pipeline_id=None):
         raise Exception("Weekly video creation failed after all retries")
 
     # ── Step 5: Critique (disabled — was causing hangs) ──
+    register_stage(pipeline_id, "critique")
     critique_result = None
+    print(f">>> Step 5/8: Critiquing output...")
     print(f"  [SKIP] Critique disabled (was causing ffmpeg hangs)", flush=True)
 
     # ── Step 6: Quality Validation ────────────────────────
