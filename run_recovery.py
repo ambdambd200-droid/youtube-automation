@@ -42,9 +42,6 @@ from modules.pipeline_watchdog import (
     MAX_RETRIES_PER_RUN,
     FAILURE_WINDOW_HOURS,
     detect_missed_runs,
-    PIPELINE_STATE_FILE,
-    DAILY_PIPELINE_LOG,
-    WEEKLY_PIPELINE_LOG,
 )
 
 

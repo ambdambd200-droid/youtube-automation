@@ -27,7 +27,7 @@ from config import (
     LOG_DIR, DOWNLOADS_DIR, CLIPS_DIR, MOVIE_KEYWORDS,
 )
 from modules.clip_downloader import download_best_match
-from modules.clip_editor import create_weekly_video, generate_story_texts, remux_to_compatible, get_video_duration
+from modules.clip_editor import create_weekly_video, generate_story_texts
 
 from modules.seo_generator import generate_weekly_metadata
 from modules.voiceover_generator import generate_voiceover, cleanup_voiceover
