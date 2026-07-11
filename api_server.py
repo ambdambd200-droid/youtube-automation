@@ -16,7 +16,7 @@ if hasattr(sys.stdout, 'reconfigure'):
     except Exception:
         pass
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -560,12 +560,8 @@ def blueprint_status():
 
 
 @app.route("/dashboard", methods=["GET"])
-def dashboard():
-    """Return the full performance dashboard data as JSON.
-
-    Includes critique comparison (daily vs weekly), real YouTube metrics,
-    grade distribution, upload timeline, top performers, and evolution status.
-    """
+def dashboard_json():
+    """Return the full performance dashboard data as JSON."""
     try:
         from run_performance_dashboard import build_dashboard_data
         data = build_dashboard_data()
@@ -574,7 +570,14 @@ def dashboard():
         return jsonify({"error": str(ex)}), 500
 
 
+@app.route("/", methods=["GET"])
+def dashboard_web():
+    """Serve the web dashboard."""
+    return render_template("dashboard.html")
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("API_PORT", 5001))
     print(f"Starting VARY API on port {port}...")
+    print(f"Dashboard: http://localhost:{port}/")
     app.run(host="127.0.0.1", port=port, debug=False)

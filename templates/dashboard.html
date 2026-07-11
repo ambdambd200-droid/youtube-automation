@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VARY — Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: #0a0a0f;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+        .container { max-width: 1280px; margin: 0 auto; padding: 24px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; flex-wrap: wrap; gap: 16px; }
+        .header h1 { font-size: 28px; font-weight: 800; background: linear-gradient(135deg, #667eea, #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .header .sub { color: #888; font-size: 13px; }
+        .header-right { display: flex; align-items: center; gap: 12px; }
+        .header-right .time { color: #666; font-size: 13px; }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+        .status-dot.online { background: #22c55e; box-shadow: 0 0 8px #22c55e66; }
+        .status-dot.offline { background: #ef4444; box-shadow: 0 0 8px #ef444466; }
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .card {
+            background: #14141f; border: 1px solid #1e1e2e; border-radius: 12px; padding: 20px; transition: border-color .2s;
+        }
+        .card:hover { border-color: #333; }
+        .card .label { font-size: 12px; font-weight: 500; color: #666; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+        .card .value { font-size: 28px; font-weight: 700; color: #fff; }
+        .card .value .small { font-size: 14px; font-weight: 400; color: #666; }
+        .card .change { font-size: 12px; margin-top: 4px; }
+        .card .change.up { color: #22c55e; }
+        .card .change.down { color: #ef4444; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+        @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+        .panel {
+            background: #14141f; border: 1px solid #1e1e2e; border-radius: 12px; padding: 20px;
+        }
+        .panel h3 { font-size: 14px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 16px; }
+        .panel .empty { color: #555; font-size: 14px; text-align: center; padding: 24px 0; }
+        .pipeline-step { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid #1a1a2a; font-size: 14px; }
+        .pipeline-step:last-child { border-bottom: none; }
+        .pipeline-step .icon { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .pipeline-step .icon.done { background: #22c55e; }
+        .pipeline-step .icon.fail { background: #ef4444; }
+        .pipeline-step .icon.running { background: #f59e0b; animation: pulse 1.5s infinite; }
+        .pipeline-step .icon.pending { background: #333; }
+        .pipeline-step .name { flex: 1; }
+        .pipeline-step .time { color: #555; font-size: 12px; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+        .video-list { }
+        .video-item { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #1a1a2a; }
+        .video-item:last-child { border-bottom: none; }
+        .video-item .info { flex: 1; min-width: 0; }
+        .video-item .title { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .video-item .meta { font-size: 12px; color: #666; margin-top: 2px; }
+        .video-item .stats { text-align: right; flex-shrink: 0; }
+        .video-item .stats .num { font-size: 16px; font-weight: 600; }
+        .video-item .stats .lbl { font-size: 11px; color: #666; }
+        .bar-chart { display: flex; gap: 4px; align-items: flex-end; height: 60px; margin-top: 8px; }
+        .bar-chart .bar {
+            flex: 1; background: linear-gradient(180deg, #667eea, #a855f7); border-radius: 3px 3px 0 0; min-height: 4px;
+            transition: height .5s;
+        }
+        .bar-chart .bar-label { font-size: 10px; color: #555; text-align: center; margin-top: 4px; }
+        .btn {
+            display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 500;
+            border: none; cursor: pointer; transition: all .15s; text-decoration: none;
+        }
+        .btn-primary { background: linear-gradient(135deg, #667eea, #a855f7); color: #fff; }
+        .btn-primary:hover { opacity: .85; transform: translateY(-1px); }
+        .btn-outline { background: transparent; color: #888; border: 1px solid #2a2a3a; }
+        .btn-outline:hover { border-color: #444; color: #ccc; }
+        .btn-sm { padding: 4px 10px; font-size: 12px; }
+        .error-banner {
+            background: #1a0a0a; border: 1px solid #332222; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px;
+            font-size: 13px; color: #f87171;
+        }
+        .hidden { display: none; }
+        .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+        .mt-16 { margin-top: 16px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <div>
+            <h1>VARY</h1>
+            <div class="sub">three times daily &middot; one clip at a time</div>
+        </div>
+        <div class="header-right">
+            <span id="healthDot" class="status-dot offline"></span>
+            <span id="healthStatus" class="sub">Loading...</span>
+            <span class="time" id="currentTime"></span>
+            <button class="btn btn-outline btn-sm" onclick="refreshAll()">Refresh</button>
+        </div>
+    </div>
+
+    <div id="errorBox" class="error-banner hidden"></div>
+
+    <div class="cards" id="statCards">
+        <div class="card"><div class="label">Status</div><div class="value"><span class="small">Loading...</span></div></div>
+        <div class="card"><div class="label">Shorts Uploaded</div><div class="value"><span class="small">...</span></div></div>
+        <div class="card"><div class="label">Total Views</div><div class="value"><span class="small">...</span></div></div>
+        <div class="card"><div class="label">Avg Engagement</div><div class="value"><span class="small">...</span></div></div>
+    </div>
+
+    <div class="grid">
+        <div class="panel">
+            <h3>Recent Uploads</h3>
+            <div class="video-list" id="recentVideos"><div class="empty">Loading...</div></div>
+        </div>
+        <div class="panel">
+            <h3>Pipeline Log</h3>
+            <div id="pipelineLog"><div class="empty">Loading...</div></div>
+        </div>
+    </div>
+
+    <div class="grid">
+        <div class="panel">
+            <h3>Content Distribution</h3>
+            <div id="contentDist"><div class="empty">Loading...</div></div>
+        </div>
+        <div class="panel">
+            <h3>Content Strategy</h3>
+            <div id="strategyPanel">
+                <div class="empty">Loading strategy...</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-16" style="justify-content: center;">
+        <button class="btn btn-primary" onclick="runPipeline()">Run Daily Pipeline</button>
+        <button class="btn btn-outline" onclick="runPoll()">Poll Analytics</button>
+    </div>
+</div>
+
+<script>
+let healthOk = false;
+
+function showError(msg) {
+    const el = document.getElementById('errorBox');
+    if (msg) { el.textContent = msg; el.classList.remove('hidden'); }
+    else { el.classList.add('hidden'); }
+}
+
+async function api(path, opts = {}) {
+    const r = await fetch(path, opts);
+    if (!r.ok) throw new Error(`API ${r.status}: ${r.statusText}`);
+    return r.json();
+}
+
+function updateHealth(data) {
+    healthOk = data.status === 'ok' || data.status === 'healthy';
+    document.getElementById('healthDot').className = 'status-dot ' + (healthOk ? 'online' : 'offline');
+    document.getElementById('healthStatus').textContent = healthOk ? 'Online' : 'Offline';
+}
+
+function updateStats(dashData) {
+    const cards = document.getElementById('statCards');
+
+    if (!dashData || dashData.error) {
+        cards.innerHTML = `<div class="card"><div class="label">Status</div><div class="value"><span class="small">No data</span></div></div>`;
+        return;
+    }
+
+    const uploaded = dashData.uploadRegistry?.length || 0;
+    const totalViews = dashData.performanceLog?.reduce((s, v) => s + (v.views || 0), 0) || 0;
+    const totalLikes = dashData.performanceLog?.reduce((s, v) => s + (v.likes || 0), 0) || 0;
+    const totalComments = dashData.performanceLog?.reduce((s, v) => s + (v.comments || 0), 0) || 0;
+    const videosWithEng = dashData.performanceLog?.filter(v => (v.views || 0) > 0).length || 0;
+    const avgEng = videosWithEng > 0 ? ((totalLikes + totalComments) / videosWithEng).toFixed(1) : '—';
+    const pipelineRuns = dashData.state?.completed || 0;
+    const failedRuns = dashData.state?.failed || 0;
+
+    cards.innerHTML = `
+        <div class="card"><div class="label">Shorts Uploaded</div><div class="value">${uploaded}</div></div>
+        <div class="card"><div class="label">Total Views</div><div class="value">${totalViews.toLocaleString()}</div></div>
+        <div class="card"><div class="label">Pipeline Runs</div><div class="value">${pipelineRuns} <span class="small">/${failedRuns > 0 ? failedRuns + ' failed' : 'all ok'}</span></div></div>
+        <div class="card"><div class="label">Avg Engagement</div><div class="value">${avgEng} <span class="small">per video</span></div></div>
+    `;
+}
+
+function updateRecentVideos(dashData) {
+    const el = document.getElementById('recentVideos');
+    const registry = dashData?.uploadRegistry || [];
+    if (registry.length === 0) { el.innerHTML = '<div class="empty">No uploads yet</div>'; return; }
+
+    const recent = [...registry].reverse().slice(0, 8);
+    const perfMap = {};
+    (dashData.performanceLog || []).forEach(p => { perfMap[p.video_id || p.title] = p; });
+
+    el.innerHTML = recent.map(v => {
+        const perf = perfMap[v.video_id] || perfMap[v.title] || {};
+        const views = perf.views || 0;
+        const likes = perf.likes || 0;
+        const title = (v.seo_title || v.title || 'Untitled').length > 50
+            ? (v.seo_title || v.title || 'Untitled').slice(0, 50) + '…'
+            : (v.seo_title || v.title || 'Untitled');
+        const type = v.content_type || '—';
+        const date = v.uploaded_at ? new Date(v.uploaded_at).toLocaleDateString() : '—';
+        return `<div class="video-item">
+            <div class="info">
+                <div class="title">${title}</div>
+                <div class="meta">${type} &middot; ${date}</div>
+            </div>
+            <div class="stats">
+                ${views > 0 ? `<div class="num">${views.toLocaleString()}</div><div class="lbl">views</div>` : '<div class="lbl" style="color:#444">no data</div>'}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function updatePipelineLog(dashData) {
+    const el = document.getElementById('pipelineLog');
+    const log = dashData?.pipelineLog || [];
+    if (log.length === 0) { el.innerHTML = '<div class="empty">No pipeline logs yet</div>'; return; }
+
+    const recent = [...log].reverse().slice(0, 12);
+    el.innerHTML = recent.map(e => {
+        const icon = e.status === 'completed' || e.status === 'success' ? 'done'
+            : e.status === 'failed' || e.status === 'error' ? 'fail'
+            : e.status === 'running' ? 'running' : 'pending';
+        return `<div class="pipeline-step">
+            <span class="icon ${icon}"></span>
+            <span class="name">${e.step || e.message || e.status || '—'}</span>
+            <span class="time">${e.timestamp ? new Date(e.timestamp).toLocaleString() : '—'}</span>
+        </div>`;
+    }).join('');
+}
+
+function updateContentDist(dashData) {
+    const el = document.getElementById('contentDist');
+    const log = dashData?.pipelineLog || [];
+    const types = {};
+    log.forEach(e => {
+        if (e.content_type) { types[e.content_type] = (types[e.content_type] || 0) + 1; }
+    });
+    if (Object.keys(types).length === 0) {
+        el.innerHTML = '<div class="empty">No content type data yet</div>';
+        return;
+    }
+    el.innerHTML = Object.entries(types).map(([k, v]) => {
+        const pct = Math.round(v / Object.values(types).reduce((a, b) => a + b, 0) * 100);
+        return `<div style="margin-bottom: 8px; font-size: 14px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                <span>${k}</span><span>${v} clips</span>
+            </div>
+            <div style="background: #1a1a2a; border-radius: 4px; height: 6px;">
+                <div style="background: linear-gradient(90deg, #667eea, #a855f7); width: ${pct}%; height: 100%; border-radius: 4px;"></div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function updateStrategy(dashData) {
+    const el = document.getElementById('strategyPanel');
+    const weights = dashData?.evolution?.weights;
+
+    if (!weights) {
+        el.innerHTML = `<div class="empty">Evolution engine not active yet. Run the pipeline a few times.</div>`;
+        return;
+    }
+
+    const type = Object.keys(weights).sort((a, b) => weights[b] - weights[a])[0] || '—';
+    const wPct = type !== '—' ? (weights[type] * 100).toFixed(0) + '%' : '—';
+
+    el.innerHTML = `
+        <div style="font-size: 14px; margin-bottom: 12px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                <span style="color: #888;">Top Content</span><span style="font-weight: 600;">${type}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                <span style="color: #888;">Weight</span><span style="font-weight: 600;">${wPct}</span>
+            </div>
+        </div>
+        <div style="font-size: 13px; color: #666; line-height: 1.6;">
+            <div>movie ${(weights.movie || 0) * 100}%</div>
+            <div>football ${(weights.football || 0) * 100}%</div>
+            <div>series ${(weights.series || 0) * 100}%</div>
+        </div>
+    `;
+}
+
+async function refreshAll() {
+    showError(null);
+    try {
+        const health = await api('/health');
+        updateHealth(health);
+    } catch (e) {
+        updateHealth({ status: 'error' });
+        showError('Cannot reach API server. Is it running?');
+    }
+
+    try {
+        const dash = await api('/dashboard');
+        updateStats(dash);
+        updateRecentVideos(dash);
+        updatePipelineLog(dash);
+        updateContentDist(dash);
+        updateStrategy(dash);
+    } catch (e) {
+        showError('Dashboard data unavailable: ' + e.message);
+    }
+}
+
+async function runPipeline() {
+    if (!confirm('Trigger daily pipeline now? This will run on the GitHub runner.')) return;
+    try {
+        const r = await api('/run-full-pipeline', { method: 'POST' });
+        alert('Pipeline triggered: ' + (r.message || r.status || 'OK'));
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+}
+
+async function runPoll() {
+    try {
+        const r = await api('/performance-poll', { method: 'POST' });
+        alert('Analytics polled: ' + (r.message || JSON.stringify(r).slice(0, 100)));
+        refreshAll();
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+}
+
+function updateClock() {
+    document.getElementById('currentTime').textContent = new Date().toLocaleString();
+}
+
+setInterval(updateClock, 10000);
+updateClock();
+refreshAll();
+setInterval(refreshAll, 60000);
+</script>
+</body>
+</html>
