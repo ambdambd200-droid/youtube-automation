@@ -383,7 +383,7 @@ def create_banner(size=(2560, 1440)):
     output_path = os.path.join(CHANNEL_ART_DIR, "channel_banner.png")
 
     try:
-        img = Image.new("RGB", size, DEEP_BLUE)
+        img = Image.new("RGBA", size, DEEP_BLUE)
         draw = ImageDraw.Draw(img)
 
         # ── Background gradient (top-to-bottom dark blend) ──

@@ -236,7 +236,7 @@ def mix_ambience_and_foley(input_path, ambience_path, foley_paths=None, output_p
                 inputs.extend(["-i", fp])
                 label = f"foley{i}"
                 foley_labels.append(label)
-                filter_parts.append(f"[{len(inputs)//2}:a]asetpts=PTS-STARTPTS[{label}]")
+                filter_parts.append(f"[{len(inputs)//2 - 1}:a]asetpts=PTS-STARTPTS[{label}]")
 
     # Build mix with optional sidechain ducking
     if duck_on_foley and foley_labels:

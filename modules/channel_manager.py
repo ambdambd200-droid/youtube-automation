@@ -218,7 +218,7 @@ def check_and_update_channel():
                     banner_path=banner if os.path.exists(banner) else None,
                 )
                 result["branding_uploaded"] = upload_result.get("profile_picture") or upload_result.get("banner")
-        except BaseException as e:
+        except Exception as e:
             print(f"  [channel_manager] YouTube API call failed: {e}", flush=True)
             result["description_updated"] = False
             result["branding_uploaded"] = False

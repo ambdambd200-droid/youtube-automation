@@ -47,4 +47,4 @@ def get_font_path():
                 return font.replace(":", "\\:")
             return font
 
-    return None
+    raise FileNotFoundError("No suitable font found for drawtext in any search path")

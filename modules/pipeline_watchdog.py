@@ -370,7 +370,7 @@ def detect_missed_runs():
                            if e.get("stage") == "content_selection"
                            and e.get("timestamp", "") > cutoff_7d)
 
-    if weekly_7d_uploads < 1 and weekly_7d_starts >= 0:
+    if weekly_7d_uploads < 1 and weekly_7d_starts > 0:
         missed.append({
             "type": "weekly",
             "expected": 1,
