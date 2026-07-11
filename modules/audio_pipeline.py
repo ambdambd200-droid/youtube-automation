@@ -25,16 +25,17 @@ from config import (
 )
 
 
-def _run_ffmpeg(cmd, description="audio", timeout=60):
+def _run_ffmpeg(cmd, description="audio", timeout=120):
     """Run ffmpeg and log."""
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         if result.returncode != 0:
-            print(f"  [audio] {description} failed: {result.stderr[:200]}", flush=True)
+            err = result.stderr[-500:] if result.stderr else "no stderr"
+            print(f"  [audio] {description} failed (rc={result.returncode}): {err}", flush=True)
             return None
         return result
     except subprocess.TimeoutExpired:
-        print(f"  [audio] {description} timed out", flush=True)
+        print(f"  [audio] {description} timed out ({timeout}s)", flush=True)
     except Exception as e:
         print(f"  [audio] {description} error: {e}", flush=True)
     return None
@@ -72,6 +73,7 @@ def apply_dynamic_compression(input_path, output_path):
         "-af",
         f"acompressor=threshold={threshold}:ratio={ratio}:attack=5:release=50:makeup=3",
         "-ar", str(AUDIO_SAMPLE_RATE), "-ac", "2",
+        "-sample_fmt", "s16",
         output_path,
     ]
     result = _run_ffmpeg(cmd, f"compression {ratio}:1")
@@ -205,6 +207,7 @@ def apply_stereo_widening(input_path, output_path):
         "stereotools=mode=id:delay=15:phase_mid=1:phase_side=0, "
         "stereowiden=delay=10:feedback=0.3:crossfeed=0.3:dry_mix=0.8:wet_mix=0.6",
         "-ar", str(AUDIO_SAMPLE_RATE), "-ac", "2",
+        "-sample_fmt", "s16",
         output_path,
     ]
     result = _run_ffmpeg(cmd, "stereo widening")

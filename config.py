@@ -53,6 +53,7 @@ RENDER_BUFFER_SIZE = "40000k"
 RENDER_CRF = 14              # Near-lossless master (lower = better, 14 is visually lossless)
 RENDER_PIX_FMT = "yuv420p"
 RENDER_MOVFLAGS = "+faststart"
+RENDER_INTERMEDIATE_PRESET = "fast"  # faster preset for intermediate steps (avoid timeouts)
 
 # ── Audio Specs (Section 2: Acoustic Engineering) ─────────
 AUDIO_TARGET_LUFS = -14.0    # YouTube loudness standard

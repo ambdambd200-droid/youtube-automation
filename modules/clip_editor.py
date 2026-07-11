@@ -26,6 +26,7 @@ from config import (
     RENDER_CODEC, RENDER_PROFILE, RENDER_LEVEL,
     RENDER_BITRATE, RENDER_BUFFER_SIZE, RENDER_CRF,
     RENDER_PIX_FMT, RENDER_MOVFLAGS,
+    RENDER_INTERMEDIATE_PRESET,
 )
 from modules.utils import get_font_path
 
@@ -119,7 +120,7 @@ def apply_speed_ramp(input_path, output_path, impact_time=None):
         "ffmpeg", "-y", "-i", input_path,
         "-filter_complex", filter_complex,
         "-map", "[vout]", "-map", "[aout]",
-        "-c:v", RENDER_CODEC, "-preset", "slow",
+        "-c:v", RENDER_CODEC, "-preset", RENDER_INTERMEDIATE_PRESET,
         "-crf", str(RENDER_CRF),
         "-c:a", "aac", "-b:a", "192k",
         "-pix_fmt", RENDER_PIX_FMT,
@@ -184,7 +185,7 @@ def apply_breath_cut(input_path, output_path, action_end_time):
         "-t", str(cut_time),
         "-vf", f"fade=t=out:st={fade_start}:d=1.5",
         "-af", f"afade=t=out:st={fade_start}:d=1.5",
-        "-c:v", RENDER_CODEC, "-preset", "slow",
+        "-c:v", RENDER_CODEC, "-preset", RENDER_INTERMEDIATE_PRESET,
         "-crf", str(RENDER_CRF),
         "-c:a", "aac", "-b:a", "192k",
         "-pix_fmt", RENDER_PIX_FMT,
@@ -243,7 +244,7 @@ def apply_karaoke_subtitles(input_path, output_path, text_segments, font_size=48
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
         "-vf", vf,
-        "-c:v", RENDER_CODEC, "-preset", "slow",
+        "-c:v", RENDER_CODEC, "-preset", RENDER_INTERMEDIATE_PRESET,
         "-crf", str(RENDER_CRF),
         "-c:a", "copy",
         "-pix_fmt", RENDER_PIX_FMT,
@@ -953,7 +954,7 @@ def apply_watermark(input_path, output_path):
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
         "-vf", vf,
-        "-c:v", RENDER_CODEC, "-preset", "slow",
+        "-c:v", RENDER_CODEC, "-preset", RENDER_INTERMEDIATE_PRESET,
         "-crf", str(RENDER_CRF),
         "-c:a", "copy",
         "-pix_fmt", RENDER_PIX_FMT,
