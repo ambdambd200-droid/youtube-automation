@@ -432,8 +432,9 @@ def download_best_match(search_query, used_ids=None, content_type=None, min_reso
 
     # ── YOUTUBE POLICY CHECK ────────────────────────────
     # Run before every download to prevent copyright/Content ID blocks
+    # This filters out studio channels BEFORE any processing
     policy_safe = []
-    for v in quality_candidates:
+    for v in fresh:
         from modules.youtube_policy_check import pre_download_check
         is_safe, reason = pre_download_check(v)
         if is_safe:
@@ -441,13 +442,13 @@ def download_best_match(search_query, used_ids=None, content_type=None, min_reso
         else:
             print(f"  [downloader] POLICY BLOCKED: {v.get('title','?')[:60]} — {reason}", flush=True)
     if policy_safe:
-        quality_candidates = policy_safe
+        fresh = policy_safe
     else:
         print("  [downloader] ALL candidates blocked by policy — skipping safety gate", flush=True)
 
     # ── Quality gates ────────────────────────────────────
     # Reject very low-view videos (weird/obscure content)
-    quality_candidates = [v for v in quality_candidates if v.get("view_count", 0) >= 10000]
+    quality_candidates = [v for v in fresh if v.get("view_count", 0) >= 10000]
     if not quality_candidates:
         quality_candidates = [v for v in fresh if v.get("view_count", 0) >= 1000]
     if not quality_candidates:

@@ -47,7 +47,7 @@ def apply_white_balance_lock(input_path, output_path):
         "colorchannelmixer=rr=1.05:rg=0.02:rb=-0.07:"
         "gr=0.01:gg=1.00:gb=-0.01:"
         "br=-0.05:bg=-0.02:bb=1.07",
-        "-c:v", RENDER_CODEC, "-preset", "fast",
+        "-c:v", RENDER_CODEC, "-preset", "slow",
         "-crf", str(RENDER_CRF),
         "-c:a", "copy",
         "-pix_fmt", RENDER_PIX_FMT,
@@ -69,7 +69,7 @@ def apply_dynamic_range_compression(input_path, output_path):
         "ffmpeg", "-y", "-i", input_path,
         "-vf",
         "curves=all='0/0.04 0.5/0.5 1/0.96'",
-        "-c:v", RENDER_CODEC, "-preset", "fast",
+        "-c:v", RENDER_CODEC, "-preset", "slow",
         "-crf", str(RENDER_CRF),
         "-c:a", "copy",
         "-pix_fmt", RENDER_PIX_FMT,
@@ -93,7 +93,7 @@ def apply_teal_orange_grade(input_path, output_path):
         "colorbalance=rs=-0.02:gs=0.04:bs=0.08:"
         "rm=0.06:gm=-0.02:bm=-0.04:"
         "rh=0.03:gh=-0.01:bh=0.01",
-        "-c:v", RENDER_CODEC, "-preset", "fast",
+        "-c:v", RENDER_CODEC, "-preset", "slow",
         "-crf", str(RENDER_CRF),
         "-c:a", "copy",
         "-pix_fmt", RENDER_PIX_FMT,
@@ -116,7 +116,7 @@ def apply_saturation_vibrance(input_path, output_path):
         "-vf",
         f"eq=saturation={1.0 + COLOR_GLOBAL_SATURATION}:"
         f"gamma={1.0 + COLOR_VIBRANCE_BOOST * 0.2}",
-        "-c:v", RENDER_CODEC, "-preset", "fast",
+        "-c:v", RENDER_CODEC, "-preset", "slow",
         "-crf", str(RENDER_CRF),
         "-c:a", "copy",
         "-pix_fmt", RENDER_PIX_FMT,
@@ -135,7 +135,7 @@ def apply_s_curve_contrast(input_path, output_path):
         "ffmpeg", "-y", "-i", input_path,
         "-vf",
         "curves=all='0/0 0.25/0.2 0.5/0.5 0.75/0.78 1/1'",
-        "-c:v", RENDER_CODEC, "-preset", "fast",
+        "-c:v", RENDER_CODEC, "-preset", "slow",
         "-crf", str(RENDER_CRF),
         "-c:a", "copy",
         "-pix_fmt", RENDER_PIX_FMT,
@@ -161,7 +161,7 @@ def apply_unsharp_mask(input_path, output_path):
         "0 -1 0 -1 5 -1 0 -1 0:"
         "0 -1 0 -1 5 -1 0 -1 0:"
         "0 -1 0 -1 5 -1 0 -1 0'",
-        "-c:v", RENDER_CODEC, "-preset", "fast",
+        "-c:v", RENDER_CODEC, "-preset", "slow",
         "-crf", str(RENDER_CRF),
         "-c:a", "copy",
         "-pix_fmt", RENDER_PIX_FMT,
@@ -176,7 +176,7 @@ def apply_unsharp_mask(input_path, output_path):
     cmd2 = [
         "ffmpeg", "-y", "-i", input_path,
         "-vf", "eq=contrast=1.15",
-        "-c:v", RENDER_CODEC, "-preset", "fast",
+        "-c:v", RENDER_CODEC, "-preset", "slow",
         "-crf", str(RENDER_CRF),
         "-c:a", "copy",
         "-pix_fmt", RENDER_PIX_FMT,
@@ -197,7 +197,7 @@ def apply_film_grain(input_path, output_path):
         "ffmpeg", "-y", "-i", input_path,
         "-vf",
         f"noise=alls={intensity}:allf=t+u",
-        "-c:v", RENDER_CODEC, "-preset", "fast",
+        "-c:v", RENDER_CODEC, "-preset", "slow",
         "-crf", str(RENDER_CRF),
         "-c:a", "copy",
         "-pix_fmt", RENDER_PIX_FMT,
@@ -218,7 +218,7 @@ def apply_vignette(input_path, output_path):
         "ffmpeg", "-y", "-i", input_path,
         "-vf",
         "vignette=PI/4:max_eval=frame",
-        "-c:v", RENDER_CODEC, "-preset", "fast",
+        "-c:v", RENDER_CODEC, "-preset", "slow",
         "-crf", str(RENDER_CRF),
         "-c:a", "copy",
         "-pix_fmt", RENDER_PIX_FMT,

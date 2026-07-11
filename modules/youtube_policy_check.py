@@ -91,6 +91,19 @@ RISKY_TITLE_PATTERNS = [
     r"\(20\d{2}\)",  # Year in title = specific copyrighted work
 ]
 
+# Compilation patterns — high risk even from non-studio channels
+# A compilation contains N copyrighted works = N ways to get Content ID blocked
+COMPILATION_PATTERNS = [
+    r"top\s+\d+", r"\d+\s+most", r"best\s+of", r"greatest",
+    r"iconic\s+(movie|film|scene|moment|line)",
+    r"most\s+(iconic|famous|memorable|epic|amazing)",
+    r"compilation", r"mega\s+compilation", r"supercut",
+    r"ultimate\s+(compilation|collection|mix)",
+    r"all\s+(time|best|greatest)",
+    r"every\s+(movie|scene|moment|line)",
+    r"100\s+most", r"50\s+best", r"top\s+10", r"top\s+20", r"top\s+100",
+]
+
 # ── Violations log ──────────────────────────────────────────────
 
 def _log_violation(policy, video_title, channel, reason):
@@ -138,6 +151,21 @@ def check_title_risk(title):
     return False, ""
 
 
+def check_compilation_risk(title, content_type="movie"):
+    """Check if title indicates a compilation video (high copyright risk).
+    Compilations contain multiple copyrighted works = guaranteed Content ID issues.
+    """
+    if not title:
+        return False, ""
+    if content_type in SAFE_CONTENT_TYPES:
+        return False, ""
+    tl = title.lower()
+    for pattern in COMPILATION_PATTERNS:
+        if re.search(pattern, tl):
+            return True, f"Compilation pattern detected: '{pattern}' — multiple copyrighted works"
+    return False, ""
+
+
 def check_studio_seo(title, channel):
     """Combined check — title + channel to detect official studio uploads."""
     tl = title.lower() if title else ""
@@ -177,6 +205,21 @@ def check_content_transformation(content_type, has_voiceover, has_speed_ramp,
         return False, f"Only {transformations}/4 transformations — add voiceover + effects"
 
 
+def check_compilation_risk_for_video(video_info):
+    """Check if video is a compilation of multiple copyrighted works.
+    These are high-risk even from non-studio channels.
+    """
+    title = video_info.get("title", "")
+    channel = video_info.get("channel", "") or video_info.get("uploader", "")
+    content_type = video_info.get("content_type", "movie")
+
+    blocked, reason = check_compilation_risk(title, content_type)
+    if blocked:
+        _log_violation("COMPILATION_RISK", title, channel, reason)
+        return False, reason
+    return True, None
+
+
 def pre_download_check(video_info):
     """Run all policy checks before downloading a video.
     Returns (is_safe, reason_or_none).
@@ -201,6 +244,12 @@ def pre_download_check(video_info):
     blocked, reason = check_title_risk(title)
     if blocked:
         _log_violation("RISKY_TITLE", title, channel, reason)
+        return False, reason
+
+    # Check 4: Compilation risk (multiple copyrighted works)
+    blocked, reason = check_compilation_risk(title)
+    if blocked:
+        _log_violation("COMPILATION_RISK", title, channel, reason)
         return False, reason
 
     return True, None

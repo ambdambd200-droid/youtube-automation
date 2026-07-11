@@ -504,7 +504,7 @@ def _mutate_posting_times(state):
         try:
             dt = datetime.fromisoformat(upload_str)
             day = dt.weekday()
-            our_day = (day + 1) % 7
+            our_day = day  # Now matches POSTING_TIMES_BY_DAY (Mon=0..Sun=6)
             hour = dt.hour
         except (ValueError, TypeError):
             continue

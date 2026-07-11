@@ -133,7 +133,7 @@ def build_dashboard_data():
     weekly_pipeline_logs = load_jsonl(WEEKLY_PIPELINE_LOG)
     daily_pipeline_logs = load_jsonl(PIPELINE_LOG)
     evolution_state = load_json(EVOLUTION_STATE, {})
-    content_history = load_json(CONTENT_HISTORY, {"items": [], "total_count": 0})
+    content_history = load_json(CONTENT_HISTORY, {"last_30_days": [], "total_count": 0})
 
     videos = registry.get("videos", [])
 
