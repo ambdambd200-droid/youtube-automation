@@ -1,6 +1,8 @@
 name: VARY — Pipeline Recovery Check
 
 on:
+  schedule:
+    - cron: "0 */2 * * *"
   workflow_dispatch:
     inputs:
       mode:

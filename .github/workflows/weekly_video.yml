@@ -1,6 +1,8 @@
 name: VARY — Weekly Video (Saturday)
 
 on:
+  schedule:
+    - cron: "0 10 * * 6"
   workflow_dispatch:
     inputs:
       query:

@@ -1,6 +1,8 @@
 name: VARY — Daily Shorts (×2)
 
 on:
+  schedule:
+    - cron: "0 8,14 * * *"
   workflow_dispatch:
     inputs:
       query:

@@ -438,9 +438,9 @@ def get_recovery_command(failed_run):
     """
     ptype = failed_run.get("pipeline_type")
     if ptype == "daily":
-        return "python run_pipeline.py"
+        return "py -3.12 run_pipeline.py"
     elif ptype == "weekly":
-        return "python run_weekly_pipeline.py"
+        return "py -3.12 run_weekly_pipeline.py"
     return None
 
 
