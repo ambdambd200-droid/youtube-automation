@@ -233,21 +233,74 @@ def apply_vignette(input_path, output_path):
 
 def full_color_pipeline(input_path, output_path=None):
     """Run the complete color grading pipeline per Blueprint Section 3.
+    Single-pass combined filter for all 8 steps (eliminates 7 re-encodes).
+    Falls back to per-step approach if combined filter fails.
+
     Order:
-      1. White Balance Lock
-      2. Dynamic Range Compression
-      3. Teal & Orange Grade
-      4. Saturation/Vibrance
-      5. S-Curve Contrast
-      6. Unsharp Mask
-      7. Film Grain
+      1. White Balance Lock (colorchannelmixer)
+      2. Dynamic Range Compression (curves lift)
+      3. Teal & Orange Grade (colorbalance)
+      4. Saturation/Vibrance (eq)
+      5. S-Curve Contrast (curves)
+      6. Unsharp Mask (convolution)
+      7. Film Grain (noise)
+      8. Vignette (vignette)
     """
     if output_path is None:
         grade_id = uuid.uuid4().hex[:8]
         output_path = os.path.join(CLIPS_DIR, f"graded_{grade_id}.mp4")
 
-    print(f"  [color] Full pipeline: {os.path.basename(input_path)}", flush=True)
+    intensity = max(1, min(50, int(COLOR_GRAIN_INTENSITY * 2)))
 
+    vf = (
+        "colorchannelmixer=rr=1.05:rg=0.02:rb=-0.07:"
+        "gr=0.01:gg=1.00:gb=-0.01:"
+        "br=-0.05:bg=-0.02:bb=1.07,"
+        "curves=all='0/0.04 0.5/0.5 1/0.96',"
+        "colorbalance=rs=-0.02:gs=0.04:bs=0.08:"
+        "rm=0.06:gm=-0.02:bm=-0.04:"
+        "rh=0.03:gh=-0.01:bh=0.01,"
+        f"eq=saturation={1.0 + COLOR_GLOBAL_SATURATION}:"
+        f"gamma={1.0 + COLOR_VIBRANCE_BOOST * 0.2},"
+        "curves=all='0/0 0.25/0.2 0.5/0.5 0.75/0.78 1/1',"
+        "convolution='0 -1 0 -1 5 -1 0 -1 0:"
+        "0 -1 0 -1 5 -1 0 -1 0:"
+        "0 -1 0 -1 5 -1 0 -1 0:"
+        "0 -1 0 -1 5 -1 0 -1 0',"
+        f"noise=alls={intensity}:allf=t+u,"
+        "vignette=PI/4:max_eval=frame"
+    )
+
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-vf", vf,
+        "-c:v", RENDER_CODEC, "-preset", "slow",
+        "-crf", str(RENDER_CRF),
+        "-c:a", "copy",
+        "-pix_fmt", RENDER_PIX_FMT,
+        output_path,
+    ]
+
+    print(f"  [color] Full pipeline (single pass): {os.path.basename(input_path)}", flush=True)
+
+    single_ok = False
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
+            print(f"  [color] Pipeline complete (single pass): {os.path.basename(output_path)}", flush=True)
+            single_ok = True
+        else:
+            print(f"  [color] Single-pass failed (rc={result.returncode}), falling back to per-step", flush=True)
+            if result.stderr:
+                print(f"  [color] stderr: {result.stderr[:200]}", flush=True)
+    except Exception as e:
+        print(f"  [color] Single-pass error: {e}, falling back to per-step", flush=True)
+
+    if single_ok:
+        return output_path
+
+    # Fallback: per-step approach (individual re-encodes)
+    print(f"  [color] Running per-step pipeline (8 steps)...", flush=True)
     work_dir = os.path.join(CLIPS_DIR, "_color_work")
     os.makedirs(work_dir, exist_ok=True)
     stage_id = uuid.uuid4().hex[:6]
@@ -273,11 +326,9 @@ def full_color_pipeline(input_path, output_path=None):
         else:
             print(f"  [color] Skipped {step_name} (failed)", flush=True)
 
-    # Copy final result to output
     import shutil
     shutil.copy2(current, output_path)
 
-    # Cleanup
     for f in os.listdir(work_dir):
         try:
             os.remove(os.path.join(work_dir, f))
@@ -285,7 +336,7 @@ def full_color_pipeline(input_path, output_path=None):
             pass
 
     if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
-        print(f"  [color] Pipeline complete: {os.path.basename(output_path)}", flush=True)
+        print(f"  [color] Pipeline complete (per-step): {os.path.basename(output_path)}", flush=True)
         return output_path
 
     print(f"  [color] Pipeline failed — returning original", flush=True)

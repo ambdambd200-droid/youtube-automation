@@ -119,7 +119,7 @@ def apply_speed_ramp(input_path, output_path, impact_time=None):
         "ffmpeg", "-y", "-i", input_path,
         "-filter_complex", filter_complex,
         "-map", "[vout]", "-map", "[aout]",
-        "-c:v", RENDER_CODEC, "-preset", "fast",
+        "-c:v", RENDER_CODEC, "-preset", "slow",
         "-crf", str(RENDER_CRF),
         "-c:a", "aac", "-b:a", "192k",
         "-pix_fmt", RENDER_PIX_FMT,
@@ -184,7 +184,7 @@ def apply_breath_cut(input_path, output_path, action_end_time):
         "-t", str(cut_time),
         "-vf", f"fade=t=out:st={fade_start}:d=1.5",
         "-af", f"afade=t=out:st={fade_start}:d=1.5",
-        "-c:v", RENDER_CODEC, "-preset", "fast",
+        "-c:v", RENDER_CODEC, "-preset", "slow",
         "-crf", str(RENDER_CRF),
         "-c:a", "aac", "-b:a", "192k",
         "-pix_fmt", RENDER_PIX_FMT,
@@ -243,14 +243,14 @@ def apply_karaoke_subtitles(input_path, output_path, text_segments, font_size=48
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
         "-vf", vf,
-        "-c:v", RENDER_CODEC, "-preset", "fast",
+        "-c:v", RENDER_CODEC, "-preset", "slow",
         "-crf", str(RENDER_CRF),
         "-c:a", "copy",
         "-pix_fmt", RENDER_PIX_FMT,
         output_path,
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
         if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
             print(f"  [editor] Karaoke subtitles: {len(text_segments)} segments", flush=True)
             return output_path
@@ -516,20 +516,22 @@ def crop_to_shorts(input_path, output_path, start_time=0, duration=None):
     target_9_16 = SHORTS_WIDTH / SHORTS_HEIGHT  # 0.5625
 
     if in_w / in_h > target_9_16:
-        # Source is wider than 9:16 → crop width to fit 9:16
         crop_h = in_h
         crop_w = int(crop_h * target_9_16)
     else:
-        # Source is taller than 9:16 (or square) → crop height to fit 9:16
         crop_w = in_w
         crop_h = int(crop_w / target_9_16)
         if crop_h > in_h:
             crop_h = in_h
             crop_w = int(crop_h * target_9_16)
 
-    # Center crop
+    crop_w = crop_w if crop_w % 2 == 0 else crop_w - 1
+    crop_h = crop_h if crop_h % 2 == 0 else crop_h - 1
+
     x = (in_w - crop_w) // 2
     y = (in_h - crop_h) // 2
+    x = x if x % 2 == 0 else x - 1
+    y = y if y % 2 == 0 else y - 1
 
     video_chain = (
         f"[0:v]trim=start={start_time}:duration={duration},setpts=PTS-STARTPTS,"
@@ -951,7 +953,7 @@ def apply_watermark(input_path, output_path):
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
         "-vf", vf,
-        "-c:v", RENDER_CODEC, "-preset", "fast",
+        "-c:v", RENDER_CODEC, "-preset", "slow",
         "-crf", str(RENDER_CRF),
         "-c:a", "copy",
         "-pix_fmt", RENDER_PIX_FMT,
