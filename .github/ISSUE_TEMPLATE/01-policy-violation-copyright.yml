@@ -1,0 +1,73 @@
+name: "⚠️ Policy Violation: Copyright / Content ID"
+description: Report a video that got a copyright strike or Content ID block
+title: "[COPYRIGHT] "
+labels: ["copyright", "policy-violation", "urgent"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 🚨 A video was blocked by copyright
+        Fill out the details below to help us blacklist the source permanently.
+
+  - type: input
+    id: video_title
+    attributes:
+      label: Video Title
+      description: The title of the video that was blocked
+    validations:
+      required: true
+
+  - type: input
+    id: video_id
+    attributes:
+      label: YouTube Video ID
+      description: The ID (e.g. BHYDRKx5moo) from upload_registry.json
+    validations:
+      required: true
+
+  - type: input
+    id: source_channel
+    attributes:
+      label: Source Channel Name
+      description: The YouTube channel the clip was downloaded from
+    validations:
+      required: true
+
+  - type: input
+    id: copyright_claimant
+    attributes:
+      label: Copyright Claimant
+      description: Who claimed the copyright (e.g. "Paramount Pictures Corporation")
+    validations:
+      required: true
+
+  - type: dropdown
+    id: block_type
+    attributes:
+      label: Type of Block
+      description: What happened to the video?
+      options:
+        - "Content ID claim (video blocked in some countries)"
+        - "Content ID claim (video monetized by claimant)"
+        - "Copyright strike (manual takedown)"
+        - "Video removed by YouTube"
+    validations:
+      required: true
+
+  - type: textarea
+    id: action_taken
+    attributes:
+      label: Action Taken
+      description: What did you do? (e.g. "Deleted the video")
+      value: "Deleted the video out of frustration 😅"
+
+  - type: textarea
+    id: prevention
+    attributes:
+      label: Permanent Fix Applied
+      description: What was added to the pipeline to prevent this?
+      value: |
+        - [ ] Source channel added to STUDIO_CHANNELS blacklist in `youtube_policy_check.py`
+        - [ ] Source channel added to `_COPYRIGHT_BLACKLIST` in `clip_downloader.py`
+        - [ ] Search keywords updated to avoid triggering this content
+        - [ ] Pipeline now requires voiceover for this content type

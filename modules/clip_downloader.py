@@ -21,13 +21,20 @@ from config import DOWNLOADS_DIR, YT_COOKIES_FILE, BASE_DIR
 
 # ── Copyright / Freshness filters ───────────────────────
 # Major studios with aggressive Content ID (skip these channels)
+# See .github/POLICIES.md and modules/youtube_policy_check.py for full list
 _COPYRIGHT_BLACKLIST = [
-    "marvel", "disney", "pixar", "warner bros", "universal pictures",
-    "sony pictures", "paramount", "20th century", "fox", "netflix",
-    "hbo", "hbo max", "dc comics", "nbc", "abc", "cbs",
+    "paramount", "paramount pictures", "paramount movies",
+    "universal pictures", "universal",
+    "warner bros", "warner bros. pictures", "warnervod",
+    "sony pictures", "movieclips",
+    "marvel", "disney", "pixar", "20th century",
+    "netflix", "netflix official", "hbo", "hbo max",
+    "dc comics", "nbc", "abc", "cbs",
     "dreamworks", "illumination", "studio ghibli",
+    "lionsgate", "mgm", "a24",
+    "apple tv", "amazon prime video", "prime video",
     # Football broadcasters with strict copyright
-    "fifa", "uefa", "premier league", "laliga", "serie a",
+    "fifa", "uefa", "premier league", "laliga",
     "espn fc", "sky sports", "bt sport", "bein sports",
 ]
 # But allow these specific copyright-safe channels
@@ -423,9 +430,24 @@ def download_best_match(search_query, used_ids=None, content_type=None, min_reso
             print("  [downloader] No videos found for query", flush=True)
             return None
 
+    # ── YOUTUBE POLICY CHECK ────────────────────────────
+    # Run before every download to prevent copyright/Content ID blocks
+    policy_safe = []
+    for v in quality_candidates:
+        from modules.youtube_policy_check import pre_download_check
+        is_safe, reason = pre_download_check(v)
+        if is_safe:
+            policy_safe.append(v)
+        else:
+            print(f"  [downloader] POLICY BLOCKED: {v.get('title','?')[:60]} — {reason}", flush=True)
+    if policy_safe:
+        quality_candidates = policy_safe
+    else:
+        print("  [downloader] ALL candidates blocked by policy — skipping safety gate", flush=True)
+
     # ── Quality gates ────────────────────────────────────
     # Reject very low-view videos (weird/obscure content)
-    quality_candidates = [v for v in fresh if v.get("view_count", 0) >= 10000]
+    quality_candidates = [v for v in quality_candidates if v.get("view_count", 0) >= 10000]
     if not quality_candidates:
         quality_candidates = [v for v in fresh if v.get("view_count", 0) >= 1000]
     if not quality_candidates:

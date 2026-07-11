@@ -1,0 +1,60 @@
+name: "📋 Policy Violation: Reused / Inauthentic Content"
+description: Report a video flagged for reused content or demonetization
+title: "[REUSED] "
+labels: ["reused-content", "policy-violation", "medium"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 📋 A video was flagged as reused content
+        YouTube says our content didn't add enough original value.
+        Fill this out to identify what needs to change.
+
+  - type: input
+    id: video_title
+    attributes:
+      label: Video Title
+    validations:
+      required: true
+
+  - type: input
+    id: content_type
+    attributes:
+      label: Content Type
+      description: football, movie, or series
+    validations:
+      required: true
+
+  - type: dropdown
+    id: transformations
+    attributes:
+      label: Transformations Applied
+      description: What editing did this video receive?
+      multiple: true
+      options:
+        - "Speed ramp"
+        - "Color grade"
+        - "Subtitles"
+        - "Voiceover"
+        - "Zoom effects"
+        - "Sound effects"
+        - "Music overlay"
+
+  - type: textarea
+    id: why_blocked
+    attributes:
+      label: Why Was It Flagged?
+      description: What did YouTube say? (check YouTube Studio → Content → Restrictions)
+    validations:
+      required: true
+
+  - type: textarea
+    id: fix
+    attributes:
+      label: Permanent Fix
+      description: What needs to change permanently?
+      value: |
+        - [ ] Add voiceover/commentary requirement for this content type
+        - [ ] Increase transformation count minimum
+        - [ ] Vary video structure (avoid template detection)
+        - [ ] Add more original content (minimum 30%)
