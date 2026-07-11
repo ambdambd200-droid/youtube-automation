@@ -278,6 +278,31 @@ def build_dashboard_data():
     evolution_params = evolution_state.get("parameters", {})
     evolution_perf = evolution_state.get("performance", {})
 
+    # ── Web dashboard compat keys ─────────────────────────
+    upload_registry = registry.get("videos", [])
+    performance_log = [
+        {
+            "video_id": e.get("video_id"),
+            "title": e.get("title"),
+            "views": e.get("raw_stats", {}).get("view_count", 0),
+            "likes": e.get("raw_stats", {}).get("like_count", 0),
+            "comments": e.get("raw_stats", {}).get("comment_count", 0),
+        }
+        for e in perf_entries
+    ]
+    all_pipeline_logs = sorted(
+        daily_pipeline_logs + weekly_pipeline_logs,
+        key=lambda x: x.get("timestamp", ""),
+        reverse=True,
+    )
+    pipeline_health_state = (
+        {"completed": pipeline_health["completed"], "failed": pipeline_health["failed"]}
+        if pipeline_health else {"completed": 0, "failed": 0}
+    )
+    evolution_weights = {
+        k: v for k, v in evolution_state.get("weights", {}).items()
+    } or {"movie": 0.5, "football": 0.3, "series": 0.2}
+
     return {
         "registry": {
             "total": len(videos),
@@ -305,6 +330,7 @@ def build_dashboard_data():
             "peak_score": evolution_perf.get("peak_score"),
             "total_analyzed": evolution_perf.get("total_clips_analyzed", 0),
             "mutations": evolution_state.get("mutations", []),
+            "weights": evolution_weights,
         },
         "content_history": {
             "total_queries": content_history.get("total_count", 0),
@@ -312,6 +338,11 @@ def build_dashboard_data():
         "pipeline_health": pipeline_health,
         "weekly_pipeline_logs": len(weekly_pipeline_logs),
         "daily_pipeline_logs": len(daily_pipeline_logs),
+        # web dashboard compat keys
+        "uploadRegistry": upload_registry,
+        "performanceLog": performance_log,
+        "state": pipeline_health_state,
+        "pipelineLog": all_pipeline_logs,
         "last_updated": datetime.now().isoformat(),
     }
 
