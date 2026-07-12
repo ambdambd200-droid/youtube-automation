@@ -1,8 +1,6 @@
 name: VARY — Pipeline Recovery Check
 
 on:
-  schedule:
-    - cron: "0 */2 * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -70,7 +68,7 @@ jobs:
       - name: Run recovery
         shell: powershell
         run: |
-          if ("${{ github.event_name }}" -eq "schedule") { $mode = "auto" } else { $mode = "${{ github.event.inputs.mode }}" }
+          $mode = "${{ github.event.inputs.mode }}"
           $filter = ""
           if ("${{ github.event.inputs.pipeline }}" -eq "daily") { $filter = "--daily" }
           if ("${{ github.event.inputs.pipeline }}" -eq "weekly") { $filter = "--weekly" }
