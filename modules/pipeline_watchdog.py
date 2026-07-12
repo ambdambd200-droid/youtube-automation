@@ -579,6 +579,11 @@ def notify_exhausted_retries(window_hours=FAILURE_WINDOW_HOURS):
 
 
 if __name__ == "__main__":
+    if hasattr(sys.stdout, 'reconfigure'):
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
     import argparse
     parser = argparse.ArgumentParser(description="VARY Pipeline Watchdog")
     parser.add_argument("--status", action="store_true", help="Show pipeline health summary")

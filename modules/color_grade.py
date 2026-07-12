@@ -291,11 +291,42 @@ def full_color_pipeline(input_path, output_path=None):
             print(f"  [color] Pipeline complete (single pass): {os.path.basename(output_path)}", flush=True)
             single_ok = True
         else:
-            print(f"  [color] Single-pass failed (rc={result.returncode}), falling back to per-step", flush=True)
+            print(f"  [color] Single-pass failed (rc={result.returncode}), trying safe filters...", flush=True)
             if result.stderr:
                 print(f"  [color] stderr: {result.stderr[:200]}", flush=True)
     except Exception as e:
-        print(f"  [color] Single-pass error: {e}, falling back to per-step", flush=True)
+        print(f"  [color] Single-pass error: {e}, trying safe filters...", flush=True)
+
+    if not single_ok:
+        # Retry with safe filters only (skip convolution, noise, vignette)
+        vf_safe = (
+            "colorchannelmixer=rr=1.05:rg=0.02:rb=-0.07:"
+            "gr=0.01:gg=1.00:gb=-0.01:"
+            "br=-0.05:bg=-0.02:bb=1.07,"
+            "curves=all='0/0.04 0.5/0.5 1/0.96',"
+            "colorbalance=rs=-0.02:gs=0.04:bs=0.08:"
+            "rm=0.06:gm=-0.02:bm=-0.04:"
+            "rh=0.03:gh=-0.01:bh=0.01,"
+            f"eq=saturation={1.0 + COLOR_GLOBAL_SATURATION}:"
+            f"gamma={1.0 + COLOR_VIBRANCE_BOOST * 0.2},"
+            "curves=all='0/0 0.25/0.2 0.5/0.5 0.75/0.78 1/1'"
+        )
+        cmd_safe = [
+            "ffmpeg", "-y", "-i", input_path,
+            "-vf", vf_safe,
+            "-c:v", RENDER_CODEC, "-preset", "slow",
+            "-crf", str(RENDER_CRF),
+            "-c:a", "copy",
+            "-pix_fmt", RENDER_PIX_FMT,
+            output_path,
+        ]
+        try:
+            result2 = subprocess.run(cmd_safe, capture_output=True, text=True, timeout=600)
+            if result2.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
+                print(f"  [color] Pipeline complete (safe pass): {os.path.basename(output_path)}", flush=True)
+                single_ok = True
+        except Exception as e:
+            print(f"  [color] Safe single-pass also failed: {e}", flush=True)
 
     if single_ok:
         return output_path

@@ -66,12 +66,13 @@ def apply_eq_carving(input_path, output_path):
 
 def apply_dynamic_compression(input_path, output_path):
     """Phase 2: Heavy compression 4:1 to even out dynamics."""
-    threshold = -24  # dB threshold
+    # ffmpeg 8.1+ uses linear threshold (0-1), not dB — convert: 10^(-24/20) = 0.063
+    thresh_linear = 0.063
     ratio = AUDIO_COMPRESSION_RATIO
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
         "-af",
-        f"acompressor=threshold={threshold}:ratio={ratio}:attack=5:release=50:makeup=3",
+        f"acompressor=threshold={thresh_linear}:ratio={ratio}:attack=5:release=50:makeup=3",
         "-ar", str(AUDIO_SAMPLE_RATE), "-ac", "2",
         "-sample_fmt", "s16",
         output_path,
@@ -204,7 +205,6 @@ def apply_stereo_widening(input_path, output_path):
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
         "-af",
-        "stereotools=mode=id:delay=15:phase_mid=1:phase_side=0, "
         "stereowiden=delay=10:feedback=0.3:crossfeed=0.3:dry_mix=0.8:wet_mix=0.6",
         "-ar", str(AUDIO_SAMPLE_RATE), "-ac", "2",
         "-sample_fmt", "s16",
@@ -244,7 +244,8 @@ def mix_ambience_and_foley(input_path, ambience_path, foley_paths=None, output_p
     # Build mix with optional sidechain ducking
     if duck_on_foley and foley_labels:
         level_sc = 10 ** (AUDIO_DUCK_DB / 20)  # -6dB → 0.5 linear
-        sidechain = f"[main][{foley_labels[0]}]sidechaincompress=threshold=-20:ratio=10:attack=5:release=50:level_sc={level_sc}[a_ducked]"
+        sc_thresh = 0.1  # -20dB converted to linear for ffmpeg 8.1+
+        sidechain = f"[main][{foley_labels[0]}]sidechaincompress=threshold={sc_thresh}:ratio=10:attack=5:release=50:level_sc={level_sc}[a_ducked]"
         filter_parts.append(sidechain)
         mix_sources = f"[a_ducked]"
     else:

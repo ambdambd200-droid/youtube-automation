@@ -30,6 +30,12 @@ import sys
 import time
 from datetime import datetime, timedelta
 
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from modules.pipeline_watchdog import (
     get_failed_runs_for_retry,
