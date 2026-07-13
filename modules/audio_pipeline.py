@@ -79,7 +79,7 @@ def apply_dynamic_compression(input_path, output_path):
     ]
     result = _run_ffmpeg(cmd, f"compression {ratio}:1")
     if result and os.path.exists(output_path):
-        print(f"  [audio] Compressed {ratio}:1 at {threshold}dB threshold", flush=True)
+        print(f"  [audio] Compressed {ratio}:1 at {thresh_linear} linear threshold", flush=True)
         return output_path
     return None
 
@@ -205,7 +205,7 @@ def apply_stereo_widening(input_path, output_path):
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
         "-af",
-        "stereowiden=delay=10:feedback=0.3:crossfeed=0.3:dry_mix=0.8:wet_mix=0.6",
+        "stereowiden=delay=10:feedback=0.3:crossfeed=0.3:drymix=0.8",
         "-ar", str(AUDIO_SAMPLE_RATE), "-ac", "2",
         "-sample_fmt", "s16",
         output_path,

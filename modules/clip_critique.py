@@ -123,61 +123,52 @@ def _score_first_frame_hook(frame_path):
       - Center-weighted composition
     """
     try:
-        from PIL import Image
+        from PIL import Image, ImageStat
     except ImportError:
         return 50.0  # neutral fallback
 
     try:
         img = Image.open(frame_path).convert("RGB")
-        pixels = list(img.getdata())
         w, h = img.size
+        stat = ImageStat.Stat(img)
 
-        # Convert to per-channel arrays
-        r_vals = [p[0] for p in pixels]
-        g_vals = [p[1] for p in pixels]
-        b_vals = [p[2] for p in pixels]
+        # 1. Contrast via luminance stddev (PIL returns per-channel stats)
+        # Luminance = 0.299R + 0.587G + 0.114B — approximate via channel stddev
+        r_std, g_std, b_std = stat.stddev
+        r_mean, g_mean, b_mean = stat.mean
+        # Approximate luminance std from weighted channel stddevs
+        lum_std = math.sqrt(0.299**2 * r_std**2 + 0.587**2 * g_std**2 + 0.114**2 * b_std**2)
+        contrast_score = min(100, (lum_std / 85) * 100)
 
-        # 1. Brightness variance (standard deviation of luminance)
-        luminance = [0.299 * r + 0.587 * g + 0.114 * b for r, g, b in pixels]
-        mean_l = sum(luminance) / len(luminance)
-        var_l = sum((l - mean_l) ** 2 for l in luminance) / len(luminance)
-        std_l = math.sqrt(var_l)
-
-        # High variance = high contrast = good hook
-        contrast_score = min(100, (std_l / 85) * 100)
-
-        # 2. Color variance (chromatic interest)
-        r_var = sum((v - (sum(r_vals) / len(r_vals))) ** 2 for v in r_vals) / len(r_vals)
-        g_var = sum((v - (sum(g_vals) / len(g_vals))) ** 2 for v in g_vals) / len(g_vals)
-        b_var = sum((v - (sum(b_vals) / len(b_vals))) ** 2 for v in b_vals) / len(b_vals)
-        color_var = (math.sqrt(r_var) + math.sqrt(g_var) + math.sqrt(b_var)) / 3
+        # 2. Color variance: mean of per-channel stddevs
+        color_var = (r_std + g_std + b_std) / 3
         color_score = min(100, (color_var / 70) * 100)
 
-        # 3. Edge density via simple horizontal gradient
+        # 3. Edge density: sample a grid of the luminance via PIL stats
+        # Use a smaller 100x100 region in top-left corner to avoid massive pixel lists
         edge_pixels = 0
-        for y in range(min(100, h)):
-            for x in range(1, min(100, w)):
-                idx = y * w + x
-                idx_prev = y * w + (x - 1)
-                dr = abs(pixels[idx][0] - pixels[idx_prev][0])
-                dg = abs(pixels[idx][1] - pixels[idx_prev][1])
-                db = abs(pixels[idx][2] - pixels[idx_prev][2])
-                if dr + dg + db > 120:  # threshold for "edge"
-                    edge_pixels += 1
-        edge_density = min(100, (edge_pixels / 500) * 100)
+        small = img.resize((100, 100), Image.LANCZOS).convert("L")
+        sp = list(small.getdata())
+        for x in range(1, 100):
+            dr = abs(sp[x] - sp[x-1])
+            if dr > 30:
+                edge_pixels += 1
+        for y in range(1, 100):
+            dr = abs(sp[y * 100] - sp[(y-1) * 100])
+            if dr > 30:
+                edge_pixels += 1
+        edge_density = min(100, (edge_pixels / 10) * 100)
 
-        # 4. Center composition (weight center 60% higher)
-        center_region = []
+        # 4. Center-weighted composition via center-crop stddev
         margin_x = w // 5
         margin_y = h // 5
-        for py in range(margin_y, h - margin_y):
-            for px in range(margin_x, w - margin_x):
-                idx = py * w + px
-                center_region.append(luminance[idx])
-        center_mean = sum(center_region) / len(center_region) if center_region else 128
-        center_var = sum((l - center_mean) ** 2 for l in center_region) / len(center_region)
-        center_std = math.sqrt(center_var)
-        composition_score = min(100, (center_std / 80) * 100)
+        if margin_x < w and margin_y < h:
+            center = img.crop((margin_x, margin_y, w - margin_x, h - margin_y))
+            c_stat = ImageStat.Stat(center.convert("L"))
+            c_std = c_stat.stddev[0] if c_stat.stddev else 50
+            composition_score = min(100, (c_std / 80) * 100)
+        else:
+            composition_score = 50.0
 
         # Blend: contrast is king, then color, then composition
         final = (
@@ -328,32 +319,28 @@ def _score_audio_impact(video_path):
 def _score_scene_composition(frame_path):
     """Score how well the scene is composed (rule of thirds, focus)."""
     try:
-        from PIL import Image
+        from PIL import Image, ImageStat
     except ImportError:
         return 50.0
 
     try:
         img = Image.open(frame_path).convert("L")  # grayscale for simplicity
         w, h = img.size
-        pixels = list(img.getdata())
 
-        # Rule of thirds: divide into 9 zones, check interest distribution
+        # Rule of thirds: divide into 9 zones via ImageStat crop
         third_w = w // 3
         third_h = h // 3
-
-        zones = []
+        zone_means = []
         for row in range(3):
             for col in range(3):
-                zone_pixels = []
-                for py in range(row * third_h, (row + 1) * third_h):
-                    for px in range(col * third_w, (col + 1) * third_w):
-                        idx = py * w + px
-                        if idx < len(pixels):
-                            zone_pixels.append(pixels[idx])
-                zones.append(sum(zone_pixels) / len(zone_pixels) if zone_pixels else 128)
+                box = (col * third_w, row * third_h, (col + 1) * third_w, (row + 1) * third_h)
+                zone = img.crop(box)
+                z_stat = ImageStat.Stat(zone)
+                zone_means.append(z_stat.mean[0] if z_stat.mean else 128)
 
         # Good composition: high contrast between zones (focal point exists)
-        zone_var = sum((z - sum(zones) / len(zones)) ** 2 for z in zones) / len(zones)
+        mean_all = sum(zone_means) / len(zone_means)
+        zone_var = sum((z - mean_all) ** 2 for z in zone_means) / len(zone_means)
         zone_std = math.sqrt(zone_var)
 
         composition = min(100, (zone_std / 60) * 100)
@@ -369,20 +356,18 @@ def _score_scene_composition(frame_path):
 def _score_color_vibrancy(frame_path):
     """Score color saturation and variety in the frame."""
     try:
-        from PIL import Image
+        from PIL import Image, ImageStat
     except ImportError:
         return 50.0
 
     try:
         img = Image.open(frame_path).convert("HSV")
-        pixels = list(img.getdata())
+        stat = ImageStat.Stat(img)
 
-        # Extract saturation (S) and value (V) channels
-        saturations = [p[1] / 255.0 * 100 for p in pixels]
-        values = [p[2] / 255.0 * 100 for p in pixels]
-
-        mean_sat = sum(saturations) / len(saturations)
-        mean_val = sum(values) / len(values)
+        # Saturation (S) and value (V) means via ImageStat
+        # HSV channels: H=0, S=1, V=2 — means are 0-255 scale
+        mean_sat = stat.mean[1] / 255.0 * 100 if stat.mean else 50
+        mean_val = stat.mean[2] / 255.0 * 100 if stat.mean else 50
 
         # Good: moderately high saturation (not washed out, not neon)
         sat_score = 0

@@ -238,11 +238,21 @@ def run_weekly_pipeline(force_query=None, pipeline_id=None):
     if not weekly_result:
         raise Exception("Weekly video creation failed after all retries")
 
-    # ── Step 5: Critique (disabled — was causing hangs) ──
+    # ── Step 5: Critique (performance preview) ──
     register_stage(pipeline_id, "critique")
     critique_result = None
-    print(f">>> Step 5/8: Critiquing output...")
-    print(f"  [SKIP] Critique disabled (was causing ffmpeg hangs)", flush=True)
+    try:
+        from modules.clip_critique import critique_clip
+        critique_result = critique_clip(
+            weekly_result["path"],
+            content_info["type"],
+            source_title=download_result["title"],
+            source_duration=weekly_result.get("duration", 0),
+        )
+        if critique_result:
+            print(f"  Critique: {critique_result['compound_score']}/100 ({critique_result['grade']})", flush=True)
+    except BaseException as e:
+        print(f"  [SKIP] Critique error: {e}", flush=True)
 
     # ── Step 6: Quality Validation ────────────────────────
     register_stage(pipeline_id, "quality_validation")

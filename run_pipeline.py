@@ -198,9 +198,20 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
     print(f"  Title: {seo['title']}", flush=True)
     print(f"  Tags: {len(seo['tags'])} tags", flush=True)
 
-    # ── Step 7: Critique (disabled — was causing hangs) ──
-    critique_result = None
-    print(f"  [SKIP] Critique disabled (was causing ffmpeg hangs)", flush=True)
+    # ── Step 7: Critique ──
+    from modules.clip_critique import critique_clip
+    critique_result = critique_clip(
+        clip_result["path"],
+        content_info["type"],
+        source_title=download_result["title"],
+        source_duration=clip_result.get("duration", 0),
+    )
+    if critique_result:
+        print(f"  Critique: {critique_result['compound_score']}/100 ({critique_result['grade']})", flush=True)
+        log_result("critique", "success", critique_result)
+    else:
+        print(f"  [SKIP] Critique returned no result", flush=True)
+        log_result("critique", "skipped", {"reason": "no result"})
 
     # ── Step 8: Upload to YouTube ────────────────────────
     register_stage(pipeline_id, "upload")

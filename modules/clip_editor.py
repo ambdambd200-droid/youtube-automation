@@ -86,7 +86,6 @@ def apply_speed_ramp(input_path, output_path, impact_time=None):
     # Per-segment video filters
     seg1v = f"[0:v]trim=0:{s2_start},setpts=PTS-STARTPTS"
     seg2v = (f"[0:v]trim={s2_start}:{s2_end},setpts=PTS-STARTPTS,"
-             f"minterpolate=fps={FPS}:mi_mode=mci:mc_mode=aob:me_mode=bidir,"
              f"setpts=PTS/{TEMP_SLOW_MOTION_SPEED}")
     seg3v = (f"[0:v]trim={s2_end}:{s2_end + 0.04},setpts=PTS-STARTPTS,"
              f"loop=loop={freeze_nframes - 1}:size=1,"
@@ -845,7 +844,7 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
                     break
             except Exception as e:
                 if audio_attempt == 0:
-                    print(f"  [editor] Audio pipeline attempt {audio_attempt+1} failed, retrying...", flush=True)
+                    print(f"  [editor] Audio pipeline attempt {audio_attempt+1} failed: {e}", flush=True)
                     time.sleep(2)
         if not audio_success:
             # Fallback: just normalize audio with ffmpeg loudnorm
