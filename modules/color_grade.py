@@ -280,12 +280,11 @@ def full_color_pipeline(input_path, output_path=None):
             print(f"  [color] Pipeline complete (single pass): {os.path.basename(output_path)}", flush=True)
             single_ok = True
         else:
-            print(f"  [color] Single-pass failed (rc={result.returncode}), trying safe filters...", flush=True)
+            print(f"  [color] Single-pass failed (rc={result.returncode}), trying per-step...", flush=True)
             if result.stderr:
                 print(f"  [color] stderr: {result.stderr[:200]}", flush=True)
     except Exception as e:
-        print(f"  [color] Single-pass error: {e}, trying safe filters...", flush=True)
-
+        print(f"  [color] Single-pass error: {e}, trying per-step...", flush=True)
 
     if single_ok:
         return output_path
