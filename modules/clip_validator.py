@@ -21,12 +21,43 @@ def _run_ffprobe(cmd):
 
 
 def get_video_duration(video_path):
+    # Try text-based ffprobe first
     cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration",
            "-of", "default=noprint_wrappers=1:nokey=1", video_path]
     try:
-        return float(_run_ffprobe(cmd))
+        raw = _run_ffprobe(cmd)
+        if raw:
+            dur = float(raw)
+            if dur > 0:
+                return dur
     except (ValueError, TypeError):
-        return 0
+        pass
+    # Fallback: JSON ffprobe
+    try:
+        import json
+        cmd2 = ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                "-of", "json", video_path]
+        raw2 = _run_ffprobe(cmd2)
+        if raw2:
+            data = json.loads(raw2)
+            dur = float(data.get("format", {}).get("duration", 0))
+            if dur > 0:
+                return dur
+    except Exception:
+        pass
+    # Last resort: try ffprobe with stream-level duration
+    try:
+        cmd3 = ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                "-show_entries", "stream=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1", video_path]
+        raw3 = _run_ffprobe(cmd3)
+        if raw3:
+            dur = float(raw3)
+            if dur > 0:
+                return dur
+    except (ValueError, TypeError):
+        pass
+    return 0
 
 
 def get_video_dimensions(video_path):

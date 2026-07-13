@@ -60,9 +60,12 @@ def apply_speed_ramp(input_path, output_path, impact_time=None):
       5. Return to 100% — final emotional linger
 
     Uses per-segment trim+setpts+concat for monotonic PTS throughout.
-    Optical flow (minterpolate) only on the slow-mo segment.
-    Freeze frame via single-frame extract + loop.
+    Pre/post segments expand to use enough input so output >= CLIP_MIN_DURATION.
     """
+    input_dur = get_video_duration(input_path)
+    if not input_dur or input_dur <= 0:
+        input_dur = CLIP_MIN_DURATION + 5
+
     if impact_time is None:
         impact_time = 1.5
 
@@ -70,7 +73,16 @@ def apply_speed_ramp(input_path, output_path, impact_time=None):
     slow_mo_duration = 0.8
     freeze_duration = TEMP_FREEZE_DURATION
     speed_up_duration = 0.6
-    post_duration = TEMP_REACTION_DURATION
+
+    # Output contribution from ramped segments (slow+freeze+speedup)
+    ramp_output = (slow_mo_duration / TEMP_SLOW_MOTION_SPEED
+                   + freeze_duration
+                   + speed_up_duration / TEMP_SPEED_UP_SPEED)
+    # Need: pre + ramp_output + post >= CLIP_MIN_DURATION
+    needed_post = max(TEMP_REACTION_DURATION,
+                      CLIP_MIN_DURATION - pre_ramp_duration - ramp_output)
+    available = max(0, input_dur - pre_ramp_duration - slow_mo_duration - freeze_duration - speed_up_duration)
+    post_duration = min(max(TEMP_REACTION_DURATION, min(needed_post, available)), available)
 
     s2_start = pre_ramp_duration
     s2_end = s2_start + slow_mo_duration
@@ -786,6 +798,7 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
                 ramp = apply_speed_ramp(current, step3, impact_time=rel_impact)
                 if ramp:
                     current = ramp["path"]
+                    clip_duration = ramp.get("duration", get_video_duration(current))
                     speed_success = True
                     break
             except Exception as e:
@@ -809,6 +822,7 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
                 subprocess.run(fb_cmd, capture_output=True, timeout=120)
                 if os.path.exists(step3_fb) and os.path.getsize(step3_fb) > 10000:
                     current = step3_fb
+                    clip_duration = get_video_duration(current)
                     print(f"  [editor] Speed ramp fallback: passthrough (no ramp)", flush=True)
             except Exception:
                 print(f"  [editor] Speed ramp fallback also failed, continuing", flush=True)
@@ -878,7 +892,8 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
         for breath_attempt in range(2):
             try:
                 step7 = os.path.join(work_dir, "07_final.mp4")
-                breath = apply_breath_cut(current, step7, clip_duration)
+                actual_dur = get_video_duration(current) or clip_duration
+                breath = apply_breath_cut(current, step7, actual_dur)
                 if breath:
                     current = breath
                     breath_success = True
