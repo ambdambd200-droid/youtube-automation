@@ -183,12 +183,12 @@ def apply_in_media_res(input_path, output_path, action_time=1.5, total_duration=
     return None
 
 
-def apply_breath_cut(input_path, output_path, action_end_time):
-    """Blueprint Section 4.3: Breath Cut — end 2s after action with smooth fade-out.
+def apply_breath_cut(input_path, output_path, total_duration):
+    """Blueprint Section 4.3: Breath Cut — smooth 1.5s fade-out to black at end.
     Focus on the reaction (crowd silence, actor tear, player's response).
-    Smooth 1.5s fade-out to black avoids abrupt cuts on loop.
+    Avoids abrupt cuts on loop.
     """
-    cut_time = action_end_time + TEMP_REACTION_DURATION
+    cut_time = total_duration
     fade_start = max(0, cut_time - 1.5)
     cmd = [
         "ffmpeg", "-y", "-i", input_path,

@@ -44,26 +44,24 @@ jobs:
 
       - name: Run weekly video pipeline
         id: weekly
-        shell: cmd
+        shell: powershell
         run: |
-          setlocal enabledelayedexpansion
-          set MAX_RETRIES=1
-          set RETRY_DELAY=60
-          set ATTEMPT=0
-          set QUERY=${{ github.event.inputs.query }}
-          :retry_loop
-          if !ATTEMPT! gtr !MAX_RETRIES! exit /b 1
-          if !ATTEMPT! gtr 0 (
-              echo Retry attempt !ATTEMPT!/!MAX_RETRIES! after !RETRY_DELAY! seconds...
-              timeout /t !RETRY_DELAY! /nobreak > nul
-          )
-          if not "!QUERY!"=="" (
-              py -3.12 run_weekly_pipeline.py --query "!QUERY!"
-          ) else (
-              py -3.12 run_weekly_pipeline.py
-          )
-          if !ERRORLEVEL! equ 0 goto :retry_end
-          echo Pipeline failed ^(exit code: !ERRORLEVEL!^) on attempt !ATTEMPT!
-          set /a ATTEMPT+=1
-          goto :retry_loop
-          :retry_end
+          $maxRetries = 1
+          $retryDelay = 60
+          $attempt = 0
+          $query = "${{ github.event.inputs.query }}"
+          do {
+              if ($attempt -gt $maxRetries) { exit 1 }
+              if ($attempt -gt 0) {
+                  Write-Host "Retry attempt $attempt/$maxRetries after $retryDelay seconds..."
+                  Start-Sleep -Seconds $retryDelay
+              }
+              if ($query -ne "") {
+                  py -3.12 run_weekly_pipeline.py --query "$query"
+              } else {
+                  py -3.12 run_weekly_pipeline.py
+              }
+              if ($LASTEXITCODE -eq 0) { break }
+              Write-Host "Pipeline failed (exit code: $LASTEXITCODE) on attempt $attempt"
+              $attempt++
+          } while ($true)

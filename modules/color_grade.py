@@ -234,7 +234,7 @@ def apply_vignette(input_path, output_path):
 
 def full_color_pipeline(input_path, output_path=None):
     """Run the complete color grading pipeline per Blueprint Section 3.
-    Single-pass combined filter for all 8 steps (eliminates 7 re-encodes).
+    Single-pass combined filter for all 5 core steps (eliminates 4 re-encodes).
     Falls back to per-step approach if combined filter fails.
 
     Order:
@@ -243,15 +243,10 @@ def full_color_pipeline(input_path, output_path=None):
       3. Teal & Orange Grade (colorbalance)
       4. Saturation/Vibrance (eq)
       5. S-Curve Contrast (curves)
-      6. Unsharp Mask (convolution)
-      7. Film Grain (noise)
-      8. Vignette (vignette)
     """
     if output_path is None:
         grade_id = uuid.uuid4().hex[:8]
         output_path = os.path.join(CLIPS_DIR, f"graded_{grade_id}.mp4")
-
-    intensity = max(1, min(50, int(COLOR_GRAIN_INTENSITY * 2)))
 
     vf = (
         "colorchannelmixer=rr=1.05:rg=0.02:rb=-0.07:"
@@ -263,19 +258,13 @@ def full_color_pipeline(input_path, output_path=None):
         "rh=0.03:gh=-0.01:bh=0.01,"
         f"eq=saturation={1.0 + COLOR_GLOBAL_SATURATION}:"
         f"gamma={1.0 + COLOR_VIBRANCE_BOOST * 0.2},"
-        "curves=all='0/0 0.25/0.2 0.5/0.5 0.75/0.78 1/1',"
-        "convolution='0 -1 0 -1 5 -1 0 -1 0:"
-        "0 -1 0 -1 5 -1 0 -1 0:"
-        "0 -1 0 -1 5 -1 0 -1 0:"
-        "0 -1 0 -1 5 -1 0 -1 0',"
-        f"noise=alls={intensity}:allf=t+u,"
-        "vignette=PI/4:max_eval=frame"
+        "curves=all='0/0 0.25/0.2 0.5/0.5 0.75/0.78 1/1'"
     )
 
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
         "-vf", vf,
-        "-c:v", RENDER_CODEC, "-preset", "slow",
+        "-c:v", RENDER_CODEC, "-preset", "fast",
         "-crf", str(RENDER_CRF),
         "-c:a", "copy",
         "-pix_fmt", RENDER_PIX_FMT,
@@ -297,36 +286,6 @@ def full_color_pipeline(input_path, output_path=None):
     except Exception as e:
         print(f"  [color] Single-pass error: {e}, trying safe filters...", flush=True)
 
-    if not single_ok:
-        # Retry with safe filters only (skip convolution, noise, vignette)
-        vf_safe = (
-            "colorchannelmixer=rr=1.05:rg=0.02:rb=-0.07:"
-            "gr=0.01:gg=1.00:gb=-0.01:"
-            "br=-0.05:bg=-0.02:bb=1.07,"
-            "curves=all='0/0.04 0.5/0.5 1/0.96',"
-            "colorbalance=rs=-0.02:gs=0.04:bs=0.08:"
-            "rm=0.06:gm=-0.02:bm=-0.04:"
-            "rh=0.03:gh=-0.01:bh=0.01,"
-            f"eq=saturation={1.0 + COLOR_GLOBAL_SATURATION}:"
-            f"gamma={1.0 + COLOR_VIBRANCE_BOOST * 0.2},"
-            "curves=all='0/0 0.25/0.2 0.5/0.5 0.75/0.78 1/1'"
-        )
-        cmd_safe = [
-            "ffmpeg", "-y", "-i", input_path,
-            "-vf", vf_safe,
-            "-c:v", RENDER_CODEC, "-preset", "slow",
-            "-crf", str(RENDER_CRF),
-            "-c:a", "copy",
-            "-pix_fmt", RENDER_PIX_FMT,
-            output_path,
-        ]
-        try:
-            result2 = subprocess.run(cmd_safe, capture_output=True, text=True, timeout=600)
-            if result2.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
-                print(f"  [color] Pipeline complete (safe pass): {os.path.basename(output_path)}", flush=True)
-                single_ok = True
-        except Exception as e:
-            print(f"  [color] Safe single-pass also failed: {e}", flush=True)
 
     if single_ok:
         return output_path
