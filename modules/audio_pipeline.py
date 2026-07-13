@@ -226,45 +226,60 @@ def mix_ambience_and_foley(input_path, ambience_path, foley_paths=None, output_p
 
     inputs = ["-i", input_path]
     filter_parts = [f"[0:a]asetpts=PTS-STARTPTS[main]"]
+    next_stream = 1
+
+    has_ambience = ambience_path and os.path.exists(ambience_path)
+    valid_foley = [fp for fp in (foley_paths or []) if os.path.exists(fp)]
+    has_foley = len(valid_foley) > 0
 
     # Add ambience
-    if ambience_path and os.path.exists(ambience_path):
+    if has_ambience:
         inputs.extend(["-i", ambience_path])
+        filter_parts.append(f"[{next_stream}:a]volume=0.25[a_amb]")
+        next_stream += 1
 
-    # Add foley paths
+    # Add foley paths with labels
     foley_labels = []
-    if foley_paths:
-        for i, fp in enumerate(foley_paths):
-            if os.path.exists(fp):
-                inputs.extend(["-i", fp])
-                label = f"foley{i}"
-                foley_labels.append(label)
-                filter_parts.append(f"[{len(inputs)//2 - 1}:a]asetpts=PTS-STARTPTS[{label}]")
+    for i, fp in enumerate(valid_foley):
+        inputs.extend(["-i", fp])
+        label = f"f{i}"
+        foley_labels.append(label)
+        filter_parts.append(f"[{next_stream}:a]asetpts=PTS-STARTPTS[{label}]")
+        next_stream += 1
 
-    # Build mix with optional sidechain ducking
-    if duck_on_foley and foley_labels:
-        level_sc = 10 ** (AUDIO_DUCK_DB / 20)  # -6dB → 0.5 linear
-        sc_thresh = 0.1  # -20dB converted to linear for ffmpeg 8.1+
-        sidechain = f"[main][{foley_labels[0]}]sidechaincompress=threshold={sc_thresh}:ratio=10:attack=5:release=50:level_sc={level_sc}[a_ducked]"
-        filter_parts.append(sidechain)
-        mix_sources = f"[a_ducked]"
-    else:
-        mix_sources = "[main]"
-
-    for label in foley_labels:
-        mix_sources += f"[{label}]"
-
-    if ambience_path:
-        # Mix ambience at low volume
-        if duck_on_foley and foley_labels:
-            filter_parts.append(f"[1:a]volume=0.25[a_amb]")
-            filter_parts.append(f"[a_ducked][a_amb]amix=inputs=2:duration=first:weights=1 0.2[a_mixed]")
+    # Build filter graph
+    if has_foley:
+        # Sidechain: duck main audio when foley hits
+        if duck_on_foley:
+            level_sc = 10 ** (AUDIO_DUCK_DB / 20)
+            sc_thresh = 0.1
+            filter_parts.append(
+                f"[main][{foley_labels[0]}]"
+                f"sidechaincompress=threshold={sc_thresh}:ratio=10:"
+                f"attack=5:release=50:level_sc={level_sc}[a_ducked]"
+            )
+            main_src = "[a_ducked]"
         else:
-            filter_parts.append(f"[1:a]volume=0.25[a_amb];[main][a_amb]amix=inputs=2:duration=first:weights=1 0.2[a_mixed]")
+            main_src = "[main]"
+
+        # Mix main + all foley + ambience
+        mix_inputs = main_src + "".join(f"[{l}]" for l in foley_labels)
+        mix_count = 1 + len(foley_labels)
+        weights = "1" + " ".join(f" {0.5 if i == 0 else 0.3}" for i in range(len(foley_labels)))
+        if has_ambience:
+            mix_inputs += "[a_amb]"
+            mix_count += 1
+            weights += " 0.2"
+        filter_parts.append(
+            f"{mix_inputs}amix=inputs={mix_count}:duration=first:"
+            f"weights={weights}[a_mixed]"
+        )
         audio_map = "[a_mixed]"
     else:
-        if duck_on_foley and foley_labels:
-            audio_map = "[a_ducked]"
+        # No foley — just mix main + ambience
+        if has_ambience:
+            filter_parts.append("[main][a_amb]amix=inputs=2:duration=first:weights=1 0.2[a_mixed]")
+            audio_map = "[a_mixed]"
         else:
             audio_map = "[main]"
 
