@@ -80,7 +80,7 @@ def apply_speed_ramp(input_path, output_path, impact_time=None):
                    + speed_up_duration / TEMP_SPEED_UP_SPEED)
     # Need: pre + ramp_output + post >= CLIP_MIN_DURATION
     needed_post = max(TEMP_REACTION_DURATION,
-                      CLIP_MIN_DURATION - pre_ramp_duration - ramp_output)
+                      CLIP_MIN_DURATION + 0.5 - pre_ramp_duration - ramp_output)
     available = max(0, input_dur - pre_ramp_duration - slow_mo_duration - freeze_duration - speed_up_duration)
     post_duration = min(max(TEMP_REACTION_DURATION, min(needed_post, available)), available)
 
