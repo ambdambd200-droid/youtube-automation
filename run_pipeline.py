@@ -67,6 +67,20 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
     # ── Register with watchdog ─────────────────────────────
     pipeline_id = pipeline_id or register_run_start("daily")
 
+    # ── Disk space check ──────────────────────────────────
+    try:
+        import shutil
+        total, used, free = shutil.disk_usage(".")
+        free_gb = free / (1024 ** 3)
+        print(f"  Disk: {free_gb:.1f}GB free", flush=True)
+        if free_gb < 2.0:
+            raise Exception(f"Insufficient disk space: {free_gb:.1f}GB free (need >=2GB)")
+    except Exception as e:
+        if "Insufficient" in str(e):
+            raise
+        # Non-critical: disk check failed, continue anyway
+        print(f"  [WARN] Disk space check failed: {e}", flush=True)
+
     print(f"\n{'='*60}")
     print(f"  VARY — Daily Clip Pipeline")
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")

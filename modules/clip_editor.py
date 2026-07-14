@@ -69,6 +69,12 @@ def apply_speed_ramp(input_path, output_path, impact_time=None):
     if impact_time is None:
         impact_time = 1.5
 
+    # Guard: skip speed ramp if source is too short for the ramp segments
+    ramp_overhead = impact_time + 0.8 + TEMP_FREEZE_DURATION + 0.6
+    if input_dur < ramp_overhead + 2.0:
+        print(f"  [editor] Speed ramp skipped: source too short ({input_dur:.1f}s < {ramp_overhead + 2.0:.1f}s)", flush=True)
+        return None
+
     pre_ramp_duration = impact_time
     slow_mo_duration = 0.8
     freeze_duration = TEMP_FREEZE_DURATION
@@ -579,32 +585,63 @@ def crop_to_shorts(input_path, output_path, start_time=0, duration=None):
         output_path,
     ]
 
+    for crop_attempt in range(2):
+        try:
+            result = subprocess.run(cmd, capture_output=True, timeout=300)
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
+                actual_dur = get_video_duration(output_path)
+                # If ffprobe returns 0, use calculated duration as fallback
+                if actual_dur <= 0:
+                    actual_dur = fallback_duration(output_path)
+                if actual_dur <= 0:
+                    actual_dur = duration  # fallback: use the requested trim duration
+                print(f"  [editor] Created Short: {output_path} ({actual_dur:.1f}s, {os.path.getsize(output_path)} bytes)", flush=True)
+                return {
+                    "path": output_path,
+                    "duration": actual_dur,
+                    "trim_start": start_time,
+                    "trim_end": start_time + duration,
+                }
+            else:
+                if result.returncode != 0:
+                    print(f"  [editor] FFmpeg crop error (attempt {crop_attempt+1}): {result.stderr[-500:]}", flush=True)
+                else:
+                    print(f"  [editor] Output file missing or too small: {output_path}", flush=True)
+        except subprocess.TimeoutExpired:
+            print(f"  [editor] FFmpeg crop timed out (attempt {crop_attempt+1})", flush=True)
+        except Exception as e:
+            print(f"  [editor] Crop error (attempt {crop_attempt+1}): {e}", flush=True)
+        if crop_attempt == 0:
+            time.sleep(2)
+
+    # Fallback: simplified crop without filter_complex
     try:
-        result = subprocess.run(cmd, capture_output=True, timeout=300)
-        if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
-            actual_dur = get_video_duration(output_path)
-            # If ffprobe returns 0, use calculated duration as fallback
-            if actual_dur <= 0:
-                actual_dur = fallback_duration(output_path)
-            if actual_dur <= 0:
-                actual_dur = duration  # fallback: use the requested trim duration
-            print(f"  [editor] Created Short: {output_path} ({actual_dur:.1f}s, {os.path.getsize(output_path)} bytes)", flush=True)
+        fb_output = output_path.replace(".mp4", "_simple.mp4")
+        fb_cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(start_time),
+            "-i", input_path,
+            "-t", str(duration),
+            "-vf", f"crop={SHORTS_WIDTH}:{SHORTS_HEIGHT}:(iw-{SHORTS_WIDTH})/2:(ih-{SHORTS_HEIGHT})/2,scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}",
+            "-c:v", RENDER_CODEC, "-preset", "fast",
+            "-crf", str(RENDER_CRF),
+            "-c:a", "aac", "-b:a", "192k",
+            "-pix_fmt", RENDER_PIX_FMT,
+            "-r", str(FPS),
+            fb_output,
+        ]
+        result = subprocess.run(fb_cmd, capture_output=True, timeout=300)
+        if os.path.exists(fb_output) and os.path.getsize(fb_output) > 10000:
+            actual_dur = get_video_duration(fb_output) or duration
+            print(f"  [editor] Simple crop fallback succeeded: {fb_output} ({actual_dur:.1f}s)", flush=True)
             return {
-                "path": output_path,
+                "path": fb_output,
                 "duration": actual_dur,
                 "trim_start": start_time,
                 "trim_end": start_time + duration,
             }
-        else:
-            # File too small or doesn't exist — print ffmpeg stderr for debugging
-            if result.returncode != 0:
-                print(f"  [editor] FFmpeg error: {result.stderr[-500:]}", flush=True)
-            else:
-                print(f"  [editor] Output file missing or too small: {output_path}", flush=True)
-    except subprocess.TimeoutExpired:
-        print("  [editor] FFmpeg timed out", flush=True)
     except Exception as e:
-        print(f"  [editor] Error: {e}", flush=True)
+        print(f"  [editor] Simple crop fallback also failed: {e}", flush=True)
 
     return None
 
@@ -682,6 +719,17 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
         Dict with processed clip info, or None
     """
     os.makedirs(CLIPS_DIR, exist_ok=True)
+
+    # Clean stale _pipeline_* work directories (older than 1 hour)
+    import glob as _glob
+    import time as _time
+    now = _time.time()
+    for stale_dir in _glob.glob(os.path.join(CLIPS_DIR, "_pipeline_*")):
+        try:
+            if os.path.isdir(stale_dir) and now - os.path.getmtime(stale_dir) > 3600:
+                shutil.rmtree(stale_dir, ignore_errors=True)
+        except Exception:
+            pass
 
     import uuid
     clip_id = uuid.uuid4().hex[:10]
@@ -945,6 +993,9 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
 
         # Validation failed — log and clean up for retry
         print(f"  [editor] Validation failed: {'; '.join(last_issues)}", flush=True)
+        _v_dur = get_video_duration(final_path)
+        _v_w, _v_h = get_video_dimensions(final_path)
+        print(f"  [editor] Actual: {_v_w}x{_v_h}, {_v_dur:.1f}s | Expected: {SHORTS_WIDTH}x{SHORTS_HEIGHT}, {CLIP_MIN_DURATION}-{CLIP_MAX_DURATION}s", flush=True)
         _clean_work_dir(work_dir)
 
     print(f"  [editor] All {max_retries} attempts failed — no valid clip produced", flush=True)
