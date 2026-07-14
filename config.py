@@ -55,6 +55,18 @@ RENDER_PIX_FMT = "yuv420p"
 RENDER_MOVFLAGS = "+faststart"
 RENDER_INTERMEDIATE_PRESET = "fast"  # faster preset for intermediate steps (avoid timeouts)
 
+# ── Upscaling & Sharpening ────────────────────────────────
+UPSCALE_FLAGS = "spline"           # Better than lanczos for upscaling (sharper, less ringing)
+UPSCALE_UNSHARP_LUMA = "5:5:0.8"  # luma_mask=radius:power:threshold
+UPSCALE_UNSHARP_CHROMA = "3:3:0.4" # chroma_mask=radius:power:threshold
+UPSCALE_CONTRAST = 1.05            # Slight contrast boost before scaling
+
+# ── Background Music (BGM) ────────────────────────────────
+BGM_LUFS_TARGET = -24.0           # BGM should sit well below dialogue/foley
+BGM_VOLUME = 0.15                  # Max gain for ambient bed (0-1)
+MUSICGEN_MODEL = "facebook/musicgen-small"  # Model for MusicGen BGM
+MUSICGEN_TIMEOUT = 300             # Max seconds to wait for MusicGen generation
+
 # ── Audio Specs (Section 2: Acoustic Engineering) ─────────
 AUDIO_TARGET_LUFS = -14.0    # YouTube loudness standard
 AUDIO_TRUE_PEAK = -1.0       # dBTP true peak limit

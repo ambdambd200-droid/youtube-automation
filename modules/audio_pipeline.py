@@ -22,6 +22,7 @@ from config import (
     AUDIO_SAMPLE_RATE, AUDIO_BITRATE, AUDIO_CODEC,
     AUDIO_EQ_HIGHPASS, AUDIO_EQ_LOWPASS, AUDIO_PRESENCE_BOOST,
     AUDIO_COMPRESSION_RATIO, AUDIO_DUCK_DB, AUDIO_DUCK_DURATION,
+    BGM_LUFS_TARGET, BGM_VOLUME, MUSICGEN_MODEL, MUSICGEN_TIMEOUT,
 )
 
 
@@ -297,6 +298,121 @@ def mix_ambience_and_foley(input_path, ambience_path, foley_paths=None, output_p
     return None
 
 
+def generate_background_music(output_path, content_type="football", duration=30):
+    """Generate ambient background music using ffmpeg synthesis filters.
+    No external dependencies — built-in ffmpeg audio generation.
+    Creates content-type-specific musical beds:
+    - football: low brass drone + rhythmic pulse
+    - movie: ambient strings pad
+    - series: soft piano-like tone
+    """
+    duration = max(15, int(duration))
+    if content_type == "football":
+        filter_complex = (
+            "anoisesrc=d={}:c=pink:a=0.15,lowpass=f=400,volume=0.8[s1];"
+            "sine=f=65:d={}[b0];"
+            "sine=f=130:d={}[h0];"
+            "[b0]volume=0.1[bass];"
+            "[h0]volume=0.05[harm];"
+            "[s1][bass][harm]amix=inputs=3:duration=first:weights=0.5 0.3 0.2[a]"
+        ).format(duration, duration, duration)
+    elif content_type == "series":
+        filter_complex = (
+            "anoisesrc=d={}:c=brown:a=0.1,lowpass=f=200,volume=0.6[s1];"
+            "sine=f=55:d={}[b0];"
+            "sine=f=165:d={}[h0];"
+            "[b0]volume=0.08[bass];"
+            "[h0]volume=0.04[harm];"
+            "[s1][bass][harm]amix=inputs=3:duration=first:weights=0.4 0.4 0.2[a]"
+        ).format(duration, duration, duration)
+    else:
+        filter_complex = (
+            "anoisesrc=d={}:c=pink:a=0.12,lowpass=f=300,volume=0.7[s1];"
+            "sine=f=60:d={}[b0];"
+            "[b0]volume=0.09[bass];"
+            "[s1][bass]amix=inputs=2:duration=first:weights=0.6 0.4[a]"
+        ).format(duration, duration)
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-filter_complex", filter_complex,
+        "-map", "[a]",
+        "-ar", str(AUDIO_SAMPLE_RATE), "-ac", "2",
+        "-sample_fmt", "s16",
+        output_path,
+    ]
+    result = _run_ffmpeg(cmd, f"BGM generation ({content_type})", timeout=60)
+    if result and os.path.exists(output_path) and os.path.getsize(output_path) > 100:
+        print(f"  [audio] BGM generated: {content_type} ambient bed ({duration}s)", flush=True)
+        return output_path
+    return None
+
+
+def generate_musicgen_bgm(output_path, content_type="football", duration=30):
+    """Generate BGM using MusicGen (Meta) if available.
+
+    Falls back gracefully if dependencies are missing.
+    """
+    prompt_map = {
+        "football": "epic sports orchestral build-up, low brass, tension, no drums, cinematic",
+        "movie": "cinematic ambient strings, mysterious, building tension, slow, orchestral",
+        "series": "emotional piano, subtle strings, intimate, gentle, dramatic",
+    }
+    prompt = prompt_map.get(content_type, "ambient cinematic texture, atmospheric")
+    duration = min(max(15, int(duration)), 60)
+
+    try:
+        import torch
+        from audiocraft.models import MusicGen
+        import scipy.io.wavfile
+    except ImportError:
+        print(f"  [audio] MusicGen not available (install: pip install audiocraft scipy)", flush=True)
+        return None
+
+    try:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            print(f"  [audio] Loading MusicGen ({MUSICGEN_MODEL}) on {device}...", flush=True)
+            model = MusicGen.get_pretrained(MUSICGEN_MODEL, device=device)
+            model.set_generation_params(duration=duration)
+            print(f"  [audio] Generating BGM: '{prompt}' ({duration}s)...", flush=True)
+            wav = model.generate([prompt], progress=True)
+            sr = 32000
+            if hasattr(model, 'sample_rate'):
+                sr = model.sample_rate
+            scipy.io.wavfile.write(output_path, rate=sr, data=wav[0].cpu().numpy().T)
+            print(f"  [audio] MusicGen BGM saved: {output_path}", flush=True)
+            return output_path
+    except Exception as e:
+        print(f"  [audio] MusicGen failed: {e}", flush=True)
+        return None
+
+
+def apply_master_bus(input_path, output_path):
+    """Master bus processing: multiband dynamics + limiter.
+
+    Even out frequency imbalances, then catch true peaks.
+    Uses ffmpeg's acompressor + loudnorm (already in the pipeline).
+    Adds an extra compand stage for glue compression.
+    """
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-af",
+        "compand=attacks=0.1:decays=0.5:"
+        "points=-80/-80|-45/-30|-30/-18|-12/-6|0/-3:"
+        "gain=-1,dynaudnorm=framelen=500:gausssize=31:maxgain=3",
+        "-ar", str(AUDIO_SAMPLE_RATE), "-ac", "2",
+        output_path,
+    ]
+    result = _run_ffmpeg(cmd, "master bus compression")
+    if result and os.path.exists(output_path):
+        print(f"  [audio] Master bus: glue compression + limiter", flush=True)
+        return output_path
+    return None
+
+
 def normalize_lufs(input_path, output_path, target_lufs=None):
     """Final: EBU R128 loudness normalization to -14 LUFS with -1 dBTP.
     Ensures YouTube does not re-compress/distort the dynamics.
@@ -374,31 +490,82 @@ def full_audio_pipeline(input_path, content_type="football", output_path=None):
         if synthesize_impact(crunch, "crunch"):
             foley_paths.append(crunch)
 
-    # Step 4: Ambience bed
+    # Step 4: Background Music (BGM)
+    clip_duration = 30
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            clip_duration = max(15, float(r.stdout.strip()))
+    except Exception:
+        pass
+
+    bgm_path = os.path.join(work_dir, f"bgm_{stage_id}.wav")
+    bgm = generate_musicgen_bgm(bgm_path, content_type, duration=int(clip_duration))
+    if not bgm:
+        bgm = generate_background_music(bgm_path, content_type, duration=int(clip_duration))
+    if bgm:
+        # Normalize BGM to -24 LUFS
+        bgm_norm = os.path.join(work_dir, f"bgm_norm_{stage_id}.wav")
+        if normalize_lufs(bgm, bgm_norm, target_lufs=BGM_LUFS_TARGET):
+            bgm = bgm_norm
+        print(f"  [audio] BGM ready: {os.path.basename(bgm)}", flush=True)
+
+    # Step 5: Ambience bed
     amb_type = "stadium" if content_type == "football" else "interior"
     amb_path = os.path.join(work_dir, f"amb_{stage_id}.wav")
     if not generate_ambience_bed(amb_path, amb_type):
         amb_path = None
 
-    # Step 5: Stereo widening on processed audio
+    # Step 6: Stereo widening on processed audio
     stereo_path = os.path.join(work_dir, f"stereo_{stage_id}.wav")
     if not apply_stereo_widening(comp_path, stereo_path):
         stereo_path = comp_path
 
-    # Step 6: Mix ambience + foley
-    mixed_path = os.path.join(work_dir, f"mixed_{stage_id}.wav")
-    mixed = mix_ambience_and_foley(
+    # Step 7: Mix ambience + foley + BGM
+    mixed_no_bgm_path = os.path.join(work_dir, f"mixed_{stage_id}.wav")
+    mixed_no_bgm = mix_ambience_and_foley(
         stereo_path, amb_path, foley_paths,
-        output_path=mixed_path,
+        output_path=mixed_no_bgm_path,
         duck_on_foley=bool(foley_paths),
     )
-    if not mixed:
-        mixed = stereo_path
+    if not mixed_no_bgm:
+        mixed_no_bgm = stereo_path
 
-    # Step 7: LUFS Normalization
+    # Mix in BGM
+    if bgm and os.path.exists(bgm):
+        mixed_path = os.path.join(work_dir, f"mixed_with_bgm_{stage_id}.wav")
+        inputs = ["-i", mixed_no_bgm, "-i", bgm]
+        filter_parts = (
+            f"[0:a]asetpts=PTS-STARTPTS[main];"
+            f"[1:a]volume={BGM_VOLUME}[bgm];"
+            f"[main][bgm]amix=inputs=2:duration=first:weights=1 0.3"
+        )
+        cmd_mix = ["ffmpeg", "-y"] + inputs + [
+            "-filter_complex", filter_parts,
+            "-ar", str(AUDIO_SAMPLE_RATE), "-ac", "2",
+            mixed_path,
+        ]
+        result = _run_ffmpeg(cmd_mix, "mix BGM into audio")
+        if result and os.path.exists(mixed_path):
+            final_mixed = mixed_path
+        else:
+            final_mixed = mixed_no_bgm
+    else:
+        final_mixed = mixed_no_bgm
+
+    # Step 8: Master bus (glue compression)
+    master_path = os.path.join(work_dir, f"master_{stage_id}.wav")
+    if not apply_master_bus(final_mixed, master_path):
+        master_path = final_mixed
+
+    # Step 9: LUFS Normalization
     lufs_path = os.path.join(work_dir, f"lufs_{stage_id}.wav")
-    if not normalize_lufs(mixed, lufs_path):
-        lufs_path = mixed
+    if not normalize_lufs(master_path, lufs_path):
+        lufs_path = master_path
 
     # Replace audio in original video
     cmd_replace = [

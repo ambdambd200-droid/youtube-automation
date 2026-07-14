@@ -104,7 +104,7 @@ def apply_speed_ramp(input_path, output_path, impact_time=None):
     # Per-segment video filters
     seg1v = f"[0:v]trim=0:{s2_start},setpts=PTS-STARTPTS"
     seg2v = (f"[0:v]trim={s2_start}:{s2_end},setpts=PTS-STARTPTS,"
-             f"setpts=PTS/{TEMP_SLOW_MOTION_SPEED}")
+             f"minterpolate=fps={int(round(FPS / TEMP_SLOW_MOTION_SPEED))}:mi_mode=mci:scd=none")
     seg3v = (f"[0:v]trim={s2_end}:{s2_end + 0.04},setpts=PTS-STARTPTS,"
              f"loop=loop={freeze_nframes - 1}:size=1,"
              f"setpts=N/FRAME_RATE/TB")
@@ -562,10 +562,12 @@ def crop_to_shorts(input_path, output_path, start_time=0, duration=None):
     x = x if x % 2 == 0 else x - 1
     y = y if y % 2 == 0 else y - 1
 
+    from config import UPSCALE_FLAGS, UPSCALE_UNSHARP_LUMA, UPSCALE_UNSHARP_CHROMA
     video_chain = (
         f"[0:v]trim=start={start_time}:duration={duration},setpts=PTS-STARTPTS,"
         f"crop={crop_w}:{crop_h}:{x}:{y},"
-        f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=0:flags=lanczos"
+        f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=0:flags={UPSCALE_FLAGS},"
+        f"unsharp={UPSCALE_UNSHARP_LUMA}:{UPSCALE_UNSHARP_CHROMA}"
     )
 
     # Assemble full filtergraph: video chain + audio chain, each with its own output label
