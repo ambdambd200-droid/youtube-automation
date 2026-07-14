@@ -64,8 +64,6 @@ jobs:
       - name: Report pipeline state
         id: check_state
         shell: powershell
-        env:
-          PATH: ${{ env.PATH }};C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts
         run: |
           $env:PATH += ";C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
           Write-Host "### Pipeline State Report"
@@ -75,8 +73,6 @@ jobs:
       - name: Prune old pipeline state entries
         id: prune_state
         shell: powershell
-        env:
-          PATH: ${{ env.PATH }};C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts
         run: |
           $env:PATH += ";C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
           $output = python -m modules.pipeline_watchdog --prune 2>&1
@@ -84,8 +80,6 @@ jobs:
 
       - name: Run recovery
         shell: powershell
-        env:
-          PATH: ${{ env.PATH }};C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts
         run: |
           $env:PATH += ";C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
           $mode = "${{ github.event.inputs.mode }}"

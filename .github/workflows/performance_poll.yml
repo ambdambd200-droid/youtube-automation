@@ -41,8 +41,6 @@ jobs:
       - name: Poll performance data for all uploaded videos
         id: poll
         shell: powershell
-        env:
-          PATH: ${{ env.PATH }};C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts
         run: |
           $env:PATH += ";C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
           python -c "
@@ -58,8 +56,6 @@ jobs:
 
       - name: Run evolution cycle with real performance data
         shell: powershell
-        env:
-          PATH: ${{ env.PATH }};C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts
         run: |
           $env:PATH += ";C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
           python -c "

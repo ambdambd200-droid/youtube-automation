@@ -44,8 +44,6 @@ jobs:
 
       - name: Generate channel branding
         shell: powershell
-        env:
-          PATH: ${{ env.PATH }};C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts
         run: |
           $env:PATH += ";C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
           python -c "
@@ -57,8 +55,6 @@ jobs:
 
       - name: Update channel description and branding
         shell: powershell
-        env:
-          PATH: ${{ env.PATH }};C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts
         run: |
           $env:PATH += ";C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
           python -c "

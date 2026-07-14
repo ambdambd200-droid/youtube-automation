@@ -56,8 +56,6 @@ jobs:
       - name: Run clip pipeline (with auto-retry on crash)
         id: pipeline
         shell: powershell
-        env:
-          PATH: ${{ env.PATH }};C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts
         run: |
           $env:PATH += ";C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
           $maxRetries = 1
