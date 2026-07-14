@@ -12,15 +12,22 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Setup Python
+        shell: cmd
+        run: |
+          setx PATH "%PATH%;C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
+          set "PATH=%PATH%;C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
+          python --version
+
       - name: Install Python dependencies
         shell: cmd
         run: |
-          py -3.12 -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
+          python -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
 
       - name: Check Python syntax
         shell: cmd
         run: |
-          py -3.12 -m compileall . -q
+          python -m compileall . -q
 
       - name: Create assets directories
         shell: cmd
@@ -33,8 +40,11 @@ jobs:
 
       - name: Generate channel branding
         shell: powershell
+        env:
+          PATH: ${{ env.PATH }};C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts
         run: |
-          py -3.12 -c "
+          $env:PATH += ";C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
+          python -c "
           from modules.channel_branding_generator import generate_all_branding
           result = generate_all_branding()
           print(f'Profile: {result[\"profile_picture\"]}')
@@ -43,8 +53,11 @@ jobs:
 
       - name: Update channel description and branding
         shell: powershell
+        env:
+          PATH: ${{ env.PATH }};C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts
         run: |
-          py -3.12 -c "
+          $env:PATH += ";C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
+          python -c "
           from modules.channel_manager import check_and_update_channel
           result = check_and_update_channel()
           print(f'Channel update: {result}')

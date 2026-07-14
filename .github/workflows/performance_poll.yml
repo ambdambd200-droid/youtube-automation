@@ -12,15 +12,22 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Setup Python
+        shell: cmd
+        run: |
+          setx PATH "%PATH%;C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
+          set "PATH=%PATH%;C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
+          python --version
+
       - name: Install Python dependencies
         shell: cmd
         run: |
-          py -3.12 -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
+          python -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
 
       - name: Check Python syntax
         shell: cmd
         run: |
-          py -3.12 -m compileall . -q
+          python -m compileall . -q
 
       - name: Create assets directories
         shell: cmd
@@ -30,8 +37,11 @@ jobs:
       - name: Poll performance data for all uploaded videos
         id: poll
         shell: powershell
+        env:
+          PATH: ${{ env.PATH }};C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts
         run: |
-          py -3.12 -c "
+          $env:PATH += ";C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
+          python -c "
           from modules.performance_tracker import poll_all_videos, calculate_performance_trends
           results = poll_all_videos()
           print(f'Polled {len(results)} videos')
@@ -44,8 +54,11 @@ jobs:
 
       - name: Run evolution cycle with real performance data
         shell: powershell
+        env:
+          PATH: ${{ env.PATH }};C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts
         run: |
-          py -3.12 -c "
+          $env:PATH += ";C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
+          python -c "
           from modules.evolution_engine import evolve
           result = evolve()
           print(f'Evolved: {result[\"evolved\"]}, gen: {result[\"generation\"]}')

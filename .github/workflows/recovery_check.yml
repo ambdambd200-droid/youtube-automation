@@ -31,15 +31,22 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Setup Python
+        shell: cmd
+        run: |
+          setx PATH "%PATH%;C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
+          set "PATH=%PATH%;C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
+          python --version
+
       - name: Install Python dependencies
         shell: cmd
         run: |
-          py -3.12 -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
+          python -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
 
       - name: Check Python syntax
         shell: cmd
         run: |
-          py -3.12 -m compileall . -q
+          python -m compileall . -q
 
       - name: Create assets directories
         shell: cmd
@@ -53,27 +60,36 @@ jobs:
       - name: Report pipeline state
         id: check_state
         shell: powershell
+        env:
+          PATH: ${{ env.PATH }};C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts
         run: |
+          $env:PATH += ";C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
           Write-Host "### Pipeline State Report"
-          py -3.12 -m modules.pipeline_watchdog --status 2>&1
-          py -3.12 -m modules.pipeline_watchdog --missed 2>&1
+          python -m modules.pipeline_watchdog --status 2>&1
+          python -m modules.pipeline_watchdog --missed 2>&1
 
       - name: Prune old pipeline state entries
         id: prune_state
         shell: powershell
+        env:
+          PATH: ${{ env.PATH }};C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts
         run: |
-          $output = py -3.12 -m modules.pipeline_watchdog --prune 2>&1
+          $env:PATH += ";C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
+          $output = python -m modules.pipeline_watchdog --prune 2>&1
           Write-Host $output
 
       - name: Run recovery
         shell: powershell
+        env:
+          PATH: ${{ env.PATH }};C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts
         run: |
+          $env:PATH += ";C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
           $mode = "${{ github.event.inputs.mode }}"
           $filter = ""
           if ("${{ github.event.inputs.pipeline }}" -eq "daily") { $filter = "--daily" }
           if ("${{ github.event.inputs.pipeline }}" -eq "weekly") { $filter = "--weekly" }
           switch ($mode) {
-            "check" { py -3.12 run_recovery.py --check $filter }
-            "force" { py -3.12 run_recovery.py --force $filter }
-            default { py -3.12 run_recovery.py $filter }
+            "check" { python run_recovery.py --check $filter }
+            "force" { python run_recovery.py --force $filter }
+            default { python run_recovery.py $filter }
           }

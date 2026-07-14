@@ -22,15 +22,22 @@ jobs:
         run: |
           if exist "C:\Users\A\Desktop\Movies\.env" copy /Y "C:\Users\A\Desktop\Movies\.env" .env
 
+      - name: Setup Python
+        shell: cmd
+        run: |
+          setx PATH "%PATH%;C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
+          set "PATH=%PATH%;C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
+          python --version
+
       - name: Install Python dependencies
         shell: cmd
         run: |
-          py -3.12 -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
+          python -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
 
       - name: Check Python syntax
         shell: cmd
         run: |
-          py -3.12 -m compileall . -q
+          python -m compileall . -q
 
 
       - name: Create assets directories
@@ -45,7 +52,10 @@ jobs:
       - name: Run clip pipeline (with auto-retry on crash)
         id: pipeline
         shell: powershell
+        env:
+          PATH: ${{ env.PATH }};C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts
         run: |
+          $env:PATH += ";C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
           $maxRetries = 1
           $retryDelay = 60
           $attempt = 0
@@ -56,9 +66,9 @@ jobs:
                   Start-Sleep -Seconds $retryDelay
               }
               if ("${{ github.event.inputs.query }}" -ne "") {
-                  py -3.12 run_pipeline.py --query "${{ github.event.inputs.query }}"
+                  python run_pipeline.py --query "${{ github.event.inputs.query }}"
               } else {
-                  py -3.12 run_pipeline.py
+                  python run_pipeline.py
               }
               if ($LASTEXITCODE -eq 0) { break }
               Write-Host "Pipeline failed (exit code: $LASTEXITCODE) on attempt $attempt"
