@@ -190,18 +190,28 @@ def apply_in_media_res(input_path, output_path, action_time=1.5, total_duration=
 
 
 def apply_breath_cut(input_path, output_path, total_duration):
-    """Blueprint Section 4.3: Breath Cut — smooth 1.5s fade-out to black at end.
-    Focus on the reaction (crowd silence, actor tear, player's response).
-    Avoids abrupt cuts on loop.
+    """Blueprint Section 4.3: Breath Cut — smooth fade-out + padding to CLIP_MIN_DURATION.
+    Always produces at least CLIP_MIN_DURATION+0.5s output.
+    If source is shorter, pads with black frames + silence (cloned last frame).
     """
+    min_out = CLIP_MIN_DURATION + 0.5
+    target = max(total_duration, min_out)
     cut_time = total_duration
     fade_start = max(0, cut_time - 1.5)
+    pad_dur = target - total_duration
+
+    vf = f"fade=t=out:st={fade_start}:d=1.5"
+    af = f"afade=t=out:st={fade_start}:d=1.5"
+    if pad_dur > 0:
+        vf += f",tpad=stop_mode=clone:stop_duration={pad_dur}"
+        af += f",apad=pad_dur={pad_dur}"
+
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
         "-ss", "0",
-        "-t", str(cut_time),
-        "-vf", f"fade=t=out:st={fade_start}:d=1.5",
-        "-af", f"afade=t=out:st={fade_start}:d=1.5",
+        "-t", str(target),
+        "-vf", vf,
+        "-af", af,
         "-c:v", RENDER_CODEC, "-preset", RENDER_INTERMEDIATE_PRESET,
         "-crf", str(RENDER_CRF),
         "-c:a", "aac", "-b:a", "192k",
@@ -211,7 +221,8 @@ def apply_breath_cut(input_path, output_path, total_duration):
     try:
         subprocess.run(cmd, capture_output=True, timeout=120)
         if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
-            print(f"  [editor] Breath cut: end at {cut_time:.1f}s + 1.5s fade-out", flush=True)
+            print(f"  [editor] Breath cut: end at {cut_time:.1f}s + 1.5s fade-out"
+                  f"{' + ' + str(pad_dur) + 's black pad' if pad_dur > 0 else ''}", flush=True)
             return output_path
     except Exception as e:
         print(f"  [editor] Breath cut error: {e}", flush=True)
