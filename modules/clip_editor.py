@@ -733,6 +733,13 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
     """
     os.makedirs(CLIPS_DIR, exist_ok=True)
 
+    # Content safety check: block NSFW videos (nudity, inappropriate clothing)
+    from modules.content_safety import check_video_safety
+    safe, reason = check_video_safety(input_path)
+    if not safe:
+        print(f"  [editor] BLOCKED by content safety: {reason}", flush=True)
+        return None
+
     # Clean stale _pipeline_* work directories (older than 1 hour)
     import glob as _glob
     import time as _time
