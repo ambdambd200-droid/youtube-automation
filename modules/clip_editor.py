@@ -108,7 +108,7 @@ def apply_speed_ramp(input_path, output_path, impact_time=None):
     seg1v = f"[0:v]trim=0:{s2_start},setpts=PTS-STARTPTS"
     seg2v = (f"[0:v]trim={s2_start}:{s2_end},setpts=PTS-STARTPTS,"
              f"setpts=PTS/{TEMP_SLOW_MOTION_SPEED},"
-             f"minterpolate=fps={FPS}:mi_mode=blend:scd=diff:scd_threshold=0.3")
+             f"minterpolate=fps={FPS}:mi_mode=blend:scd=fdiff:scd_threshold=5")
     seg3v = (f"[0:v]trim={s2_end}:{s2_end + 0.04},setpts=PTS-STARTPTS,"
              f"loop=loop={freeze_nframes - 1}:size=1,"
              f"setpts=N/FRAME_RATE/TB")
@@ -160,6 +160,8 @@ def apply_speed_ramp(input_path, output_path, impact_time=None):
         if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
             print(f"  [editor] Speed ramp applied: {os.path.basename(output_path)}", flush=True)
             return {"path": output_path, "duration": output_duration}
+        err = result.stderr[-300:] if result.stderr else "no stderr"
+        print(f"  [editor] Speed ramp failed (rc={result.returncode}): {err}", flush=True)
     except subprocess.TimeoutExpired:
         print("  [editor] Speed ramp timed out", flush=True)
     except Exception as e:
