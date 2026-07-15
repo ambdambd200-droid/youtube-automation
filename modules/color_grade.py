@@ -192,12 +192,13 @@ def apply_unsharp_mask(input_path, output_path):
 def apply_film_grain(input_path, output_path):
     """Phase 3: Film grain using noise filter (mono, low intensity).
     Adds subtle texture to prevent digital flatness.
+    Shorts: very subtle grain (intensity 3 on 1080p).
     """
-    intensity = max(1, min(50, int(COLOR_GRAIN_INTENSITY * 2)))
+    intensity = max(1, min(10, int(COLOR_GRAIN_INTENSITY * 0.6)))
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
         "-vf",
-        f"noise=alls={intensity}:allf=t+u",
+        f"noise=alls={intensity}:allf=t",
         "-c:v", RENDER_CODEC, "-preset", RENDER_INTERMEDIATE_PRESET,
         "-crf", str(RENDER_CRF),
         "-c:a", "copy",
@@ -303,7 +304,6 @@ def full_color_pipeline(input_path, output_path=None):
         ("teal_orange", apply_teal_orange_grade),
         ("sat_vib", apply_saturation_vibrance),
         ("s_curve", apply_s_curve_contrast),
-        ("sharpen", apply_unsharp_mask),
         ("grain", apply_film_grain),
         ("vignette", apply_vignette),
     ]

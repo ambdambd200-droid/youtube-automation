@@ -54,6 +54,7 @@ RENDER_CRF = 14              # Near-lossless master (lower = better, 14 is visua
 RENDER_PIX_FMT = "yuv420p"
 RENDER_MOVFLAGS = "+faststart"
 RENDER_INTERMEDIATE_PRESET = "fast"  # faster preset for intermediate steps (avoid timeouts)
+RENDER_FINAL_PRESET = "slow"        # best quality for final render (only one pass)
 
 # ── Upscaling & Sharpening ────────────────────────────────
 UPSCALE_FLAGS = "spline"           # Better than lanczos for upscaling (sharper, less ringing)

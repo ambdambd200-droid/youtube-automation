@@ -26,7 +26,7 @@ from config import (
     RENDER_CODEC, RENDER_PROFILE, RENDER_LEVEL,
     RENDER_BITRATE, RENDER_BUFFER_SIZE, RENDER_CRF,
     RENDER_PIX_FMT, RENDER_MOVFLAGS,
-    RENDER_INTERMEDIATE_PRESET,
+    RENDER_INTERMEDIATE_PRESET, RENDER_FINAL_PRESET,
 )
 from modules.utils import get_font_path
 
@@ -105,7 +105,7 @@ def apply_speed_ramp(input_path, output_path, impact_time=None):
     seg1v = f"[0:v]trim=0:{s2_start},setpts=PTS-STARTPTS"
     seg2v = (f"[0:v]trim={s2_start}:{s2_end},setpts=PTS-STARTPTS,"
              f"setpts=PTS/{TEMP_SLOW_MOTION_SPEED},"
-             f"minterpolate=fps={FPS}:mi_mode=blend:scd=none")
+             f"minterpolate=fps={FPS}:mi_mode=blend:scd=diff:scd_threshold=0.3")
     seg3v = (f"[0:v]trim={s2_end}:{s2_end + 0.04},setpts=PTS-STARTPTS,"
              f"loop=loop={freeze_nframes - 1}:size=1,"
              f"setpts=N/FRAME_RATE/TB")
@@ -213,14 +213,14 @@ def apply_breath_cut(input_path, output_path, total_duration):
         "-t", str(target),
         "-vf", vf,
         "-af", af,
-        "-c:v", RENDER_CODEC, "-preset", RENDER_INTERMEDIATE_PRESET,
+        "-c:v", RENDER_CODEC, "-preset", RENDER_FINAL_PRESET,
         "-crf", str(RENDER_CRF),
         "-c:a", "aac", "-b:a", "192k",
         "-pix_fmt", RENDER_PIX_FMT,
         output_path,
     ]
     try:
-        subprocess.run(cmd, capture_output=True, timeout=120)
+        subprocess.run(cmd, capture_output=True, timeout=180)
         if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
             print(f"  [editor] Breath cut: end at {cut_time:.1f}s + 1.5s fade-out"
                   f"{' + ' + str(pad_dur) + 's black pad' if pad_dur > 0 else ''}", flush=True)
@@ -584,7 +584,7 @@ def crop_to_shorts(input_path, output_path, start_time=0, duration=None):
         "-map", "[vout]",
         "-map", "[aout]",
         "-c:v", RENDER_CODEC,
-        "-preset", "slow",
+        "-preset", RENDER_INTERMEDIATE_PRESET,
         "-crf", str(RENDER_CRF),
         "-b:v", RENDER_BITRATE,
         "-maxrate", RENDER_BITRATE,
@@ -1040,14 +1040,14 @@ def apply_watermark(input_path, output_path):
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
         "-vf", vf,
-        "-c:v", RENDER_CODEC, "-preset", RENDER_INTERMEDIATE_PRESET,
+        "-c:v", RENDER_CODEC, "-preset", RENDER_FINAL_PRESET,
         "-crf", str(RENDER_CRF),
         "-c:a", "copy",
         "-pix_fmt", RENDER_PIX_FMT,
         output_path,
     ]
     try:
-        subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        subprocess.run(cmd, capture_output=True, text=True, timeout=180)
         if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
             print(f"  [editor] VARY watermark applied (bottom-right)", flush=True)
             return output_path

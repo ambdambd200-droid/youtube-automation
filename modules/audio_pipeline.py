@@ -168,13 +168,12 @@ def synthesize_impact(output_path, impact_type="thud"):
     return None
 
 
-def generate_ambience_bed(output_path, ambience_type="stadium"):
+def generate_ambience_bed(output_path, ambience_type="stadium", duration=30):
     """Phase 4: Generate ambient room tone / bed layer using Python.
     'stadium' — distant crowd murmur (pink noise, low-passed)
     'interior' — room hum (brown noise, heavily low-passed)
     'outdoor' — wind (pink noise, mid-range)
     """
-    duration = 30
     if ambience_type == "stadium":
         result = _generate_wav_noise(output_path, "pink", duration, AUDIO_SAMPLE_RATE, 0.08)
     elif ambience_type == "interior":
@@ -401,14 +400,14 @@ def apply_master_bus(input_path, output_path):
         "ffmpeg", "-y", "-i", input_path,
         "-af",
         "compand=attacks=0.1:decays=0.5:"
-        "points=-80/-80|-45/-30|-30/-18|-12/-6|0/-3:"
-        "gain=-1,dynaudnorm=framelen=500:gausssize=31:maxgain=3",
+        "points=-80/-80|-30/-20|-12/-8|0/-2:"
+        "gain=1,alimiter=limit=-1.0:attack=0.1:release=1.0",
         "-ar", str(AUDIO_SAMPLE_RATE), "-ac", "2",
         output_path,
     ]
     result = _run_ffmpeg(cmd, "master bus compression")
     if result and os.path.exists(output_path):
-        print(f"  [audio] Master bus: glue compression + limiter", flush=True)
+        print(f"  [audio] Master bus: gentle glue + limiter (-1 dBTP)", flush=True)
         return output_path
     return None
 
@@ -514,35 +513,31 @@ def full_audio_pipeline(input_path, content_type="football", output_path=None):
             bgm = bgm_norm
         print(f"  [audio] BGM ready: {os.path.basename(bgm)}", flush=True)
 
-    # Step 5: Ambience bed
+    # Step 5: Ambience bed (match clip duration)
     amb_type = "stadium" if content_type == "football" else "interior"
     amb_path = os.path.join(work_dir, f"amb_{stage_id}.wav")
-    if not generate_ambience_bed(amb_path, amb_type):
+    if not generate_ambience_bed(amb_path, amb_type, duration=clip_duration):
         amb_path = None
 
-    # Step 6: Stereo widening on processed audio
-    stereo_path = os.path.join(work_dir, f"stereo_{stage_id}.wav")
-    if not apply_stereo_widening(comp_path, stereo_path):
-        stereo_path = comp_path
-
-    # Step 7: Mix ambience + foley + BGM
+    # Step 6: Mix ambience + foley
     mixed_no_bgm_path = os.path.join(work_dir, f"mixed_{stage_id}.wav")
     mixed_no_bgm = mix_ambience_and_foley(
-        stereo_path, amb_path, foley_paths,
+        comp_path, amb_path, foley_paths,
         output_path=mixed_no_bgm_path,
         duck_on_foley=bool(foley_paths),
     )
     if not mixed_no_bgm:
-        mixed_no_bgm = stereo_path
+        mixed_no_bgm = comp_path
 
-    # Mix in BGM
+    # Step 7: Mix in BGM
     if bgm and os.path.exists(bgm):
         mixed_path = os.path.join(work_dir, f"mixed_with_bgm_{stage_id}.wav")
         inputs = ["-i", mixed_no_bgm, "-i", bgm]
         filter_parts = (
             f"[0:a]asetpts=PTS-STARTPTS[main];"
-            f"[1:a]volume={BGM_VOLUME}[bgm];"
-            f"[main][bgm]amix=inputs=2:duration=first:weights=1 0.3"
+            f"[1:a]volume=1.0[bgm];"
+            f"[main][bgm]amix=inputs=2:duration=first:"
+            f"weights=1 {BGM_VOLUME}"
         )
         cmd_mix = ["ffmpeg", "-y"] + inputs + [
             "-filter_complex", filter_parts,
@@ -557,12 +552,17 @@ def full_audio_pipeline(input_path, content_type="football", output_path=None):
     else:
         final_mixed = mixed_no_bgm
 
-    # Step 8: Master bus (glue compression)
-    master_path = os.path.join(work_dir, f"master_{stage_id}.wav")
-    if not apply_master_bus(final_mixed, master_path):
-        master_path = final_mixed
+    # Step 8: Stereo widening on final mix
+    stereo_path = os.path.join(work_dir, f"stereo_{stage_id}.wav")
+    if not apply_stereo_widening(final_mixed, stereo_path):
+        stereo_path = final_mixed
 
-    # Step 9: LUFS Normalization
+    # Step 9: Master bus (glue compression + limiter)
+    master_path = os.path.join(work_dir, f"master_{stage_id}.wav")
+    if not apply_master_bus(stereo_path, master_path):
+        master_path = stereo_path
+
+    # Step 10: LUFS Normalization
     lufs_path = os.path.join(work_dir, f"lufs_{stage_id}.wav")
     if not normalize_lufs(master_path, lufs_path):
         lufs_path = master_path
