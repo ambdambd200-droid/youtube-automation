@@ -17,6 +17,13 @@ if hasattr(sys.stdout, 'reconfigure'):
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import DOWNLOADS_DIR, YT_COOKIES_FILE, BASE_DIR
+from config import (
+    VIRAL_TIER_1_VIEWS, VIRAL_TIER_1_VELOCITY,
+    VIRAL_TIER_2_VIEWS, VIRAL_TIER_2_VELOCITY,
+    VIRAL_TIER_3_VIEWS,
+    VIRAL_WEIGHT_VELOCITY, VIRAL_WEIGHT_ENGAGEMENT,
+    VIRAL_WEIGHT_VIEWS, VIRAL_WEIGHT_RECENCY,
+)
 
 
 # ── Copyright / Freshness filters ───────────────────────
@@ -42,6 +49,73 @@ _COPYRIGHT_SAFE_CHANNELS = [
     "jo blo", "jolo", "shaeel", "now you see it",
     "kimer", "vibey", "yellow sub", "uday",
 ]
+
+
+# ── Viral Score ──────────────────────────────────────────────
+
+def viral_score(video):
+    """Calculate viral potential score for a video.
+    
+    Factors:
+    - views/day (velocity): how fast it's spreading
+    - likes/views (engagement): how much viewers engage
+    - total views: raw reach
+    - recency: newer is better
+    """
+    from datetime import datetime
+    views = video.get("view_count", 0) or 0
+
+    # Days since upload
+    ud = video.get("upload_date", "")
+    days_old = 999
+    try:
+        if len(ud) == 8:
+            days_old = max(1, (datetime.now() - datetime.strptime(ud, "%Y%m%d")).days)
+    except ValueError:
+        pass
+
+    # View velocity (views per day)
+    velocity = views / days_old
+
+    # Engagement rate (likes/views)
+    likes = video.get("like_count", 0) or 0
+    engagement = likes / max(1, views)
+
+    # Normalize to 0-1 range using log scaling
+    vel_score = min(1.0, velocity / VIRAL_TIER_1_VELOCITY)
+    eng_score = min(1.0, engagement * 100)  # 1% engagement = 1.0
+    views_score = min(1.0, views / VIRAL_TIER_1_VIEWS)
+    recency_score = max(0, 1.0 - (days_old / 365))
+
+    score = (
+        vel_score * VIRAL_WEIGHT_VELOCITY +
+        eng_score * VIRAL_WEIGHT_ENGAGEMENT +
+        views_score * VIRAL_WEIGHT_VIEWS +
+        recency_score * VIRAL_WEIGHT_RECENCY
+    )
+    return round(score, 4)
+
+
+def viral_tier(video):
+    """Classify video into viral tier based on views and velocity."""
+    from datetime import datetime
+    views = video.get("view_count", 0) or 0
+    ud = video.get("upload_date", "")
+    days_old = 999
+    try:
+        if len(ud) == 8:
+            days_old = max(1, (datetime.now() - datetime.strptime(ud, "%Y%m%d")).days)
+    except ValueError:
+        pass
+    velocity = views / days_old
+
+    if views >= VIRAL_TIER_1_VIEWS and velocity >= VIRAL_TIER_1_VELOCITY:
+        return 1  # Viral
+    if views >= VIRAL_TIER_2_VIEWS and velocity >= VIRAL_TIER_2_VELOCITY:
+        return 2  # Popular
+    if views >= VIRAL_TIER_3_VIEWS:
+        return 3  # Normal
+    return 4  # Weak
 
 
 # ── Cookie sanitisation ─────────────────────────────────────
@@ -199,6 +273,7 @@ def search_youtube(query, max_results=30):
                 duration = entry.get("duration", 0)
                 url = entry.get("webpage_url", f"https://youtu.be/{video_id}")
                 view_count = entry.get("view_count", 0) or 0
+                like_count = entry.get("like_count", 0) or 0
                 channel = entry.get("channel", "") or entry.get("uploader", "") or ""
                 channel_id = entry.get("channel_id", "") or ""
                 upload_date = entry.get("upload_date", "") or ""  # YYYYMMDD
@@ -212,6 +287,7 @@ def search_youtube(query, max_results=30):
                     "url": url,
                     "duration": duration,
                     "view_count": view_count,
+                    "like_count": like_count,
                     "channel": channel,
                     "channel_id": channel_id,
                     "upload_date": upload_date,
@@ -446,13 +522,31 @@ def download_best_match(search_query, used_ids=None, content_type=None, min_reso
     else:
         print("  [downloader] ALL candidates blocked by policy — skipping safety gate", flush=True)
 
-    # ── Quality gates ────────────────────────────────────
-    # Reject very low-view videos (weird/obscure content)
-    quality_candidates = [v for v in fresh if v.get("view_count", 0) >= 10000]
-    if not quality_candidates:
-        quality_candidates = [v for v in fresh if v.get("view_count", 0) >= 1000]
-    if not quality_candidates:
-        quality_candidates = fresh
+    # ── VIRAL QUALITY GATES ──────────────────────────────
+    # Score each candidate by viral potential, sort by tier + score
+    for v in fresh:
+        v["_viral_score"] = viral_score(v)
+        v["_viral_tier"] = viral_tier(v)
+
+    # Log tiers for debugging
+    tiers = {1: "Viral", 2: "Popular", 3: "Normal", 4: "Weak"}
+    tier_counts = {}
+    for v in fresh:
+        t = v["_viral_tier"]
+        tier_counts[t] = tier_counts.get(t, 0) + 1
+    print(f"  [downloader] Viral tiers: "
+          f"{', '.join(f'{tiers[k]}={v}' for k, v in sorted(tier_counts.items()))}", flush=True)
+
+    # Sort by tier (ascending), then by viral_score (descending)
+    fresh.sort(key=lambda v: (v["_viral_tier"], -v["_viral_score"]))
+
+    # Filter: prefer tier 1-2, fall back to 3, skip 4 unless desperate
+    viral_candidates = [v for v in fresh if v["_viral_tier"] <= 2]
+    if not viral_candidates:
+        viral_candidates = [v for v in fresh if v["_viral_tier"] <= 3]
+    if not viral_candidates:
+        viral_candidates = fresh  # even weak ones
+    quality_candidates = viral_candidates
 
     # ── Copyright avoidance: reject major studio channels ─
     copyright_safe = []
@@ -487,17 +581,6 @@ def download_best_match(search_query, used_ids=None, content_type=None, min_reso
         if fresh_candidates:
             quality_candidates = fresh_candidates
 
-    # Sort by recency + views for all types
-    def _freshness_score(v):
-        ud = v.get("upload_date", "")
-        try:
-            days_old = (now - datetime.strptime(ud, "%Y%m%d")).days if len(ud) == 8 else 999
-        except ValueError:
-            days_old = 999
-        views = v.get("view_count", 0)
-        return (-days_old, -views)
-    quality_candidates.sort(key=_freshness_score)
-
     # Reject videos from clearly non-relevant channels (gaming, music, news etc)
     filtered = []
     for v in quality_candidates:
@@ -516,13 +599,15 @@ def download_best_match(search_query, used_ids=None, content_type=None, min_reso
     if filtered:
         quality_candidates = filtered
 
-    # Sort by view count descending, pick from top 5
-    quality_candidates.sort(key=lambda v: v.get("view_count", 0), reverse=True)
+    # Already sorted by (_viral_tier, -_viral_score); pick from top candidates
 
     # Try each candidate in order until one passes resolution check
     for chosen in quality_candidates[:5]:
+        tier_label = {1: "Viral", 2: "Popular", 3: "Normal", 4: "Weak"}.get(chosen.get("_viral_tier", 4), "?")
         print(f"  [downloader] Downloading: {chosen['title']}", flush=True)
-        print(f"  [downloader] Channel: {chosen.get('channel', '?')} | Views: {chosen.get('view_count', 0):,}", flush=True)
+        print(f"  [downloader] Channel: {chosen.get('channel', '?')} | "
+              f"Views: {chosen.get('view_count', 0):,} | "
+              f"Tier: {tier_label} | Score: {chosen.get('_viral_score', 0):.3f}", flush=True)
         filepath = download_clip(chosen["url"], video_id=chosen["id"])
 
         if not filepath:

@@ -110,9 +110,30 @@ CONTENT_WEIGHTS = {
     "series": 0.33,
 }
 
+# ── Viral Selection Thresholds ───────────────────────────────
+VIRAL_TIER_1_VIEWS = 100000       # Viral: 100K+ views
+VIRAL_TIER_1_VELOCITY = 5000      # Viral: 5K+ views/day
+VIRAL_TIER_2_VIEWS = 10000        # Popular: 10K+ views
+VIRAL_TIER_2_VELOCITY = 1000      # Popular: 1K+ views/day
+VIRAL_TIER_3_VIEWS = 1000         # Normal: 1K+ views
+
+VIRAL_WEIGHT_VELOCITY = 0.4       # views/day weight in score
+VIRAL_WEIGHT_ENGAGEMENT = 0.3     # likes/views ratio weight
+VIRAL_WEIGHT_VIEWS = 0.2          # raw views weight
+VIRAL_WEIGHT_RECENCY = 0.1        # recency weight
+
 # ── Keywords ─────────────────────────────────────────────────
 FOOTBALL_KEYWORDS = [
-    # Classic football moments
+    "viral football goal today most viewed",
+    "trending football moment millions views",
+    "most watched football clip this week",
+    "viral soccer goal 1M views",
+    "football match viral moment today",
+    "trending football skills best",
+    "viral world cup moment today",
+    "football goal trending now",
+    "football viral plays today",
+    "trending football highlights popular",
     "World Cup 2026 best moments",
     "World Cup 2026 amazing goal",
     "World Cup 2026 highlight",
@@ -120,7 +141,6 @@ FOOTBALL_KEYWORDS = [
     "World Cup 2026 skills",
     "football World Cup 2026 moment",
     "World Cup 2026 top plays",
-    # News-style / trending
     "football news today",
     "breaking football news",
     "transfer news today football",
@@ -134,7 +154,16 @@ FOOTBALL_KEYWORDS = [
 ]
 
 MOVIE_KEYWORDS = [
-    # Classic movie moments
+    "viral movie scene millions views",
+    "trending film clip most watched",
+    "iconic movie scene viral 4k",
+    "most watched movie scene today",
+    "viral cinema moment popular",
+    "trending movie clip viral hit",
+    "blockbuster film scene millions",
+    "famous movie scene trending now",
+    "viral film moment most viewed",
+    "movie clip viral today popular",
     "iconic movie scene 4k",
     "best movie moments 4k",
     "cinematic movie scene",
@@ -144,7 +173,6 @@ MOVIE_KEYWORDS = [
     "hollywood movie iconic moment",
     "blockbuster movie scene",
     "film scene masterpiece hd",
-    # News-style / trending
     "movie news today",
     "upcoming movie 2026",
     "cinema news this week",
@@ -158,14 +186,20 @@ MOVIE_KEYWORDS = [
 ]
 
 SERIES_KEYWORDS = [
-    # Classic series moments
+    "viral tv series moment millions",
+    "trending series clip most watched",
+    "tv show viral scene popular",
+    "most watched series moment today",
+    "viral tv episode trending now",
+    "tv series viral hit millions views",
+    "trending tv show clip this week",
+    "series viral moment today popular",
     "tv series best scene hd",
     "tv show iconic moment",
     "series most famous scene",
     "tv series epic moment hd",
     "tv show dramatic scene",
     "hit series best clip",
-    # News-style / trending
     "tv series news today",
     "new series 2026 trending",
     "show trending this week",
