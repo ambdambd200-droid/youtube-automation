@@ -34,6 +34,16 @@ def _find_ffmpeg():
         "ffmpeg",
         r"C:\Users\A\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin\ffmpeg.exe",
     ]
+    # Try to find via WinGet directory
+    try:
+        base = r"C:\Users\A\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe"
+        for d in os.listdir(base):
+            if d.startswith("ffmpeg-") and d.endswith("-full_build"):
+                exe = os.path.join(base, d, "bin", "ffmpeg.exe")
+                if os.path.exists(exe):
+                    candidates.insert(0, exe)
+    except Exception:
+        pass
     for c in candidates:
         try:
             r = subprocess.run([c, "-version"], capture_output=True, timeout=5)

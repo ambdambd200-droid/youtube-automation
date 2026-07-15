@@ -24,7 +24,7 @@ jobs:
         env:
           PATH: C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts
         run: |
-          python -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp
+          python -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp opencv-python-headless
 
       - name: Check Python syntax
         shell: cmd
@@ -42,7 +42,7 @@ jobs:
         id: poll
         shell: powershell
         run: |
-          $env:PATH += ";C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
+          $env:PATH += ";C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts;C:\Users\A\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin"
           python -c "
           from modules.performance_tracker import poll_all_videos, calculate_performance_trends
           results = poll_all_videos()
@@ -57,7 +57,7 @@ jobs:
       - name: Run evolution cycle with real performance data
         shell: powershell
         run: |
-          $env:PATH += ";C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts"
+          $env:PATH += ";C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts;C:\Users\A\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin"
           python -c "
           from modules.evolution_engine import evolve
           result = evolve()

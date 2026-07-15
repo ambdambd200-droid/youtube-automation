@@ -174,3 +174,7 @@
 {"timestamp": "2026-07-05T16:53:42.588390", "stage": "upload", "status": "success", "details": {"video_id": "-WA4SQgAaTM", "url": "https://youtu.be/-WA4SQgAaTM"}}
 {"timestamp": "2026-07-05T16:53:42.630427", "stage": "performance_register", "status": "success", "details": {"video_id": "-WA4SQgAaTM"}}
 {"timestamp": "2026-07-05T16:53:42.652289", "stage": "evolution", "status": "success", "details": {"generation": 3, "evolved": false, "trends": {}}}
+{"timestamp": "2026-07-14T17:10:44.094067", "stage": "channel_check", "status": "success", "details": {"description_updated": true, "branding_uploaded": true}}
+{"timestamp": "2026-07-14T17:10:44.167113", "stage": "content_selection", "status": "success", "details": {"type": "football", "search_query": "breaking football news", "description": "Football - breaking football news"}}
+{"timestamp": "2026-07-14T17:12:27.794251", "stage": "download", "status": "success", "details": {"path": "C:\\Users\\A\\Desktop\\Movies\\assets\\downloads\\BVhYMEdwAsw.mp4", "title": "Egypt files FIFA complaint as Argentina \u2018rigged\u2019 World Cup claims go viral \u2022 FRANCE 24 English", "video_id": "BVhYMEdwAsw", "url": "https://youtu.be/BVhYMEdwAsw", "duration": 349.0}}
+{"timestamp": "2026-07-14T17:12:29.270342", "stage": "quality_analysis", "status": "success", "details": {"resolution": "640x360", "codec": "h264", "bitrate_kbps": 329, "fps": 25.0, "duration": 349.0, "pix_fmt": "yuv420p"}}
