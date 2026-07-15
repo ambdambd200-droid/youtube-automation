@@ -104,8 +104,8 @@ def apply_speed_ramp(input_path, output_path, impact_time=None):
     # Per-segment video filters
     seg1v = f"[0:v]trim=0:{s2_start},setpts=PTS-STARTPTS"
     seg2v = (f"[0:v]trim={s2_start}:{s2_end},setpts=PTS-STARTPTS,"
-             f"minterpolate=fps={int(round(FPS / TEMP_SLOW_MOTION_SPEED))}:mi_mode=mci:scd=none,"
-             f"setpts=PTS/{TEMP_SLOW_MOTION_SPEED}")
+             f"setpts=PTS/{TEMP_SLOW_MOTION_SPEED},"
+             f"minterpolate=fps={FPS}:mi_mode=blend:scd=none")
     seg3v = (f"[0:v]trim={s2_end}:{s2_end + 0.04},setpts=PTS-STARTPTS,"
              f"loop=loop={freeze_nframes - 1}:size=1,"
              f"setpts=N/FRAME_RATE/TB")
