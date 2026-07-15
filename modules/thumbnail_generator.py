@@ -10,7 +10,10 @@ import random
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import THUMBNAILS_DIR, THUMBNAILS_VARIANTS_DIR, SHORTS_WIDTH, SHORTS_HEIGHT
-from modules.utils import get_font_path
+from modules.utils import get_font_path, find_ffmpeg, find_ffprobe
+
+_FFMPEG_BIN = find_ffmpeg()
+_FFPROBE_BIN = find_ffprobe()
 
 
 def extract_peak_action_frame(video_path, output_path):
@@ -20,7 +23,7 @@ def extract_peak_action_frame(video_path, output_path):
     Falls back to middle-third random frame if detection fails.
     """
     cmd = [
-        "ffmpeg", "-y", "-i", video_path,
+        _FFMPEG_BIN, "-y", "-i", video_path,
         "-vf", f"thumbnail=n=30,scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=2:flags=lanczos,crop={SHORTS_WIDTH}:{SHORTS_HEIGHT}",
         "-vframes", "1",
         "-q:v", "1",
@@ -43,7 +46,7 @@ def extract_frame(video_path, output_path, at_time=None):
     if at_time is None:
         try:
             duration_cmd = [
-                "ffprobe", "-v", "error",
+                _FFPROBE_BIN, "-v", "error",
                 "-show_entries", "format=duration",
                 "-of", "default=noprint_wrappers=1:nokey=1",
                 video_path,
@@ -55,7 +58,7 @@ def extract_frame(video_path, output_path, at_time=None):
             at_time = 5.0
 
     cmd = [
-        "ffmpeg", "-y",
+        _FFMPEG_BIN, "-y",
         "-ss", str(at_time),
         "-i", video_path,
         "-vframes", "1",
@@ -78,7 +81,7 @@ def apply_contrast_enhancement(frame_path, output_path):
     Crush shadows (darker), pop highlights (brighter) for HDR-like punch.
     """
     cmd = [
-        "ffmpeg", "-y", "-i", frame_path,
+        _FFMPEG_BIN, "-y", "-i", frame_path,
         "-vf",
         "curves=all='0/0.02 0.5/0.5 1/0.98', "
         "eq=contrast=1.15:brightness=0.02:saturation=1.1",
@@ -104,7 +107,7 @@ def create_thumbnail_variant_1(frame_path, output_path, text, content_type):
     overlay_text = text[:60].replace("'", "\\'").replace(":", "\\:")
 
     cmd = [
-        "ffmpeg", "-y",
+        _FFMPEG_BIN, "-y",
         "-i", frame_path,
         "-vf",
         f"drawtext=text='{overlay_text}':fontcolor=white:fontsize=48:"
@@ -137,7 +140,7 @@ def create_thumbnail_variant_2(frame_path, output_path, text, content_type):
     icon = "🎬" if content_type == "movie" else "⚽"
 
     cmd = [
-        "ffmpeg", "-y",
+        _FFMPEG_BIN, "-y",
         "-i", frame_path,
         "-vf",
         f"drawtext=text='{icon}':fontcolor=white:fontsize=72:"
@@ -169,7 +172,7 @@ def create_thumbnail_variant_3(frame_path, output_path, text, content_type):
     overlay_text = text[:50].replace("'", "\\'").replace(":", "\\:")
 
     cmd = [
-        "ffmpeg", "-y",
+        _FFMPEG_BIN, "-y",
         "-i", frame_path,
         "-vf",
         f"drawbox=x=0:y=h-120:w=iw:h=120:color=black@0.5:t=fill,"
@@ -271,7 +274,7 @@ def extract_landscape_frame(video_path, output_path, at_time=None):
     if at_time is None:
         try:
             duration_cmd = [
-                "ffprobe", "-v", "error",
+                _FFPROBE_BIN, "-v", "error",
                 "-show_entries", "format=duration",
                 "-of", "default=noprint_wrappers=1:nokey=1",
                 video_path,
@@ -283,7 +286,7 @@ def extract_landscape_frame(video_path, output_path, at_time=None):
             at_time = 5.0
 
     cmd = [
-        "ffmpeg", "-y",
+        _FFMPEG_BIN, "-y",
         "-ss", str(at_time),
         "-i", video_path,
         "-vframes", "1",
@@ -311,7 +314,7 @@ def create_landscape_thumbnail_v1(frame_path, output_path, movie_name):
     safe_text = movie_name[:50].replace("'", "\\'").replace(":", "\\:")
 
     cmd = [
-        "ffmpeg", "-y",
+        _FFMPEG_BIN, "-y",
         "-i", frame_path,
         "-vf",
         f"drawbox=x=0:y=h-100:w=iw:h=100:color=black@0.6:t=fill,"
@@ -342,7 +345,7 @@ def create_landscape_thumbnail_v2(frame_path, output_path, movie_name):
     safe_text = movie_name[:40].replace("'", "\\'").replace(":", "\\:")
 
     cmd = [
-        "ffmpeg", "-y",
+        _FFMPEG_BIN, "-y",
         "-i", frame_path,
         "-vf",
         f"drawtext=text='🎬':fontcolor=white:fontsize=72:"
@@ -375,7 +378,7 @@ def create_landscape_thumbnail_v3(frame_path, output_path, movie_name):
 
     # Subtle top and bottom bars + centered text
     cmd = [
-        "ffmpeg", "-y",
+        _FFMPEG_BIN, "-y",
         "-i", frame_path,
         "-vf",
         f"drawbox=x=0:y=0:w=iw:h=80:color=black@0.4:t=fill,"

@@ -11,6 +11,10 @@ import subprocess
 import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from modules.utils import find_ffmpeg
+
+_FFMPEG_BIN = find_ffmpeg()
+
 from config import (
     CLIPS_DIR,
     SHORTS_WIDTH, SHORTS_HEIGHT,
@@ -43,7 +47,7 @@ def apply_white_balance_lock(input_path, output_path):
     Normalizes color temperature — shifts toward neutral grays.
     """
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-vf",
         "colorchannelmixer=rr=1.05:rg=0.02:rb=-0.07:"
         "gr=0.01:gg=1.00:gb=-0.01:"
@@ -67,7 +71,7 @@ def apply_dynamic_range_compression(input_path, output_path):
     Uses 'curves' filter for precise control.
     """
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-vf",
         "curves=all='0/0.04 0.5/0.5 1/0.96'",
         "-c:v", RENDER_CODEC, "-preset", RENDER_INTERMEDIATE_PRESET,
@@ -89,7 +93,7 @@ def apply_teal_orange_grade(input_path, output_path):
     Uses colorbalance for shadow/midtone/highlight separation.
     """
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-vf",
         "colorbalance=rs=-0.02:gs=0.04:bs=0.08:"
         "rm=0.06:gm=-0.02:bm=-0.04:"
@@ -113,7 +117,7 @@ def apply_saturation_vibrance(input_path, output_path):
     """
     # Vibrance approximation using eq filter: saturation + vibrance
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-vf",
         f"eq=saturation={1.0 + COLOR_GLOBAL_SATURATION}:"
         f"gamma={1.0 + COLOR_VIBRANCE_BOOST * 0.2}",
@@ -133,7 +137,7 @@ def apply_saturation_vibrance(input_path, output_path):
 def apply_s_curve_contrast(input_path, output_path):
     """Phase 2: S-Curve contrast — darken darks, brighten brights."""
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-vf",
         "curves=all='0/0 0.25/0.2 0.5/0.5 0.75/0.78 1/1'",
         "-c:v", RENDER_CODEC, "-preset", RENDER_INTERMEDIATE_PRESET,
@@ -156,7 +160,7 @@ def apply_unsharp_mask(input_path, output_path):
     """
     # 3x3 sharpen kernel: center-weighted difference
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-vf",
         "convolution='0 -1 0 -1 5 -1 0 -1 0:"
         "0 -1 0 -1 5 -1 0 -1 0:"
@@ -175,7 +179,7 @@ def apply_unsharp_mask(input_path, output_path):
     # Fallback: simple contrast boost
     print(f"  [color] Convolution unavailable, trying contrast fallback...", flush=True)
     cmd2 = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-vf", "eq=contrast=1.15",
         "-c:v", RENDER_CODEC, "-preset", RENDER_INTERMEDIATE_PRESET,
         "-crf", str(RENDER_CRF),
@@ -196,7 +200,7 @@ def apply_film_grain(input_path, output_path):
     """
     intensity = max(1, min(10, int(COLOR_GRAIN_INTENSITY * 0.6)))
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-vf",
         f"noise=alls={intensity}:allf=t",
         "-c:v", RENDER_CODEC, "-preset", RENDER_INTERMEDIATE_PRESET,
@@ -217,7 +221,7 @@ def apply_film_grain(input_path, output_path):
 def apply_vignette(input_path, output_path):
     """Phase 3 (aux): Vignette — darken corners by 40% to tunnel focus."""
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-vf",
         "vignette=PI/4:max_eval=frame",
         "-c:v", RENDER_CODEC, "-preset", RENDER_INTERMEDIATE_PRESET,
@@ -263,7 +267,7 @@ def full_color_pipeline(input_path, output_path=None):
     )
 
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-vf", vf,
         "-c:v", RENDER_CODEC, "-preset", "fast",
         "-crf", str(RENDER_CRF),

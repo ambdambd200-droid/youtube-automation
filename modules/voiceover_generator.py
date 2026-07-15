@@ -10,6 +10,9 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import LOG_DIR, CLIPS_DIR
+from modules.utils import find_ffmpeg
+
+_FFMPEG_BIN = find_ffmpeg()
 
 VOICEOVER_DIR = os.path.join(LOG_DIR, "_voiceovers")
 

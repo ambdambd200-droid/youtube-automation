@@ -17,6 +17,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import FPS
+from modules.utils import find_ffprobe
+
+_FFPROBE_BIN = find_ffprobe()
 
 
 # ── Constants ──────────────────────────────────────────────
@@ -39,7 +42,7 @@ class VideoAnalyzer:
 
     def _probe(self):
         cmd = [
-            "ffprobe", "-v", "quiet", "-print_format", "json",
+            _FFPROBE_BIN, "-v", "quiet", "-print_format", "json",
             "-show_format", "-show_streams",
             self.path,
         ]

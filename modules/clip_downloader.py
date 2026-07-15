@@ -17,6 +17,9 @@ if hasattr(sys.stdout, 'reconfigure'):
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import DOWNLOADS_DIR, YT_COOKIES_FILE, BASE_DIR
+from modules.utils import find_ffprobe
+
+_FFPROBE_BIN = find_ffprobe()
 from config import (
     VIRAL_TIER_1_VIEWS, VIRAL_TIER_1_VELOCITY,
     VIRAL_TIER_2_VIEWS, VIRAL_TIER_2_VELOCITY,
@@ -461,7 +464,7 @@ def _is_relevant(title, content_type):
 def get_video_dimensions_simple(video_path):
     """Quick ffprobe call to get video resolution."""
     import json, subprocess
-    cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
+    cmd = [_FFPROBE_BIN, "-v", "error", "-select_streams", "v:0",
            "-show_entries", "stream=width,height", "-of", "json", video_path]
     try:
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=15).stdout

@@ -3,6 +3,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import SHORTS_WIDTH, SHORTS_HEIGHT, CLIP_MIN_DURATION, CLIP_MAX_DURATION
+from modules.utils import find_ffprobe
+
+_FFPROBE_BIN = find_ffprobe()
 
 
 WEEKLY_MIN_DURATION = 120     # 2 min minimum (avoid YouTube Shorts classification)
@@ -22,7 +25,7 @@ def _run_ffprobe(cmd):
 
 def get_video_duration(video_path):
     # Try text-based ffprobe first
-    cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+    cmd = [_FFPROBE_BIN, "-v", "error", "-show_entries", "format=duration",
            "-of", "default=noprint_wrappers=1:nokey=1", video_path]
     try:
         raw = _run_ffprobe(cmd)
@@ -35,7 +38,7 @@ def get_video_duration(video_path):
     # Fallback: JSON ffprobe
     try:
         import json
-        cmd2 = ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+        cmd2 = [_FFPROBE_BIN, "-v", "error", "-show_entries", "format=duration",
                 "-of", "json", video_path]
         raw2 = _run_ffprobe(cmd2)
         if raw2:
@@ -47,7 +50,7 @@ def get_video_duration(video_path):
         pass
     # Last resort: try ffprobe with stream-level duration
     try:
-        cmd3 = ["ffprobe", "-v", "error", "-select_streams", "v:0",
+        cmd3 = [_FFPROBE_BIN, "-v", "error", "-select_streams", "v:0",
                 "-show_entries", "stream=duration",
                 "-of", "default=noprint_wrappers=1:nokey=1", video_path]
         raw3 = _run_ffprobe(cmd3)
@@ -62,7 +65,7 @@ def get_video_duration(video_path):
 
 def get_video_dimensions(video_path):
     import json
-    cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
+    cmd = [_FFPROBE_BIN, "-v", "error", "-select_streams", "v:0",
            "-show_entries", "stream=width,height", "-of", "json", video_path]
     raw = _run_ffprobe(cmd)
     if not raw:

@@ -27,6 +27,10 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import LOG_DIR, SHORTS_WIDTH, SHORTS_HEIGHT
+from modules.utils import find_ffmpeg, find_ffprobe
+
+_FFMPEG_BIN = find_ffmpeg()
+_FFPROBE_BIN = find_ffprobe()
 
 
 CRITIQUE_LOG = os.path.join(LOG_DIR, "critique_scores.jsonl")
@@ -70,7 +74,7 @@ def _detect_scenes(video_path, max_seconds=10, threshold=0.3, timeout=20):
     """
     try:
         cmd = [
-            "ffmpeg", "-i", video_path,
+            _FFMPEG_BIN, "-i", video_path,
             "-t", str(max_seconds),
             "-filter:v", f"select='gt(scene,{threshold})',showinfo",
             "-f", "null",
@@ -96,7 +100,7 @@ def _extract_first_frame(video_path, at_time=0.0):
     frame_id = uuid.uuid4().hex[:12]
     out = os.path.join(FRAME_ANALYSIS_DIR, f"critique_{frame_id}.jpg")
     cmd = [
-        "ffmpeg", "-y",
+        _FFMPEG_BIN, "-y",
         "-ss", str(at_time),
         "-i", video_path,
         "-vframes", "1",
@@ -228,7 +232,7 @@ def _score_audio_impact(video_path):
     try:
         # Check if audio stream exists via simple ffprobe (text-based is more reliable)
         cmd = [
-            "ffprobe", "-v", "error",
+            _FFPROBE_BIN, "-v", "error",
             "-select_streams", "a:0",
             "-show_entries", "stream=codec_name",
             "-of", "default=noprint_wrappers=1:nokey=1",
@@ -240,7 +244,7 @@ def _score_audio_impact(video_path):
         if not codec:
             # Try parsing ffprobe JSON format as fallback (Windows compat)
             cmd2 = [
-                "ffprobe", "-v", "error",
+                _FFPROBE_BIN, "-v", "error",
                 "-select_streams", "a:0",
                 "-show_entries", "stream=codec_name",
                 "-of", "json",
@@ -255,7 +259,7 @@ def _score_audio_impact(video_path):
 
         # Analyze audio volume statistics
         cmd_vol = [
-            "ffmpeg", "-i", video_path,
+            _FFMPEG_BIN, "-i", video_path,
             "-af", "volumedetect",
             "-f", "null",
             "-",
@@ -278,7 +282,7 @@ def _score_audio_impact(video_path):
             # volumedetect failed — try detecting silence ratio as alternative
             try:
                 cmd_silence = [
-                    "ffmpeg", "-i", video_path,
+                    _FFMPEG_BIN, "-i", video_path,
                     "-af", "silencedetect=noise=-30dB:d=0.5",
                     "-f", "null",
                     "-",
@@ -614,7 +618,7 @@ def _extract_landscape_frame(video_path, at_time=0.0):
     frame_id = uuid.uuid4().hex[:12]
     out = os.path.join(FRAME_ANALYSIS_DIR, f"weekly_{frame_id}.jpg")
     cmd = [
-        "ffmpeg", "-y",
+        _FFMPEG_BIN, "-y",
         "-ss", str(at_time),
         "-i", video_path,
         "-vframes", "1",

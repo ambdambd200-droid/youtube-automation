@@ -16,6 +16,11 @@ import math
 import random
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from modules.utils import find_ffmpeg, find_ffprobe
+
+_FFMPEG_BIN = find_ffmpeg()
+_FFPROBE_BIN = find_ffprobe()
+
 from config import (
     CLIPS_DIR,
     AUDIO_TARGET_LUFS, AUDIO_TRUE_PEAK,
@@ -47,7 +52,7 @@ def apply_eq_carving(input_path, output_path):
     HP 80Hz, LP 12kHz, +3dB presence boost at 3-5kHz.
     """
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-af",
         f"highpass=f={AUDIO_EQ_HIGHPASS},"
         f"lowpass=f={AUDIO_EQ_LOWPASS},"
@@ -71,7 +76,7 @@ def apply_dynamic_compression(input_path, output_path):
     thresh_linear = 0.063
     ratio = AUDIO_COMPRESSION_RATIO
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-af",
         f"acompressor=threshold={thresh_linear}:ratio={ratio}:attack=5:release=50:makeup=3",
         "-ar", str(AUDIO_SAMPLE_RATE), "-ac", "2",
@@ -186,7 +191,7 @@ def generate_ambience_bed(output_path, ambience_type="stadium", duration=30):
         stereo_out = output_path.replace(".wav", "_stereo.wav") if output_path.endswith(".wav") else output_path
         if output_path != stereo_out:
             cmd = [
-                "ffmpeg", "-y", "-i", output_path,
+                _FFMPEG_BIN, "-y", "-i", output_path,
                 "-ac", "2", "-ar", str(AUDIO_SAMPLE_RATE),
                 "-sample_fmt", "s16",
                 stereo_out,
@@ -203,7 +208,7 @@ def apply_stereo_widening(input_path, output_path):
     Dialogue stays center, ambience pushed to extremes.
     """
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-af",
         "stereowiden=delay=10:feedback=0.3:crossfeed=0.3:drymix=0.8",
         "-ar", str(AUDIO_SAMPLE_RATE), "-ac", "2",
@@ -285,7 +290,7 @@ def mix_ambience_and_foley(input_path, ambience_path, foley_paths=None, output_p
 
     filter_complex = ";".join(filter_parts)
 
-    cmd = ["ffmpeg", "-y"] + inputs + [
+    cmd = [_FFMPEG_BIN, "-y"] + inputs + [
         "-filter_complex", filter_complex,
         "-map", audio_map,
         "-ar", str(AUDIO_SAMPLE_RATE), "-ac", "2",
@@ -333,7 +338,7 @@ def generate_background_music(output_path, content_type="football", duration=30)
         ).format(duration, duration)
 
     cmd = [
-        "ffmpeg", "-y",
+        _FFMPEG_BIN, "-y",
         "-filter_complex", filter_complex,
         "-map", "[a]",
         "-ar", str(AUDIO_SAMPLE_RATE), "-ac", "2",
@@ -397,17 +402,17 @@ def apply_master_bus(input_path, output_path):
     Adds an extra compand stage for glue compression.
     """
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-af",
         "compand=attacks=0.1:decays=0.5:"
         "points=-80/-80|-30/-20|-12/-8|0/-2:"
-        "gain=1,alimiter=limit=-1.0:attack=0.1:release=1.0",
+        "gain=1",
         "-ar", str(AUDIO_SAMPLE_RATE), "-ac", "2",
         output_path,
     ]
     result = _run_ffmpeg(cmd, "master bus compression")
     if result and os.path.exists(output_path):
-        print(f"  [audio] Master bus: gentle glue + limiter (-1 dBTP)", flush=True)
+        print(f"  [audio] Master bus: gentle glue compression", flush=True)
         return output_path
     return None
 
@@ -420,7 +425,7 @@ def normalize_lufs(input_path, output_path, target_lufs=None):
         target_lufs = AUDIO_TARGET_LUFS
 
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-af",
         f"loudnorm=I={target_lufs}:LRA=7:TP={AUDIO_TRUE_PEAK}:print_format=json",
         "-ar", str(AUDIO_SAMPLE_RATE), "-ac", "2",
@@ -457,7 +462,7 @@ def full_audio_pipeline(input_path, content_type="football", output_path=None):
     # Extract audio to WAV first
     raw_audio = os.path.join(work_dir, f"raw_{stage_id}.wav")
     cmd_extract = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-vn", "-acodec", "pcm_s16le",
         "-ar", str(AUDIO_SAMPLE_RATE), "-ac", "2",
         raw_audio,
@@ -493,7 +498,7 @@ def full_audio_pipeline(input_path, content_type="football", output_path=None):
     clip_duration = 30
     try:
         r = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+            [_FFPROBE_BIN, "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", input_path],
             capture_output=True, text=True, timeout=10,
         )
@@ -539,7 +544,7 @@ def full_audio_pipeline(input_path, content_type="football", output_path=None):
             f"[main][bgm]amix=inputs=2:duration=first:"
             f"weights=1 {BGM_VOLUME}"
         )
-        cmd_mix = ["ffmpeg", "-y"] + inputs + [
+        cmd_mix = [_FFMPEG_BIN, "-y"] + inputs + [
             "-filter_complex", filter_parts,
             "-ar", str(AUDIO_SAMPLE_RATE), "-ac", "2",
             mixed_path,
@@ -569,7 +574,7 @@ def full_audio_pipeline(input_path, content_type="football", output_path=None):
 
     # Replace audio in original video
     cmd_replace = [
-        "ffmpeg", "-y",
+        _FFMPEG_BIN, "-y",
         "-i", input_path,
         "-i", lufs_path,
         "-c:v", "copy",

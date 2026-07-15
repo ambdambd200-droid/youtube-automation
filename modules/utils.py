@@ -1,9 +1,10 @@
 """
 VARY — Shared utility functions.
-Consolidates cross-cutting concerns like font path resolution.
+Consolidates cross-cutting concerns like font path resolution and ffmpeg location.
 """
 import os
 import platform
+import subprocess
 
 
 def get_font_path():
@@ -48,3 +49,71 @@ def get_font_path():
             return font
 
     raise FileNotFoundError("No suitable font found for drawtext in any search path")
+
+
+_FFMPEG_PATH = None
+_FFPROBE_PATH = None
+
+
+def find_ffmpeg():
+    """Find ffmpeg executable, caching result.
+
+    Searches WinGet install path first, then falls back to PATH.
+    """
+    global _FFMPEG_PATH
+    if _FFMPEG_PATH:
+        return _FFMPEG_PATH
+
+    candidates = ["ffmpeg"]
+    # WinGet search path
+    wget_base = (
+        r"C:\Users\A\AppData\Local\Microsoft\WinGet\Packages"
+        r"\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe"
+    )
+    if os.path.exists(wget_base):
+        for d in sorted(os.listdir(wget_base), reverse=True):
+            if d.startswith("ffmpeg-") and d.endswith("-full_build"):
+                exe = os.path.join(wget_base, d, "bin", "ffmpeg.exe")
+                if os.path.exists(exe):
+                    candidates.insert(0, exe)
+                    break
+
+    for c in candidates:
+        try:
+            r = subprocess.run([c, "-version"], capture_output=True, timeout=5)
+            if r.returncode == 0:
+                _FFMPEG_PATH = c
+                return c
+        except Exception:
+            continue
+    return "ffmpeg"
+
+
+def find_ffprobe():
+    """Find ffprobe executable, caching result."""
+    global _FFPROBE_PATH
+    if _FFPROBE_PATH:
+        return _FFPROBE_PATH
+
+    candidates = ["ffprobe"]
+    wget_base = (
+        r"C:\Users\A\AppData\Local\Microsoft\WinGet\Packages"
+        r"\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe"
+    )
+    if os.path.exists(wget_base):
+        for d in sorted(os.listdir(wget_base), reverse=True):
+            if d.startswith("ffmpeg-") and d.endswith("-full_build"):
+                exe = os.path.join(wget_base, d, "bin", "ffprobe.exe")
+                if os.path.exists(exe):
+                    candidates.insert(0, exe)
+                    break
+
+    for c in candidates:
+        try:
+            r = subprocess.run([c, "-version"], capture_output=True, timeout=5)
+            if r.returncode == 0:
+                _FFPROBE_PATH = c
+                return c
+        except Exception:
+            continue
+    return "ffprobe"

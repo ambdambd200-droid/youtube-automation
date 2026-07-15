@@ -28,7 +28,10 @@ from config import (
     RENDER_PIX_FMT, RENDER_MOVFLAGS,
     RENDER_INTERMEDIATE_PRESET, RENDER_FINAL_PRESET,
 )
-from modules.utils import get_font_path
+from modules.utils import get_font_path, find_ffmpeg, find_ffprobe
+
+_FFMPEG_BIN = find_ffmpeg()
+_FFPROBE_BIN = find_ffprobe()
 
 # ── Blueprint Section 4: Temporal Dynamics ──────────────────
 
@@ -135,7 +138,7 @@ def apply_speed_ramp(input_path, output_path, impact_time=None):
     filter_complex = ";".join(filter_parts)
 
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-filter_complex", filter_complex,
         "-map", "[vout]", "-map", "[aout]",
         "-c:v", RENDER_CODEC, "-preset", RENDER_INTERMEDIATE_PRESET,
@@ -173,7 +176,7 @@ def apply_in_media_res(input_path, output_path, action_time=1.5, total_duration=
         total_duration = TEMP_PRE_ACTION_WINDOW + TEMP_REACTION_DURATION + 2
 
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-ss", str(max(0, action_time - TEMP_PRE_ACTION_WINDOW)),
         "-t", str(total_duration),
         "-c", "copy",
@@ -208,7 +211,7 @@ def apply_breath_cut(input_path, output_path, total_duration):
         af += f",apad=pad_dur={pad_dur}"
 
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-ss", "0",
         "-t", str(target),
         "-vf", vf,
@@ -271,7 +274,7 @@ def apply_karaoke_subtitles(input_path, output_path, text_segments, font_size=48
 
     vf = ",".join(drawtext_filters)
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-vf", vf,
         "-c:v", RENDER_CODEC, "-preset", RENDER_INTERMEDIATE_PRESET,
         "-crf", str(RENDER_CRF),
@@ -305,7 +308,7 @@ def apply_focus_indicator(input_path, output_path, focus_time, duration=0.5):
     ).replace("focus_time", str(focus_time))
 
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-filter_complex", vf,
         "-map", "[vout]",
         "-c:v", RENDER_CODEC, "-preset", "fast",
@@ -327,7 +330,7 @@ def apply_focus_indicator(input_path, output_path, focus_time, duration=0.5):
 def get_video_info(video_path):
     """Get video metadata using ffprobe."""
     cmd = [
-        "ffprobe", "-v", "error",
+        _FFPROBE_BIN, "-v", "error",
         "-show_entries", "format=duration,size",
         "-show_entries", "stream=width,height,codec_name",
         "-of", "json",
@@ -350,7 +353,7 @@ def fallback_duration(video_path):
     """
     try:
         cmd = [
-            "ffprobe", "-v", "error",
+            _FFPROBE_BIN, "-v", "error",
             "-show_entries", "format=duration",
             "-of", "default=noprint_wrappers=1:nokey=1",
             video_path,
@@ -387,7 +390,7 @@ def get_video_duration(video_path):
     # Last resort: try ffprobe with stream-level duration query
     try:
         cmd = [
-            "ffprobe", "-v", "error",
+            _FFPROBE_BIN, "-v", "error",
             "-select_streams", "v:0",
             "-show_entries", "stream=duration",
             "-of", "default=noprint_wrappers=1:nokey=1",
@@ -423,7 +426,7 @@ def detect_scenes(video_path):
     """
     try:
         cmd = [
-            "ffmpeg", "-i", video_path,
+            _FFMPEG_BIN, "-i", video_path,
             "-filter:v", "select='gt(scene,0.2)',showinfo",
             "-f", "null",
             "-",
@@ -578,7 +581,7 @@ def crop_to_shorts(input_path, output_path, start_time=0, duration=None):
     )
 
     cmd = [
-        "ffmpeg", "-y",
+        _FFMPEG_BIN, "-y",
         "-i", input_path,
         "-filter_complex", filter_complex,
         "-map", "[vout]",
@@ -632,7 +635,7 @@ def crop_to_shorts(input_path, output_path, start_time=0, duration=None):
     try:
         fb_output = output_path.replace(".mp4", "_simple.mp4")
         fb_cmd = [
-            "ffmpeg", "-y",
+            _FFMPEG_BIN, "-y",
             "-ss", str(start_time),
             "-i", input_path,
             "-t", str(duration),
@@ -683,7 +686,7 @@ def remux_to_compatible(input_path):
 
         print(f"  [editor] Re-muxing WebM to MP4 for compatibility...", flush=True)
         cmd = [
-            "ffmpeg", "-y",
+            _FFMPEG_BIN, "-y",
             "-i", input_path,
             "-c:v", "libx264",
             "-preset", "fast",
@@ -844,7 +847,7 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
             try:
                 step2_fb = os.path.join(work_dir, "02_graded_fallback.mp4")
                 fb_cmd = [
-                    "ffmpeg", "-y", "-i", current,
+                    _FFMPEG_BIN, "-y", "-i", current,
                     "-vf", "eq=contrast=1.1:saturation=1.1:brightness=0.02",
                     "-c:v", RENDER_CODEC, "-preset", "fast",
                     "-crf", str(RENDER_CRF),
@@ -879,7 +882,7 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
             try:
                 step3_fb = os.path.join(work_dir, "03_ramped_fallback.mp4")
                 fb_cmd = [
-                    "ffmpeg", "-y", "-i", current,
+                    _FFMPEG_BIN, "-y", "-i", current,
                     "-vf", "setpts=PTS-STARTPTS",
                     "-af", "asetpts=PTS-STARTPTS",
                     "-c:v", RENDER_CODEC, "-preset", "fast",
@@ -934,7 +937,7 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
             try:
                 step5_fb = os.path.join(work_dir, "05_audio_fallback.mp4")
                 fb_cmd = [
-                    "ffmpeg", "-y", "-i", current,
+                    _FFMPEG_BIN, "-y", "-i", current,
                     "-c:v", "copy",
                     "-af", "loudnorm=I=-14:LRA=7:TP=-1",
                     "-c:a", "aac", "-b:a", "192k",
@@ -1038,7 +1041,7 @@ def apply_watermark(input_path, output_path):
         f"fontfile='{font_path}'"
     )
     cmd = [
-        "ffmpeg", "-y", "-i", input_path,
+        _FFMPEG_BIN, "-y", "-i", input_path,
         "-vf", vf,
         "-c:v", RENDER_CODEC, "-preset", RENDER_FINAL_PRESET,
         "-crf", str(RENDER_CRF),
@@ -1149,7 +1152,7 @@ def _generate_sfx(sfx_type):
         return None
 
     cmd = [
-        "ffmpeg", "-y",
+        _FFMPEG_BIN, "-y",
         "-f", "lavfi", "-i", filt,
         "-ac", "1", "-ar", "44100",
         sfx_path,
@@ -1270,7 +1273,7 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
     filter_complex = f"{full_filter};" + ";".join(audio_filters)
 
     cmd = [
-        "ffmpeg", "-y",
+        _FFMPEG_BIN, "-y",
     ] + input_files + [
         "-filter_complex", filter_complex,
         "-map", f"[{last_label}]",
@@ -1464,7 +1467,7 @@ def _generate_intro_cinematic(target_width, target_height, source_title=""):
     d = WEEKLY_INTRO_DURATION
 
     cmd = [
-        "ffmpeg", "-y",
+        _FFMPEG_BIN, "-y",
         "-f", "lavfi", "-i", f"color=c=0x0A0E28:s={target_width}x{target_height}:d={d}",
         "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
         "-filter_complex", (
@@ -1525,7 +1528,7 @@ def _generate_intro_split(target_width, target_height, source_title=""):
     hw = target_width // 2
 
     cmd = [
-        "ffmpeg", "-y",
+        _FFMPEG_BIN, "-y",
         "-f", "lavfi", "-i", f"color=c=0x0A1628:s={target_width}x{target_height}:d={d}",
         "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
         "-filter_complex", (
@@ -1583,7 +1586,7 @@ def _generate_intro_minimal(target_width, target_height, source_title=""):
     d = WEEKLY_INTRO_DURATION
 
     cmd = [
-        "ffmpeg", "-y",
+        _FFMPEG_BIN, "-y",
         # Base: very dark gray (almost black)
         "-f", "lavfi", "-i", f"color=c=0x080808:s={target_width}x{target_height}:d={d}",
         "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
@@ -1790,7 +1793,7 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
             f"[1:a][{audio_map_label}]acrossfade=d={crossfade_dur}[aout]"
         )
         cmd = [
-            "ffmpeg", "-y",
+            _FFMPEG_BIN, "-y",
         ] + input_files + [
             "-filter_complex", filter_complex,
             "-map", "[vout]",
@@ -1799,7 +1802,7 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
     elif has_voiceover:
         filter_complex = f"{video_chain}[vout];{audio_chain}"
         cmd = [
-            "ffmpeg", "-y",
+            _FFMPEG_BIN, "-y",
         ] + input_files + [
             "-filter_complex", filter_complex,
             "-map", "[vout]",
@@ -1807,7 +1810,7 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
         ]
     else:
         cmd = [
-            "ffmpeg", "-y",
+            _FFMPEG_BIN, "-y",
         ] + input_files + [
             "-vf", video_chain,
             "-af", f"atrim=0:{video_duration},asetpts=PTS-STARTPTS",
