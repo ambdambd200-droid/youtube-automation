@@ -34,7 +34,7 @@ jobs:
         env:
           PATH: C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Users\A\AppData\Local\Programs\Python\Python312;C:\Users\A\AppData\Local\Programs\Python\Python312\Scripts
         run: |
-          python -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp onnxruntime nudenet
+          python -m pip install --quiet pillow requests google-api-python-client google-auth-httplib2 google-auth-oauthlib python-dotenv yt-dlp onnxruntime nudenet opencv-python-headless
 
       - name: Check Python syntax
         shell: cmd

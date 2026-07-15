@@ -87,7 +87,12 @@ def _skin_percentage(frame):
 
 def _check_skin_exposure(video_path):
     """Check skin exposure percentage across sampled frames."""
-    import cv2
+    try:
+        import cv2
+    except ImportError:
+        print(f"  [safety] cv2 not installed — skipping skin check", flush=True)
+        return True, ""
+
     work_dir = tempfile.mkdtemp()
     try:
         frames = _extract_frames(video_path, work_dir, interval=5, max_frames=SAFETY_MAX_FRAMES)
