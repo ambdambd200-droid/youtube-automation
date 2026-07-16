@@ -966,7 +966,12 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
         for breath_attempt in range(2):
             try:
                 step7 = os.path.join(work_dir, "07_final.mp4")
-                actual_dur = get_video_duration(current) or clip_duration
+                probed_dur = get_video_duration(current)
+                # Guard: if probed duration is way smaller than expected, use clip_duration
+                if probed_dur <= 0 or probed_dur < clip_duration * 0.5:
+                    actual_dur = clip_duration
+                else:
+                    actual_dur = probed_dur
                 breath = apply_breath_cut(current, step7, actual_dur)
                 if breath:
                     current = breath

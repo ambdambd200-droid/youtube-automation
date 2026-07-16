@@ -193,10 +193,20 @@ def _calculate_performance_trends(critiques):
 # ── Mutation Functions ─────────────────────────────────────
 
 
+def _get_content_weights(params):
+    """Get content_weights from params, handling legacy key names."""
+    from config import CONTENT_WEIGHTS
+    for k in ("content_weights", "content_weights_active", "content_weights_post_wc"):
+        if k in params:
+            return params[k]
+    return dict(CONTENT_WEIGHTS)
+
+
 def _mutate_content_weights(state, trends):
     """Shift content type weights based on performance."""
     params = state["parameters"]
     type_avgs = trends.get("type_averages", {})
+    cw = _get_content_weights(params)
 
     if not type_avgs:
         return
@@ -204,22 +214,22 @@ def _mutate_content_weights(state, trends):
     for ct, avg_score in type_avgs.items():
         # Map content_type to weight key
         key = ct if ct in ("football", "movie", "series") else "movie"
-        if key in params["content_weights"]:
-            current = params["content_weights"][key]
+        if key in cw:
+            current = cw[key]
             # If this type performs >10% above average, boost it
             overall_avg = trends.get("average_score", 50)
             if avg_score > overall_avg * 1.1:
                 # Boost this type, reduce others
                 boost = min(0.15, (avg_score - overall_avg) / 200)
-                params["content_weights"][key] = round(min(0.9, current + boost), 2)
+                cw[key] = round(min(0.9, current + boost), 2)
                 # Normalize
-                total = sum(params["content_weights"].values())
-                for k in params["content_weights"]:
-                    params["content_weights"][k] = round(params["content_weights"][k] / total, 2)
+                total = sum(cw.values())
+                for k in cw:
+                    cw[k] = round(cw[k] / total, 2)
                 state["mutations"].append({
                     "timestamp": datetime.now().isoformat(),
                     "axis": "content_weights",
-                    "change": f"Boosted {key} from {current:.2f} to {params['content_weights'][key]:.2f} (score: {avg_score})"
+                    "change": f"Boosted {key} from {current:.2f} to {cw[key]:.2f} (score: {avg_score})"
                 })
 
 
@@ -396,21 +406,22 @@ def _mutate_from_real_performance(state):
     state["performance"]["critique_vs_real_delta"] = avg_delta
 
     # If real performance is high for a content type, boost it
+    cw = _get_content_weights(params)
     for ct, avg_score in type_avgs.items():
         key = ct if ct in ("football", "movie", "series") else "movie"
-        if key in params["content_weights"]:
-            current = params["content_weights"][key]
+        if key in cw:
+            current = cw[key]
             # Real performance is the ultimate signal
             if avg_score > 60:  # Strong real performance
                 boost = min(0.10, (avg_score - 50) / 500)
-                params["content_weights"][key] = round(min(0.9, current + boost), 2)
-                total = sum(params["content_weights"].values())
-                for k in params["content_weights"]:
-                    params["content_weights"][k] = round(params["content_weights"][k] / total, 2)
+                cw[key] = round(min(0.9, current + boost), 2)
+                total = sum(cw.values())
+                for k in cw:
+                    cw[k] = round(cw[k] / total, 2)
                 state["mutations"].append({
                     "timestamp": datetime.now().isoformat(),
                     "axis": "real_performance",
-                    "change": f"Real perf boosted {key} from {current:.2f} to {params['content_weights'][key]:.2f} (real avg: {avg_score})"
+                    "change": f"Real perf boosted {key} from {current:.2f} to {cw[key]:.2f} (real avg: {avg_score})"
                 })
 
     # If critique consistently overestimates (large positive delta), lower expectations

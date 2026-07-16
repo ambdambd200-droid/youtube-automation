@@ -475,6 +475,30 @@ def get_video_dimensions_simple(video_path):
         return 0, 0
 
 
+MIN_DOWNLOAD_RESOLUTION = (1280, 720)  # Minimum 720p - don't download lower
+
+
+def _check_resolution_quick(video_url):
+    """Quick resolution check using yt-dlp format listing (no download)."""
+    try:
+        cmd = [
+            "yt-dlp", "-J",
+            "--no-warnings",
+            "--user-agent", _get_random_user_agent(),
+            "--format", "best[height>=720]/best[height>=480]/best",
+            video_url,
+        ]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if r.returncode == 0:
+            info = json.loads(r.stdout)
+            height = info.get("height", 0) or 0
+            width = info.get("width", 0) or 0
+            return width, height
+    except Exception:
+        pass
+    return 0, 0
+
+
 def download_best_match(search_query, used_ids=None, content_type=None, min_resolution=None):
     """Search and download the best matching video.
 
@@ -491,6 +515,8 @@ def download_best_match(search_query, used_ids=None, content_type=None, min_reso
     """
     if used_ids is None:
         used_ids = set()
+    if min_resolution is None:
+        min_resolution = MIN_DOWNLOAD_RESOLUTION
 
     videos = search_youtube(search_query, max_results=30)
 
@@ -611,22 +637,28 @@ def download_best_match(search_query, used_ids=None, content_type=None, min_reso
         print(f"  [downloader] Channel: {chosen.get('channel', '?')} | "
               f"Views: {chosen.get('view_count', 0):,} | "
               f"Tier: {tier_label} | Score: {chosen.get('_viral_score', 0):.3f}", flush=True)
+
+        # Quick resolution check BEFORE download (uses yt-dlp metadata, no file)
+        w, h = _check_resolution_quick(chosen["url"])
+        min_w, min_h = min_resolution
+        if w > 0 and h > 0 and (w < min_w or h < min_h):
+            print(f"  [downloader] Skipped: {w}x{h} — below {min_w}x{min_h} minimum (pre-check)", flush=True)
+            continue
+
         filepath = download_clip(chosen["url"], video_id=chosen["id"])
 
         if not filepath:
             continue
 
-        # Check resolution minimum if specified
-        if min_resolution:
-            w, h = get_video_dimensions_simple(filepath)
-            min_w, min_h = min_resolution
-            if w < min_w or h < min_h:
-                print(f"  [downloader] Rejected: {w}x{h} — below {min_w}x{min_h} minimum", flush=True)
-                try:
-                    os.remove(filepath)
-                except Exception:
-                    pass
-                continue
+        # Post-download resolution verification
+        w, h = get_video_dimensions_simple(filepath)
+        if w > 0 and h > 0 and (w < min_w or h < min_h):
+            print(f"  [downloader] Rejected after download: {w}x{h} — below {min_w}x{min_h}", flush=True)
+            try:
+                os.remove(filepath)
+            except Exception:
+                pass
+            continue
 
         return {
             "path": filepath,

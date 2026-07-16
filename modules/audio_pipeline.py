@@ -636,6 +636,19 @@ def full_audio_pipeline(input_path, content_type="football", output_path=None):
         lufs_path = master_path
 
     # Replace audio in original video
+    # Use -t with video duration instead of -shortest to avoid truncation
+    # when audio WAV is slightly shorter due to sample rounding
+    vid_replace_dur = clip_duration
+    try:
+        r = subprocess.run(
+            [_FFPROBE_BIN, "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", input_path],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            vid_replace_dur = float(r.stdout.strip())
+    except Exception:
+        pass
     cmd_replace = [
         _FFMPEG_BIN, "-y",
         "-i", input_path,
@@ -645,7 +658,7 @@ def full_audio_pipeline(input_path, content_type="football", output_path=None):
         "-b:a", AUDIO_BITRATE,
         "-map", "0:v:0",
         "-map", "1:a:0",
-        "-shortest",
+        "-t", str(vid_replace_dur),
         "-movflags", "+faststart",
         output_path,
     ]
