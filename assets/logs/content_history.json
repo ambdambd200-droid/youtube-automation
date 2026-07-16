@@ -129,7 +129,12 @@
       "type": "football",
       "search_query": "soccer free kick goal",
       "date": "2026-07-16T19:40:28.063917"
+    },
+    {
+      "type": "movie",
+      "search_query": "iconic movie scene",
+      "date": "2026-07-16T19:42:37.724602"
     }
   ],
-  "total_count": 26
+  "total_count": 27
 }

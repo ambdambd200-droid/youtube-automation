@@ -37,14 +37,22 @@ EVOLUTION_LOG = os.path.join(LOG_DIR, "evolution_log.jsonl")
 
 # ── Default State ───────────────────────────────────────────
 
+# The three keyword lists below must stay in sync with config.py.
+# When config keywords are updated, these defaults must match.
+_CONFIG_KWS = {
+    "football": [k for k in FOOTBALL_KEYWORDS],
+    "movie": [k for k in MOVIE_KEYWORDS],
+    "series": [k for k in SERIES_KEYWORDS],
+}
+
 DEFAULT_EVOLUTION_STATE = {
     "generation": 1,
     "last_updated": None,
     "parameters": {
         "content_weights": dict(CONTENT_WEIGHTS),
-        "football_keywords": list(FOOTBALL_KEYWORDS),
-        "movie_keywords": list(MOVIE_KEYWORDS),
-        "series_keywords": list(SERIES_KEYWORDS),
+        "football_keywords": list(_CONFIG_KWS["football"]),
+        "movie_keywords": list(_CONFIG_KWS["movie"]),
+        "series_keywords": list(_CONFIG_KWS["series"]),
         "clip_min_duration": CLIP_MIN_DURATION,
         "clip_max_duration": CLIP_MAX_DURATION,
         "scene_threshold": 0.3,
@@ -248,8 +256,9 @@ def _mutate_keywords(state, trends):
         score = c.get("compound_score", 50)
         ct = c.get("content_type", "movie")
 
-        # Check each keyword
-        base_kws = {"football": FOOTBALL_KEYWORDS, "movie": MOVIE_KEYWORDS, "series": SERIES_KEYWORDS}.get(ct, MOVIE_KEYWORDS)
+        # Check each keyword — use stored params keywords (which mirror config)
+        stored_kws = params.get(f"{ct}_keywords", [])
+        base_kws = stored_kws if stored_kws else {"football": FOOTBALL_KEYWORDS, "movie": MOVIE_KEYWORDS, "series": SERIES_KEYWORDS}.get(ct, MOVIE_KEYWORDS)
         for kw in base_kws:
             kw_lower = kw.lower()
             if kw_lower in title or any(word in title for word in kw_lower.split()):

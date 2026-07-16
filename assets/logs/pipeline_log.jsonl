@@ -224,3 +224,6 @@
 {"timestamp": "2026-07-16T19:40:27.967565", "stage": "channel_check", "status": "success", "details": {"description_updated": true, "branding_uploaded": true}}
 {"timestamp": "2026-07-16T19:40:28.063917", "stage": "content_selection", "status": "success", "details": {"type": "football", "search_query": "soccer free kick goal", "description": "Football - soccer free kick goal"}}
 {"timestamp": "2026-07-16T19:40:53.378136", "stage": "download", "status": "failed", "details": {"search": "soccer free kick goal"}}
+{"timestamp": "2026-07-16T19:42:37.628073", "stage": "channel_check", "status": "success", "details": {"description_updated": true, "branding_uploaded": true}}
+{"timestamp": "2026-07-16T19:42:37.724602", "stage": "content_selection", "status": "success", "details": {"type": "movie", "search_query": "iconic movie scene", "description": "Movie Scene - iconic movie scene"}}
+{"timestamp": "2026-07-16T19:43:04.141794", "stage": "download", "status": "failed", "details": {"search": "iconic movie scene"}}
