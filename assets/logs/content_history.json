@@ -124,7 +124,12 @@
       "type": "series",
       "search_query": "tv show iconic moment",
       "date": "2026-07-16T19:24:50.291404"
+    },
+    {
+      "type": "football",
+      "search_query": "soccer free kick goal",
+      "date": "2026-07-16T19:40:28.063917"
     }
   ],
-  "total_count": 25
+  "total_count": 26
 }

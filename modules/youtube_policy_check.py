@@ -53,12 +53,12 @@ STUDIO_CHANNELS = [
     "illumination",
     "studio ghibli",
     "a24",  # A24 is aggressive with takedowns
-    # Football broadcasters — Content ID on match footage
-    "fifa", "fifa official",
-    "uefa", "premier league", "laliga",
-    "espn", "espn fc", "sky sports", "bt sport",
-    "bein sports", "bein sport",
-    "copa90", "goal",
+    # Football broadcasters are SAFE for short clips (news/editorial value)
+    # "fifa", "fifa official",
+    # "uefa", "premier league", "laliga",
+    # "espn", "espn fc", "sky sports", "bt sport",
+    # "bein sports", "bein sport",
+    # "copa90", "goal",
     # News agencies — aggressive on any news footage
     "abc news", "bbc news", "cnn", "fox news",
     "associated press", "ap archive",

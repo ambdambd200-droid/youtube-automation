@@ -43,9 +43,9 @@ _COPYRIGHT_BLACKLIST = [
     "dreamworks", "illumination", "studio ghibli",
     "lionsgate", "mgm", "a24",
     "apple tv", "amazon prime video", "prime video",
-    # Football broadcasters with strict copyright
-    "fifa", "uefa", "premier league", "laliga",
-    "espn fc", "sky sports", "bt sport", "bein sports",
+    # Football broadcasters are safe for short clips
+    # "fifa", "uefa", "premier league", "laliga",
+    # "espn fc", "sky sports", "bt sport", "bein sports",
 ]
 # But allow these specific copyright-safe channels
 _COPYRIGHT_SAFE_CHANNELS = [
@@ -475,7 +475,7 @@ def get_video_dimensions_simple(video_path):
         return 0, 0
 
 
-MIN_DOWNLOAD_RESOLUTION = (1280, 720)  # Minimum 720p - don't download lower
+MIN_DOWNLOAD_RESOLUTION = (854, 480)  # Minimum 480p - 720p too restrictive for football
 
 
 def _check_resolution_quick(video_url):
