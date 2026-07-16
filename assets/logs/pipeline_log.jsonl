@@ -227,3 +227,6 @@
 {"timestamp": "2026-07-16T19:42:37.628073", "stage": "channel_check", "status": "success", "details": {"description_updated": true, "branding_uploaded": true}}
 {"timestamp": "2026-07-16T19:42:37.724602", "stage": "content_selection", "status": "success", "details": {"type": "movie", "search_query": "iconic movie scene", "description": "Movie Scene - iconic movie scene"}}
 {"timestamp": "2026-07-16T19:43:04.141794", "stage": "download", "status": "failed", "details": {"search": "iconic movie scene"}}
+{"timestamp": "2026-07-16T19:45:22.633618", "stage": "channel_check", "status": "success", "details": {"description_updated": true, "branding_uploaded": true}}
+{"timestamp": "2026-07-16T19:45:22.768014", "stage": "content_selection", "status": "success", "details": {"type": "series", "search_query": "series episode sad moment", "description": "TV Series - series episode sad moment"}}
+{"timestamp": "2026-07-16T19:45:36.037254", "stage": "download", "status": "failed", "details": {"search": "series episode sad moment"}}

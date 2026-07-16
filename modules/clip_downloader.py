@@ -33,19 +33,20 @@ from config import (
 # Major studios with aggressive Content ID (skip these channels)
 # See .github/POLICIES.md and modules/youtube_policy_check.py for full list
 _COPYRIGHT_BLACKLIST = [
-    "paramount", "paramount pictures", "paramount movies",
-    "universal pictures", "universal",
-    "warner bros", "warner bros. pictures", "warnervod",
-    "sony pictures", "movieclips",
-    "marvel", "disney", "pixar", "20th century",
-    "netflix", "netflix official", "hbo", "hbo max",
-    "dc comics", "nbc", "abc", "cbs",
+    "paramount pictures", "paramount movies",
+    "universal pictures",
+    "warner bros. pictures", "warner bros pictures",
+    "sony pictures",
+    "movieclips",  # Sony-owned — will always claim
+    "marvel", "disney", "pixar", "20th century studios",
+    "hbo max",
+    "dc comics",
     "dreamworks", "illumination", "studio ghibli",
     "lionsgate", "mgm", "a24",
-    "apple tv", "amazon prime video", "prime video",
-    # Football broadcasters are safe for short clips
-    # "fifa", "uefa", "premier league", "laliga",
-    # "espn fc", "sky sports", "bt sport", "bein sports",
+    "apple tv+", "amazon prime video",
+    # Less aggressive on these — fan channels exist under them
+    # "netflix", "hbo", "paramount", "universal",
+    # "nbc", "abc", "cbs", "prime video",
 ]
 # But allow these specific copyright-safe channels
 _COPYRIGHT_SAFE_CHANNELS = [
@@ -475,7 +476,7 @@ def get_video_dimensions_simple(video_path):
         return 0, 0
 
 
-MIN_DOWNLOAD_RESOLUTION = (854, 480)  # Minimum 480p - 720p too restrictive for football
+MIN_DOWNLOAD_RESOLUTION = (640, 360)  # Min 360p — 480p+ too restrictive for fan clips on YT
 
 
 def _check_resolution_quick(video_url):

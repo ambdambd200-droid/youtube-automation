@@ -31,36 +31,28 @@ POLICY_LOG = os.path.join(LOG_DIR, "policy_violations.jsonl")
 # NEVER download from them, even if the video looks perfect.
 STUDIO_CHANNELS = [
     # Major studios — aggressive Content ID
-    "paramount", "paramount movies", "paramount pictures",
-    "universal pictures", "universal", "focus features",
-    "warner bros", "warner bros. pictures", "warner bros pictures",
-    "warnervod", "wbtv", "dc comics",
-    "sony pictures", "sony pictures entertainment", "sony movie channel",
+    "paramount pictures", "paramount movies",
+    "universal pictures", "focus features",
+    "warner bros. pictures", "warner bros pictures",
+    "sony pictures", "sony pictures entertainment",
     "movieclips",  # OWNED BY SONY — will always claim
-    "marvel", "marvel entertainment", "marvel hq",
-    "disney", "disney plus", "disney channel", "pixar",
-    "20th century studios", "20th century fox", "searchlight pictures",
-    "netflix", "netflix official",
-    "hbo", "hbo max", "hbo official", "max",
-    "apple tv", "apple tv+",
-    "amazon prime video", "prime video", "amazon mgm",
-    "mgm", "mgm studios",
-    "lionsgate", "lionsgate movies",
-    "nbc", "nbc universal",
-    "abc", "abc network",
-    "cbs", "cbs official",
-    "dreamworks", "dreamworks animation",
+    "marvel entertainment", "marvel hq",
+    "disney plus", "disney channel",
+    "20th century studios", "20th century fox",
+    "apple tv+",
+    "amazon mgm",
+    "mgm studios",
+    "dreamworks animation",
     "illumination",
     "studio ghibli",
-    "a24",  # A24 is aggressive with takedowns
+    # Less aggressive — allow partial matches (fan channels may have these in name)
+    # "paramount", "universal", "warner bros", "netflix",
+    # "hbo", "disney", "marvel", "nbc", "abc", "cbs",
+    # "lionsgate", "mgm", "a24",
+    # "apple tv", "amazon prime video", "prime video",
     # Football broadcasters are SAFE for short clips (news/editorial value)
-    # "fifa", "fifa official",
-    # "uefa", "premier league", "laliga",
-    # "espn", "espn fc", "sky sports", "bt sport",
-    # "bein sports", "bein sport",
-    # "copa90", "goal",
     # News agencies — aggressive on any news footage
-    "abc news", "bbc news", "cnn", "fox news",
+    "abc news", "bbc news",
     "associated press", "ap archive",
     "reuters",
 ]
@@ -83,12 +75,10 @@ SAFE_CONTENT_TYPES = [
 ]
 
 # Video title patterns that indicate risky content
+# NOTE: year patterns like (2024) and "movie clip" are too aggressive — almost
+# all clips have these. Only block obvious studio-style title patterns.
 RISKY_TITLE_PATTERNS = [
     r"official\s+(trailer|clip|scene)",
-    r"(full\s+)?movie\s+clip",
-    r"scene\s+\d+\s+of\s+\d+",
-    r"from\s+\".*?\"\s+\(se:?\s*\d+",
-    r"\(20\d{2}\)",  # Year in title = specific copyrighted work
 ]
 
 # Compilation patterns — high risk even from non-studio channels

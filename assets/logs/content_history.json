@@ -134,7 +134,12 @@
       "type": "movie",
       "search_query": "iconic movie scene",
       "date": "2026-07-16T19:42:37.724602"
+    },
+    {
+      "type": "series",
+      "search_query": "series episode sad moment",
+      "date": "2026-07-16T19:45:22.768014"
     }
   ],
-  "total_count": 27
+  "total_count": 28
 }
