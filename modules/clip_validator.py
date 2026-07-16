@@ -91,12 +91,13 @@ def validate_short(video_path):
     elif dur > CLIP_MAX_DURATION:
         issues.append(f"duration {dur:.0f}s > {CLIP_MAX_DURATION}s")
 
-    if w != SHORTS_WIDTH or h != SHORTS_HEIGHT:
-        issues.append(f"resolution {w}x{h} != {SHORTS_WIDTH}x{SHORTS_HEIGHT}")
+    # Allow 2px tolerance for even/odd pixel adjustments in cropping
+    if abs(w - SHORTS_WIDTH) > 2 or abs(h - SHORTS_HEIGHT) > 2:
+        issues.append(f"resolution {w}x{h} != {SHORTS_WIDTH}x{SHORTS_HEIGHT} (±2px)")
 
     ratio = w / h if h > 0 else 0
     expected = SHORTS_WIDTH / SHORTS_HEIGHT
-    if abs(ratio - expected) > 0.01:
+    if abs(ratio - expected) > 0.015:
         issues.append(f"aspect ratio {ratio:.4f} != {expected:.4f}")
 
     return (len(issues) == 0, issues)

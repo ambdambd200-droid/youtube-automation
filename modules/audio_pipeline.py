@@ -225,68 +225,72 @@ def apply_stereo_widening(input_path, output_path):
 def mix_ambience_and_foley(input_path, ambience_path, foley_paths=None, output_path=None, duck_on_foley=True):
     """Phase 4: Mix ambience bed + foley effects with dynamic ducking.
     Ambience ducks -6dB for 0.5s when foley hits.
+    
+    IMPORTANT: amix normalizes by sum(weights)/n_inputs which cuts main audio.
+    Fix: pre-scale all non-main inputs with volume, use equal weights, post-amplify.
     """
     if output_path is None:
         output_path = input_path.replace(".wav", "_mixed.wav").replace(".mp4", "_mixed.wav")
 
     inputs = ["-i", input_path]
-    filter_parts = [f"[0:a]asetpts=PTS-STARTPTS[main]"]
+    filter_parts = [f"[0:a]asetpts=PTS-STARTPTS[m0]"]
     next_stream = 1
 
     has_ambience = ambience_path and os.path.exists(ambience_path)
     valid_foley = [fp for fp in (foley_paths or []) if os.path.exists(fp)]
     has_foley = len(valid_foley) > 0
 
-    # Add ambience
+    # Ambience: pre-scale
     if has_ambience:
         inputs.extend(["-i", ambience_path])
-        filter_parts.append(f"[{next_stream}:a]volume=0.25[a_amb]")
+        filter_parts.append(f"[{next_stream}:a]volume=0.2[a_amb]")
         next_stream += 1
 
-    # Add foley paths with labels
+    # Foley paths with pre-scale
     foley_labels = []
     for i, fp in enumerate(valid_foley):
         inputs.extend(["-i", fp])
         label = f"f{i}"
         foley_labels.append(label)
-        filter_parts.append(f"[{next_stream}:a]asetpts=PTS-STARTPTS[{label}]")
+        foley_vol = 0.5 if i == 0 else 0.3
+        filter_parts.append(f"[{next_stream}:a]asetpts=PTS-STARTPTS,volume={foley_vol}[{label}]")
         next_stream += 1
 
     # Build filter graph
+    n_total = 1 + (1 if has_ambience else 0) + len(foley_labels)
+    post_vol = n_total  # amplify back after amix divides by n
+
     if has_foley:
         # Sidechain: duck main audio when foley hits
         if duck_on_foley:
             level_sc = 10 ** (AUDIO_DUCK_DB / 20)
             sc_thresh = 0.1
             filter_parts.append(
-                f"[main][{foley_labels[0]}]"
+                f"[m0][{foley_labels[0]}]"
                 f"sidechaincompress=threshold={sc_thresh}:ratio=10:"
                 f"attack=5:release=50:level_sc={level_sc}[a_ducked]"
             )
             main_src = "[a_ducked]"
         else:
-            main_src = "[main]"
+            main_src = "[m0]"
 
-        # Mix main + all foley + ambience
+        # Mix main + all foley + ambience with equal weights + post-amplify
         mix_inputs = main_src + "".join(f"[{l}]" for l in foley_labels)
-        mix_count = 1 + len(foley_labels)
-        weights = "1" + " ".join(f" {0.5 if i == 0 else 0.3}" for i in range(len(foley_labels)))
         if has_ambience:
             mix_inputs += "[a_amb]"
-            mix_count += 1
-            weights += " 0.2"
         filter_parts.append(
-            f"{mix_inputs}amix=inputs={mix_count}:duration=first:"
-            f"weights={weights}[a_mixed]"
+            f"{mix_inputs}amix=inputs={n_total}:duration=first:"
+            f"weights={' '.join(['1'] * n_total)},"
+            f"volume={post_vol}[a_mixed]"
         )
         audio_map = "[a_mixed]"
     else:
         # No foley — just mix main + ambience
         if has_ambience:
-            filter_parts.append("[main][a_amb]amix=inputs=2:duration=first:weights=1 0.2[a_mixed]")
+            filter_parts.append(f"[m0][a_amb]amix=inputs=2:duration=first:weights=1 1,volume=2.0[a_mixed]")
             audio_map = "[a_mixed]"
         else:
-            audio_map = "[main]"
+            audio_map = "[m0]"
 
     filter_complex = ";".join(filter_parts)
 
@@ -309,33 +313,53 @@ def generate_background_music(output_path, content_type="football", duration=30)
     - football: low brass drone + rhythmic pulse
     - movie: ambient strings pad
     - series: soft piano-like tone
+
+    Uses amix properly with post-amplify to keep levels correct.
     """
     duration = max(15, int(duration))
     if content_type == "football":
+        # Low drone (sawtooth at 55Hz) + harmonics + filtered noise texture
         filter_complex = (
-            "anoisesrc=d={}:c=pink:a=0.15,lowpass=f=400,volume=0.8[s1];"
-            "sine=f=65:d={}[b0];"
-            "sine=f=130:d={}[h0];"
-            "[b0]volume=0.1[bass];"
-            "[h0]volume=0.05[harm];"
-            "[s1][bass][harm]amix=inputs=3:duration=first:weights=0.5 0.3 0.2[a]"
-        ).format(duration, duration, duration)
+            "sine=f=55:d={}:samples_per_frame=sr[b0];"
+            "sine=f=110:d={}[h0];"
+            "sine=f=165:d={}[h1];"
+            "anoisesrc=d={}:c=pink:a=0.3,lowpass=f=800,volume=0.3[nz];"
+            "[b0]volume=0.12[a0];"
+            "[h0]volume=0.06[a1];"
+            "[h1]volume=0.03[a2];"
+            "[a0][a1][a2][nz]amix=inputs=4:duration=first:weights=1 1 1 1,"
+            "volume=4.0,lowpass=f=400,"
+            "aformat=sample_rates={}:channel_layouts=stereo[a]"
+        ).format(duration, duration, duration, duration, AUDIO_SAMPLE_RATE)
     elif content_type == "series":
+        # Warm pad: brown noise + soft sine harmonics
         filter_complex = (
-            "anoisesrc=d={}:c=brown:a=0.1,lowpass=f=200,volume=0.6[s1];"
+            "anoisesrc=d={}:c=brown:a=0.2,lowpass=f=300,volume=0.4[s1];"
             "sine=f=55:d={}[b0];"
-            "sine=f=165:d={}[h0];"
-            "[b0]volume=0.08[bass];"
-            "[h0]volume=0.04[harm];"
-            "[s1][bass][harm]amix=inputs=3:duration=first:weights=0.4 0.4 0.2[a]"
-        ).format(duration, duration, duration)
-    else:
+            "sine=f=110:d={}[h0];"
+            "sine=f=165:d={}[h1];"
+            "[b0]volume=0.1[a0];"
+            "[h0]volume=0.05[a1];"
+            "[h1]volume=0.025[a2];"
+            "[s1][a0][a1][a2]amix=inputs=4:duration=first:weights=1 1 1 1,"
+            "volume=4.0,lowpass=f=300,"
+            "aformat=sample_rates={}:channel_layouts=stereo[a]"
+        ).format(duration, duration, duration, duration, AUDIO_SAMPLE_RATE)
+    else:  # movie
+        # Cinematic: slow evolving sine with filtered noise
         filter_complex = (
-            "anoisesrc=d={}:c=pink:a=0.12,lowpass=f=300,volume=0.7[s1];"
-            "sine=f=60:d={}[b0];"
-            "[b0]volume=0.09[bass];"
-            "[s1][bass]amix=inputs=2:duration=first:weights=0.6 0.4[a]"
-        ).format(duration, duration)
+            "sine=f=60:d={}:samples_per_frame=sr[b0];"
+            "sine=f=120:d={}[h0];"
+            "sine=f=180:d={}[h1];"
+            "anoisesrc=d={}:c=pink:a=0.2,lowpass=f=500,volume=0.3[nz];"
+            "[b0]volume=0.1[a0];"
+            "[h0]volume=0.05[a1];"
+            "[h1]volume=0.025[a2];"
+            "[nz]volume=0.2[a3];"
+            "[a0][a1][a2][a3]amix=inputs=4:duration=first:weights=1 1 1 1,"
+            "volume=4.0,lowpass=f=500,"
+            "aformat=sample_rates={}:channel_layouts=stereo[a]"
+        ).format(duration, duration, duration, duration, AUDIO_SAMPLE_RATE)
 
     cmd = [
         _FFMPEG_BIN, "-y",
@@ -395,43 +419,79 @@ def generate_musicgen_bgm(output_path, content_type="football", duration=30):
 
 
 def apply_master_bus(input_path, output_path):
-    """Master bus processing: multiband dynamics + limiter.
+    """Master bus processing: glue compression + true peak limiter.
 
-    Even out frequency imbalances, then catch true peaks.
-    Uses ffmpeg's acompressor + loudnorm (already in the pipeline).
-    Adds an extra compand stage for glue compression.
+    Even out dynamics with gentle compand, then catch true peaks
+    with a lookahead limiter to prevent intersample peaks.
+    The limiter uses linear amplitude (0.0-1.0), not dB.
+    -1 dBTP ≈ 0.891 linear, so limit=0.89 catches anything above -1 dBTP.
     """
     cmd = [
         _FFMPEG_BIN, "-y", "-i", input_path,
         "-af",
         "compand=attacks=0.1:decays=0.5:"
         "points=-80/-80|-30/-20|-12/-8|0/-2:"
-        "gain=1",
+        "gain=1,"
+        "alimiter=limit=0.89:attack=0.1:release=1.0",
         "-ar", str(AUDIO_SAMPLE_RATE), "-ac", "2",
         output_path,
     ]
-    result = _run_ffmpeg(cmd, "master bus compression")
+    result = _run_ffmpeg(cmd, "master bus compression+limiter")
     if result and os.path.exists(output_path):
-        print(f"  [audio] Master bus: gentle glue compression", flush=True)
+        print(f"  [audio] Master bus: gentle glue compression + true peak limiter", flush=True)
         return output_path
     return None
 
 
 def normalize_lufs(input_path, output_path, target_lufs=None):
     """Final: EBU R128 loudness normalization to -14 LUFS with -1 dBTP.
-    Ensures YouTube does not re-compress/distort the dynamics.
+    Two-pass for accurate results: first pass measures, second pass applies.
     """
     if target_lufs is None:
         target_lufs = AUDIO_TARGET_LUFS
 
-    cmd = [
+    # Pass 1: measure
+    cmd_measure = [
         _FFMPEG_BIN, "-y", "-i", input_path,
         "-af",
         f"loudnorm=I={target_lufs}:LRA=7:TP={AUDIO_TRUE_PEAK}:print_format=json",
+        "-f", "null",
+        "-",
+    ]
+    r = _run_ffmpeg(cmd_measure, "LUFS measure (pass 1)")
+    if not r:
+        return None
+
+    import json
+    measured = None
+    for line in r.stderr.split("\n"):
+        if line.strip().startswith("{"):
+            try:
+                measured = json.loads(line.strip())
+            except json.JSONDecodeError:
+                pass
+    if measured:
+        input_i = measured.get("input_i", target_lufs)
+        input_lra = measured.get("input_lra", 7)
+        input_tp = measured.get("input_tp", AUDIO_TRUE_PEAK)
+        input_thresh = measured.get("input_thresh", -30)
+        offset = measured.get("target_offset", 0)
+        print(f"  [audio] Pass 1: input_i={input_i}, input_lra={input_lra}, input_tp={input_tp}, offset={offset}", flush=True)
+    else:
+        input_i, input_lra, input_tp, input_thresh, offset = target_lufs, 7, AUDIO_TRUE_PEAK, -30, 0
+
+    # Pass 2: apply with measured values
+    cmd_apply = [
+        _FFMPEG_BIN, "-y", "-i", input_path,
+        "-af",
+        f"loudnorm=I={target_lufs}:LRA=7:TP={AUDIO_TRUE_PEAK}:"
+        f"measured_I={input_i}:measured_LRA={input_lra}:"
+        f"measured_TP={input_tp}:measured_thresh={input_thresh}:"
+        f"offset={offset}:print_format=summary",
         "-ar", str(AUDIO_SAMPLE_RATE), "-ac", "2",
         output_path,
     ]
-    result = _run_ffmpeg(cmd, f"LUFS normalization to {target_lufs} LUFS")
+    result = _run_ffmpeg(cmd_apply, f"LUFS apply (pass 2 to {target_lufs} LUFS)")
     if result and os.path.exists(output_path):
         print(f"  [audio] Normalized to {target_lufs} LUFS (TP: {AUDIO_TRUE_PEAK} dBTP)", flush=True)
         return output_path
@@ -535,17 +595,20 @@ def full_audio_pipeline(input_path, content_type="football", output_path=None):
         mixed_no_bgm = comp_path
 
     # Step 7: Mix in BGM
+    # IMPORTANT: amix normalizes by sum(weights)/n_inputs, so main audio gets cut.
+    # Fix: pre-scale BGM with volume filter, use equal weights, then amplify back.
     if bgm and os.path.exists(bgm):
         mixed_path = os.path.join(work_dir, f"mixed_with_bgm_{stage_id}.wav")
         inputs = ["-i", mixed_no_bgm, "-i", bgm]
         filter_parts = (
             f"[0:a]asetpts=PTS-STARTPTS[main];"
-            f"[1:a]volume=1.0[bgm];"
+            f"[1:a]volume={BGM_VOLUME}[bgm];"
             f"[main][bgm]amix=inputs=2:duration=first:"
-            f"weights=1 {BGM_VOLUME}"
+            f"weights=1 1,volume=2.0[a_mixed]"
         )
         cmd_mix = [_FFMPEG_BIN, "-y"] + inputs + [
             "-filter_complex", filter_parts,
+            "-map", "[a_mixed]",
             "-ar", str(AUDIO_SAMPLE_RATE), "-ac", "2",
             mixed_path,
         ]

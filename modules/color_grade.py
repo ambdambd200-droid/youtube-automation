@@ -153,44 +153,9 @@ def apply_s_curve_contrast(input_path, output_path):
     return None
 
 
-def apply_unsharp_mask(input_path, output_path):
-    """Phase 3: Micro-contrast sharpening via 3x3 convolution kernel.
-    Sharpens edges without halos using a simple sharpen kernel.
-    Falls back to eq contrast boost if convolution is unavailable.
-    """
-    # 3x3 sharpen kernel: center-weighted difference
-    cmd = [
-        _FFMPEG_BIN, "-y", "-i", input_path,
-        "-vf",
-        "convolution='0 -1 0 -1 5 -1 0 -1 0:"
-        "0 -1 0 -1 5 -1 0 -1 0:"
-        "0 -1 0 -1 5 -1 0 -1 0:"
-        "0 -1 0 -1 5 -1 0 -1 0'",
-        "-c:v", RENDER_CODEC, "-preset", RENDER_INTERMEDIATE_PRESET,
-        "-crf", str(RENDER_CRF),
-        "-c:a", "copy",
-        "-pix_fmt", RENDER_PIX_FMT,
-        output_path,
-    ]
-    result = _run_ffmpeg(cmd, "sharpen convolution")
-    if result and os.path.exists(output_path):
-        print(f"  [color] Sharpened (3x3 convolution kernel)", flush=True)
-        return output_path
-    # Fallback: simple contrast boost
-    print(f"  [color] Convolution unavailable, trying contrast fallback...", flush=True)
-    cmd2 = [
-        _FFMPEG_BIN, "-y", "-i", input_path,
-        "-vf", "eq=contrast=1.15",
-        "-c:v", RENDER_CODEC, "-preset", RENDER_INTERMEDIATE_PRESET,
-        "-crf", str(RENDER_CRF),
-        "-c:a", "copy",
-        "-pix_fmt", RENDER_PIX_FMT,
-        output_path,
-    ]
-    result2 = _run_ffmpeg(cmd2, "sharpen contrast fallback")
-    if result2 and os.path.exists(output_path):
-        return output_path
-    return None
+# Sharpening removed: already done via unsharp in crop_to_shorts (clip_editor.py).
+# Adding another convolution sharpen here creates ugly halos on 1080p content.
+# The upscaling unsharp (luma=5:5:0.8, chroma=3:3:0.4) is sufficient.
 
 
 def apply_film_grain(input_path, output_path):
@@ -309,7 +274,6 @@ def full_color_pipeline(input_path, output_path=None):
         ("sat_vib", apply_saturation_vibrance),
         ("s_curve", apply_s_curve_contrast),
         ("grain", apply_film_grain),
-        ("vignette", apply_vignette),
     ]
 
     for step_name, step_fn in steps:

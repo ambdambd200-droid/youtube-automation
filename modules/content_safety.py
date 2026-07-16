@@ -13,6 +13,9 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import CLIPS_DIR
+from modules.utils import find_ffmpeg
+
+_FFMPEG_BIN = find_ffmpeg()
 
 # HSV skin color ranges (tunable)
 SKIN_LOWER_HSV = (0, 20, 60)
@@ -28,42 +31,14 @@ SAFETY_SAMPLE_INTERVAL = 30          # sample every 30th frame (~1fps at 30fps)
 SAFETY_MAX_FRAMES = 60               # max frames to check per video
 
 
-def _find_ffmpeg():
-    """Find ffmpeg executable."""
-    candidates = [
-        "ffmpeg",
-        r"C:\Users\A\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin\ffmpeg.exe",
-    ]
-    # Try to find via WinGet directory
-    try:
-        base = r"C:\Users\A\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe"
-        for d in os.listdir(base):
-            if d.startswith("ffmpeg-") and d.endswith("-full_build"):
-                exe = os.path.join(base, d, "bin", "ffmpeg.exe")
-                if os.path.exists(exe):
-                    candidates.insert(0, exe)
-    except Exception:
-        pass
-    for c in candidates:
-        try:
-            r = subprocess.run([c, "-version"], capture_output=True, timeout=5)
-            if r.returncode == 0:
-                return c
-        except Exception:
-            continue
-    return "ffmpeg"
-
-
 def _extract_frames(video_path, output_dir, interval=15, max_frames=20):
     """Extract evenly-spaced frames from video using ffmpeg."""
-    ffmpeg_bin = _find_ffmpeg()
     safe_path = video_path.replace(":", "").replace("'", "")
     if not os.path.exists(safe_path):
         safe_path = video_path
 
-    # Use scene detection - take 1 frame per scene for better coverage
     cmd = [
-        ffmpeg_bin, "-y", "-i", safe_path,
+        _FFMPEG_BIN, "-y", "-i", safe_path,
         "-vf", f"fps=1/{interval},scale=320:-1",
         "-frames:v", str(max_frames),
         "-q:v", "5",
