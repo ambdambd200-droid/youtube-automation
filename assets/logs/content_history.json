@@ -149,7 +149,17 @@
       "type": "series",
       "search_query": "series episode intense drama",
       "date": "2026-07-16T19:59:35.256336"
+    },
+    {
+      "type": "series",
+      "search_query": "breaking bad emotional moment",
+      "date": "2026-07-17T11:30:11.583588"
+    },
+    {
+      "type": "movie",
+      "search_query": "movie scene heartbreaking",
+      "date": "2026-07-17T11:47:11.229624"
     }
   ],
-  "total_count": 30
+  "total_count": 32
 }

@@ -15,7 +15,7 @@ from config import YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOK
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube"]
 TOKEN_FILE = "youtube_token.pickle"
-UPLOAD_TIMEOUT = 600  # 10-minute socket timeout for uploads
+UPLOAD_TIMEOUT = 900  # 15-minute socket timeout for uploads (download speeds can be slow)
 
 def _is_ci():
     """Detect if running in CI (GitHub Actions, etc)."""

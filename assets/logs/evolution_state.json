@@ -1,0 +1,125 @@
+{
+  "generation": 2,
+  "last_updated": "2026-07-17T11:58:59.136725",
+  "parameters": {
+    "content_weights": {
+      "movie": 0.38,
+      "football": 0.31,
+      "series": 0.31
+    },
+    "football_keywords": [
+      "football goal crazy skill",
+      "soccer match incredible play",
+      "world cup goal amazing finish",
+      "football player amazing dribble",
+      "soccer goal stunning strike",
+      "football match beautiful goal",
+      "soccer skills training match",
+      "football goal long range",
+      "soccer free kick goal",
+      "football match highlight play",
+      "world cup goal skill",
+      "football incredible goal match",
+      "soccer amazing assist goal",
+      "football match brilliant save",
+      "soccer goal match moment",
+      "football last minute goal",
+      "soccer championship match goal",
+      "football counter attack goal",
+      "soccer volley goal match",
+      "football through ball assist"
+    ],
+    "movie_keywords": [
+      "movie scene emotional moment",
+      "film scene dramatic acting",
+      "movie scene plot twist",
+      "film scene intense dialogue",
+      "movie scene action sequence",
+      "film scene beautiful cinematography",
+      "movie scene powerful performance",
+      "film scene funny moment comedy",
+      "movie scene scary horror",
+      "film scene amazing visual effects",
+      "movie scene character introduction",
+      "film scene goosebumps moment",
+      "movie scene heartbreaking",
+      "film scene inspiring speech",
+      "movie scene tension building",
+      "film scene chase sequence",
+      "movie scene reveal twist ending",
+      "film scene epic battle",
+      "movie scene quiet dramatic",
+      "film scene final confrontation"
+    ],
+    "series_keywords": [
+      "breaking bad intense scene",
+      "breaking bad emotional moment",
+      "better call saul dramatic scene",
+      "breaking bad walter white scene",
+      "game of thrones epic scene",
+      "game of thrones emotional scene",
+      "house of the dragon dramatic moment",
+      "game of thrones battle scene",
+      "the office best scene",
+      "parks and recreation funny scene",
+      "the office emotional moment",
+      "friends iconic scene",
+      "how i met your mother funny clip",
+      "stranger things intense scene",
+      "stranger things emotional moment",
+      "the walking dead dramatic scene",
+      "squid game intense scene",
+      "last of us emotional scene",
+      "euphoria dramatic scene",
+      "succession intense scene",
+      "the boys shocking scene",
+      "peaky blinders dramatic scene"
+    ],
+    "clip_min_duration": 15,
+    "clip_max_duration": 60,
+    "scene_threshold": 0.3,
+    "title_style_preference": "balanced",
+    "thumbnail_variant_preference": "v2",
+    "posting_times_by_day": {}
+  },
+  "performance": {
+    "average_score": 47.0,
+    "peak_score": 59.0,
+    "total_clips_analyzed": 5,
+    "total_evolutions": 1,
+    "history_by_type": {
+      "football": 47.9,
+      "series": 42.6,
+      "movie": 59.0
+    },
+    "history_by_hour": {
+      "23": 47.9,
+      "19": 45.5,
+      "20": 48.8,
+      "11": 46.3
+    },
+    "real_performance_average": null,
+    "real_performance_best_type": null,
+    "real_videos_tracked": 0,
+    "critique_vs_real_delta": 0.0
+  },
+  "mutations": [
+    {
+      "timestamp": "2026-07-17T11:58:59.121717",
+      "axis": "content_weights",
+      "change": "Boosted movie from 0.34 to 0.38 (score: 59.0)"
+    },
+    {
+      "timestamp": "2026-07-17T11:58:59.121717",
+      "axis": "keywords",
+      "change": "Top keyword: 'movie scene emotional moment' (59.0)",
+      "keyword_scores": {
+        "movie scene emotional moment": 59.0,
+        "film scene dramatic acting": 59.0,
+        "movie scene plot twist": 59.0,
+        "film scene intense dialogue": 59.0,
+        "movie scene action sequence": 59.0
+      }
+    }
+  ]
+}
