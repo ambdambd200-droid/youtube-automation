@@ -1172,16 +1172,14 @@ def _generate_sfx(sfx_type):
 
 
 def _laugh_track_texts(title="", clip_duration=15):
-    """Generate timed pop-up text for movie/series shorts with varied positioning.
-    Uses alternating positions: center → upper → lower → center → lower
+    """Generate timed pop-up text for movie/series shorts.
+    All text at lower-center position for clean, consistent branding.
     """
     movie_name = title[:40] if title else "this scene"
 
-    positions = ["center", "upper", "lower", "center", "lower"]
-
     opening = [
-        {"text": "VARY", "start": 0.0, "end": 1.5, "pos": "upper"},
-        {"text": f"\"{movie_name}\"", "start": 0.0, "end": 1.5, "pos": "center"},
+        {"text": "VARY", "start": 0.0, "end": 1.5},
+        {"text": f"\"{movie_name}\"", "start": 0.0, "end": 1.5},
     ]
 
     phrases = [
@@ -1196,7 +1194,7 @@ def _laugh_track_texts(title="", clip_duration=15):
     for i, phrase in enumerate(phrases):
         t_start = clip_duration * (0.15 + i * 0.12)
         t_end = min(t_start + 3.0, clip_duration)
-        texts.append({"text": phrase, "start": t_start, "end": t_end, "pos": positions[i]})
+        texts.append({"text": phrase, "start": t_start, "end": t_end})
 
     return texts
 
@@ -1241,12 +1239,7 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
         else:
             fs = 56
             x_expr = "(w-text_w)/2"
-            if item["pos"] == "upper":
-                y_expr = "h*0.22 - text_h/2"
-            elif item["pos"] == "lower":
-                y_expr = "h*0.78 - text_h/2"
-            else:
-                y_expr = "(h-text_h)/2"
+            y_expr = "h*0.72 - text_h/2"
             style = "borderw=3:bordercolor=black@0.8"
 
         filter_parts.append(
