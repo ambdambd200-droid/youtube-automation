@@ -1172,33 +1172,31 @@ def _generate_sfx(sfx_type):
 
 
 def _laugh_track_texts(title="", clip_duration=15):
-    """Generate timed pop-up text for movie/series shorts with aggressive opening.
-    
-    First ~1.5s uses absolute timestamps for consistent hook.
-    Remaining texts use ratio-based timing scaled to clip duration.
+    """Generate timed pop-up text for movie/series shorts with varied positioning.
+    Uses alternating positions: center → upper → lower → center → lower
     """
     movie_name = title[:40] if title else "this scene"
 
-    # Opening: absolute timestamps — always hits at same second regardless of clip length
+    positions = ["center", "upper", "lower", "center", "lower"]
+
     opening = [
-        {"text": "VARY", "start": 0.0, "end": 1.5, "pos": "bottom"},
+        {"text": "VARY", "start": 0.0, "end": 1.5, "pos": "upper"},
         {"text": f"\"{movie_name}\"", "start": 0.0, "end": 1.5, "pos": "center"},
     ]
 
-    # Rest: ratio-based (scales to clip length)
-    remaining = [
-        ("wait for it...", 0.15, "bottom"),
-        ("peak cinema.", 0.30, "bottom"),
-        ("this is the scene.", 0.45, "bottom"),
-        ("pure intensity.", 0.60, "bottom"),
-        ("watch this.", 0.75, "bottom"),
+    phrases = [
+        "wait for it...",
+        "peak cinema.",
+        "this is the scene.",
+        "pure intensity.",
+        "watch this.",
     ]
 
     texts = list(opening)
-    for text, ratio, pos in remaining:
-        t_start = clip_duration * ratio
+    for i, phrase in enumerate(phrases):
+        t_start = clip_duration * (0.15 + i * 0.12)
         t_end = min(t_start + 3.0, clip_duration)
-        texts.append({"text": text, "start": t_start, "end": t_end, "pos": pos})
+        texts.append({"text": phrase, "start": t_start, "end": t_end, "pos": positions[i]})
 
     return texts
 
@@ -1239,19 +1237,22 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
             fs = 80
             x_expr = "(w-text_w)/2"
             y_expr = "(h-text_h)/2 - 40"
-            box = "0"
-            bc = "black@0"
+            style = "borderw=0"
         else:
-            fs = 48
+            fs = 56
             x_expr = "(w-text_w)/2"
-            y_expr = "h-th-80" if item["pos"] == "bottom" else "(h-text_h)/2"
-            box = "1"
-            bc = "black@0.5"
+            if item["pos"] == "upper":
+                y_expr = "h*0.22 - text_h/2"
+            elif item["pos"] == "lower":
+                y_expr = "h*0.78 - text_h/2"
+            else:
+                y_expr = "(h-text_h)/2"
+            style = "borderw=3:bordercolor=black@0.8"
 
         filter_parts.append(
             f"[{prev_label}]drawtext=text='{safe_text}':fontcolor=white:fontsize={fs}:"
             f"x={x_expr}:y={y_expr}:"
-            f"box={box}:boxcolor={bc}:boxborderw=10:"
+            f"{style}:"
             f"fontfile='{font_path}':"
             f"enable='between(t,{t_start},{t_end})'[t{i}]"
         )
