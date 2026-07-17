@@ -318,9 +318,9 @@ def generate_background_music(output_path, content_type="football", duration=30)
     """
     duration = max(15, int(duration))
     if content_type == "football":
-        # Low drone (sawtooth at 55Hz) + harmonics + filtered noise texture
+        # Low drone (55Hz) + harmonics + filtered pink noise texture
         filter_complex = (
-            "sine=f=55:d={}:samples_per_frame=sr[b0];"
+            "sine=f=55:d={}[b0];"
             "sine=f=110:d={}[h0];"
             "sine=f=165:d={}[h1];"
             "anoisesrc=d={}:c=pink:a=0.3,lowpass=f=800,volume=0.3[nz];"
@@ -348,7 +348,7 @@ def generate_background_music(output_path, content_type="football", duration=30)
     else:  # movie
         # Cinematic: slow evolving sine with filtered noise
         filter_complex = (
-            "sine=f=60:d={}:samples_per_frame=sr[b0];"
+            "sine=f=60:d={}[b0];"
             "sine=f=120:d={}[h0];"
             "sine=f=180:d={}[h1];"
             "anoisesrc=d={}:c=pink:a=0.2,lowpass=f=500,volume=0.3[nz];"

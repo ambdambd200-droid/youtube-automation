@@ -48,9 +48,9 @@ SAFE_ZONE_HEIGHT = 1350      # Content box height (leaves 285px top/bottom paddi
 RENDER_CODEC = "libx264"     # H.264 baseline, H.265 (libx265) preferred
 RENDER_PROFILE = "high"
 RENDER_LEVEL = "4.1"
-RENDER_BITRATE = "20000k"    # 20 Mbps upload bitrate to outsmart YouTube compression
-RENDER_BUFFER_SIZE = "40000k"
-RENDER_CRF = 14              # Near-lossless master (lower = better, 14 is visually lossless)
+RENDER_BITRATE = "8000k"    # 8 Mbps - YouTube re-encodes anyway, 20 Mbps wasted
+RENDER_BUFFER_SIZE = "16000k"
+RENDER_CRF = 18              # 18 = transparent for web, much smaller files = faster upload
 RENDER_PIX_FMT = "yuv420p"
 RENDER_MOVFLAGS = "+faststart"
 RENDER_INTERMEDIATE_PRESET = "fast"  # faster preset for intermediate steps (avoid timeouts)
@@ -171,26 +171,35 @@ MOVIE_KEYWORDS = [
 ]
 
 SERIES_KEYWORDS = [
-    "tv series emotional scene",
-    "tv show dramatic moment",
-    "series episode shocking twist",
-    "tv show funny scene comedy",
-    "series episode intense drama",
-    "tv show season finale scene",
-    "series episode powerful monologue",
-    "tv show character death scene",
-    "series episode plot twist",
-    "tv show action scene",
-    "series episode sad moment",
-    "tv show season premiere scene",
-    "series episode cliffhanger",
-    "tv show argument scene",
-    "series episode emotional goodbye",
-    "tv show betrayal scene",
-    "series episode reveal truth",
-    "tv show fight scene",
-    "series episode romance moment",
-    "tv show suspenseful scene",
+    # Breaking Bad / Better Call Saul
+    "breaking bad intense scene",
+    "breaking bad emotional moment",
+    "better call saul dramatic scene",
+    "breaking bad walter white scene",
+    # Game of Thrones / House of the Dragon
+    "game of thrones epic scene",
+    "game of thrones emotional scene",
+    "house of the dragon dramatic moment",
+    "game of thrones battle scene",
+    # The Office / Parks and Rec (comedy)
+    "the office best scene",
+    "parks and recreation funny scene",
+    "the office emotional moment",
+    # Friends / How I Met Your Mother
+    "friends iconic scene",
+    "how i met your mother funny clip",
+    # Stranger Things / The Walking Dead
+    "stranger things intense scene",
+    "stranger things emotional moment",
+    "the walking dead dramatic scene",
+    # Modern hits
+    "squid game intense scene",
+    "last of us emotional scene",
+    "euphoria dramatic scene",
+    "succession intense scene",
+    # The Boys / Breaking Bad action
+    "the boys shocking scene",
+    "peaky blinders dramatic scene",
 ]
 
 # ── Channel Branding ─────────────────────────────────────────

@@ -139,7 +139,17 @@
       "type": "series",
       "search_query": "series episode sad moment",
       "date": "2026-07-16T19:45:22.768014"
+    },
+    {
+      "type": "football",
+      "search_query": "football last minute goal",
+      "date": "2026-07-16T19:47:51.807045"
+    },
+    {
+      "type": "series",
+      "search_query": "series episode intense drama",
+      "date": "2026-07-16T19:59:35.256336"
     }
   ],
-  "total_count": 28
+  "total_count": 30
 }

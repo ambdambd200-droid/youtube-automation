@@ -490,23 +490,36 @@ def select_clip_segment(video_path, target_duration=None, content_type="movie"):
 
     if scenes:
         best_start = 5
-        best_density = 0
+        best_score = -1
 
         for i, scene_time in enumerate(scenes):
             window_end = scene_time + target_duration
+            if window_end >= duration:
+                continue
+            # Count total scene changes in window
             density = sum(1 for s in scenes if scene_time <= s <= window_end)
-            if density > best_density and scene_time + target_duration < duration:
-                middle_bonus = 1.0 - abs(scene_time - duration / 2) / (duration / 2)
-                weighted = density * (0.7 + 0.3 * middle_bonus)
-                if weighted > best_density:
-                    best_density = weighted
-                    best_start = scene_time
+            # Count scene changes in FIRST 10 SECONDS — critical for critique score
+            early_window = min(scene_time + 10, window_end)
+            early_density = sum(1 for s in scenes if scene_time <= s <= early_window)
+            # Bonus for centered segments
+            middle_bonus = 1.0 - abs(scene_time - duration / 2) / (duration / 2)
+            # Heavy weight on early density (motion_dynamics = 20% of final score)
+            weighted = density * 0.3 + early_density * 2.0 + 0.3 * middle_bonus
+            if weighted > best_score:
+                best_score = weighted
+                best_start = scene_time
 
         mid_of_segment = best_start + target_duration / 2
         impact_point = min(scenes, key=lambda s: abs(s - mid_of_segment))
 
-        offset = random.uniform(-3, 3)
+        offset = random.uniform(-2, 2)
         best_start = max(1, min(best_start + offset, duration - target_duration - 1))
+        # Guard: if best segment has NO early scene changes, offset toward a scene
+        early_count = sum(1 for s in scenes if best_start <= s <= best_start + 10)
+        if early_count < 1 and len([s for s in scenes if s < best_start + 10]) > 0:
+            first_early = next((s for s in scenes if s > best_start), None)
+            if first_early and first_early + target_duration < duration:
+                best_start = max(1, first_early - 3)
         print(f"  [editor] Scene-smart segment: {best_start:.1f}s - {best_start + target_duration:.1f}s ({len(scenes)} scenes detected)", flush=True)
         return (best_start, target_duration, impact_point)
 
