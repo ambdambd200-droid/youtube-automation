@@ -511,16 +511,18 @@ def critique_clip(video_path, content_type, source_title="", source_duration=0):
         )
 
     # Scan full clip for pacing (needed for full-clip density calc)
+    # Use a higher threshold for pacing to avoid detecting micro-motions
     clip_limit = min(duration, 60)
+    pacing_threshold = 0.3
     scene_times_full, full_timed_out = _detect_scenes(
-        video_path, max_seconds=clip_limit, threshold=threshold, timeout=20
+        video_path, max_seconds=clip_limit, threshold=pacing_threshold, timeout=20
     )
     if not scene_times_full and not full_timed_out:
         # No scenes found (not a timeout) — retry once with lower threshold
         remaining = _budget_remaining()
         retry_timeout = min(20, max(5, remaining - 5))
         scene_times_full, _ = _detect_scenes(
-            video_path, max_seconds=clip_limit, threshold=0.08, timeout=retry_timeout
+            video_path, max_seconds=clip_limit, threshold=0.15, timeout=retry_timeout
         )
 
     axes["motion_dynamics"] = _score_motion_dynamics(scene_times_first10, duration)

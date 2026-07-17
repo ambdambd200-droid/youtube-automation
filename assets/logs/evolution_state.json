@@ -1,6 +1,6 @@
 {
-  "generation": 7,
-  "last_updated": "2026-07-17T15:01:22.258057",
+  "generation": 8,
+  "last_updated": "2026-07-17T15:13:16.920880",
   "parameters": {
     "content_weights": {
       "movie": 0.38,
@@ -83,14 +83,14 @@
     "posting_times_by_day": {}
   },
   "performance": {
-    "average_score": 48.6,
-    "peak_score": 59.7,
-    "total_clips_analyzed": 46,
-    "total_evolutions": 6,
+    "average_score": 50.1,
+    "peak_score": 66.6,
+    "total_clips_analyzed": 58,
+    "total_evolutions": 7,
     "history_by_type": {
       "football": 52.3,
       "series": 42.6,
-      "movie": 50.4
+      "movie": 52.7
     },
     "history_by_hour": {
       "23": 47.9,
@@ -99,7 +99,8 @@
       "11": 46.3,
       "12": 46.3,
       "13": 59.7,
-      "14": 49.3
+      "14": 49.3,
+      "15": 66.6
     },
     "real_performance_average": null,
     "real_performance_best_type": null,
@@ -197,6 +198,18 @@
         "movie scene plot twist": 58.2,
         "film scene intense dialogue": 58.2,
         "movie scene action sequence": 58.2
+      }
+    },
+    {
+      "timestamp": "2026-07-17T15:13:16.903230",
+      "axis": "keywords",
+      "change": "Top keyword: 'film scene dramatic acting' (60.3)",
+      "keyword_scores": {
+        "film scene dramatic acting": 60.3,
+        "film scene intense dialogue": 60.3,
+        "film scene amazing visual effects": 60.3,
+        "film scene goosebumps moment": 60.3,
+        "film scene inspiring speech": 60.3
       }
     }
   ]
