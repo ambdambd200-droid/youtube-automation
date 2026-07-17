@@ -530,13 +530,18 @@ def critique_clip(video_path, content_type, source_title="", source_duration=0):
     axes["audio_impact"] = _score_audio_impact(video_path)
     axes["pacing"] = _score_pacing(scene_times_full, duration)
 
+    # Floor each axis at 30 to avoid punishing genre-specific content
+    # (horror = dark frames, drama = slow motion, etc.)
+    for k in axes:
+        axes[k] = max(axes[k], 30)
+
     # Compound score: weighted by importance
     # First frame hook is weighted highest — it determines click-through
     compound = (
-        axes["first_frame_hook"] * 0.35 +
+        axes["first_frame_hook"] * 0.25 +
         axes["motion_dynamics"] * 0.20 +
-        axes["audio_impact"] * 0.15 +
-        axes["scene_composition"] * 0.10 +
+        axes["audio_impact"] * 0.20 +
+        axes["scene_composition"] * 0.15 +
         axes["color_vibrancy"] * 0.10 +
         axes["pacing"] * 0.10
     )
