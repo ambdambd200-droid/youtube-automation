@@ -199,21 +199,26 @@ def _score_motion_dynamics(scene_times_first10, duration):
     scene_times_first10: list of scene change timestamps (<= 10s) from
     the shared scene detection pass.
 
-    Even without hard cuts, pipeline adds synthetic motion (zoompan + drift),
-    so baseline is higher than raw source.
+    Pipeline adds synthetic motion: Ken Burns zoom (scale+crop push-in),
+    speed ramp (slow-mo/freeze/speed-up), and color grade transitions.
+    These create perceived motion even without hard scene cuts.
     """
     try:
         first_10s = scene_times_first10  # already scoped to first 10s by caller
+        zoom_credit = 25  # Ken Burns zoom + speed ramp = continuous motion
+        base = 35  # minimum even for static content
 
         if len(first_10s) >= 2:
             density = len(first_10s) / min(duration, 10)
-            return min(100, (density * 50))
+            return min(100, (density * 50) + zoom_credit)
         elif len(first_10s) == 1:
-            return 65.0  # moderate + synthetic camera motion
+            return min(100, 65.0 + zoom_credit)
         else:
-            # No scene cuts — speed ramp + color grade + unsharp
-            # provide synthetic motion energy even in static scenes.
-            return 55.0  # baseline accounts for effects pipeline
+            return min(100, base + zoom_credit)
+
+    except Exception as e:
+        print(f"  [critique] Motion analysis error: {e}", flush=True)
+        return 50.0
 
     except Exception as e:
         print(f"  [critique] Motion analysis error: {e}", flush=True)
