@@ -60,7 +60,7 @@ RENDER_FINAL_PRESET = "slow"        # best quality for final render (only one pa
 UPSCALE_FLAGS = "spline"           # Better than lanczos for upscaling (sharper, less ringing)
 UPSCALE_UNSHARP_LUMA = "5:5:0.8"  # luma_mask=radius:power:threshold
 UPSCALE_UNSHARP_CHROMA = "3:3:0.4" # chroma_mask=radius:power:threshold
-UPSCALE_CONTRAST = 1.15  # Slight contrast boost before scaling
+UPSCALE_CONTRAST = 1.25  # Strong contrast boost before scaling
 
 # ── Background Music (BGM) ────────────────────────────────
 BGM_LUFS_TARGET = -24.0           # BGM should sit well below dialogue/foley
@@ -85,8 +85,8 @@ AUDIO_DUCK_DURATION = 0.5    # 0.5 second duck duration
 COLOR_SHADOW_LIFT = "#101010"  # Lift black point to avoid pure black
 COLOR_TEAL_SHADOWS = 0.22     # Push shadows toward teal/cyan
 COLOR_ORANGE_MIDTONES = 0.20  # Push midtones toward warm orange
-COLOR_GLOBAL_SATURATION = 0.05  # Increase global saturation by 5%
-COLOR_VIBRANCE_BOOST = 0.25   # Increase vibrance by 25%
+COLOR_GLOBAL_SATURATION = 0.12  # Increase global saturation by 12%
+COLOR_VIBRANCE_BOOST = 0.30   # Increase vibrance by 30%
 COLOR_GRAIN_INTENSITY = 5     # Film grain intensity (0-100)
 COLOR_GRAIN_SIZE = 0.3        # Film grain size
 COLOR_SHARPEN_RADIUS = 0.5    # Unsharp mask radius

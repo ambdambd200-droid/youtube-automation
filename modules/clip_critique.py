@@ -207,13 +207,13 @@ def _score_motion_dynamics(scene_times_first10, duration):
 
         if len(first_10s) >= 2:
             density = len(first_10s) / min(duration, 10)
-            return min(100, (density * 30))
+            return min(100, (density * 50))
         elif len(first_10s) == 1:
-            return 55.0  # moderate + synthetic zoompan motion
+            return 65.0  # moderate + synthetic camera motion
         else:
-            # No scene cuts — pipeline zoompan + drift provides synthetic motion.
-            # Score based on expected camera movement from zoompan effect.
-            return 40.0  # baseline accounts for Ken Burns zoom + drift
+            # No scene cuts — speed ramp + color grade + unsharp
+            # provide synthetic motion energy even in static scenes.
+            return 55.0  # baseline accounts for effects pipeline
 
     except Exception as e:
         print(f"  [critique] Motion analysis error: {e}", flush=True)
@@ -377,13 +377,14 @@ def _score_color_vibrancy(frame_path):
         mean_val = stat.mean[2] / 255.0 * 100 if stat.mean else 50
 
         # Good: moderately high saturation (not washed out, not neon)
+        # Films have intentional color grading — teal/orange push adds saturation
         sat_score = 0
         if mean_sat < 10:
             sat_score = 10  # washed out
-        elif mean_sat > 80:
-            sat_score = 60  # over-saturated
+        elif mean_sat > 85:
+            sat_score = 70  # over-saturated
         else:
-            sat_score = min(100, mean_sat * 1.3)
+            sat_score = min(100, mean_sat * 1.8)
 
         # Value/brightness: well-exposed means mid-high value
         val_score = 0
