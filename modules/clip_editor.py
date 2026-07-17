@@ -1218,9 +1218,9 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
 
     z_start = 1.0
     z_end = 1.18
-    z_step = (z_end - z_start) / max(duration * FPS, 1)
+    z_step = (z_end - 1.02) / max(duration * FPS, 1)
     filter_parts = [
-        f"[0:v]zoompan=z='if(lte(zoom,{z_start}),{z_start},min(zoom+{z_step},{z_end}))':"
+        f"[0:v]zoompan=z='if(lte(zoom,{z_start}),1.02,min(zoom+{z_step},{z_end}))':"
         f"d=1:fps={FPS}:"
         f"s={SHORTS_WIDTH}x{SHORTS_HEIGHT}:"
         f"x='iw/2-(iw/zoom/2)+8*sin(t/2.5)':y='ih/2-(ih/zoom/2)+6*cos(t/3)',"
@@ -1271,27 +1271,32 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
 
     input_files = ["-i", input_path]
     input_count = 1
-    audio_filters = ["[0:a]acopy[aout]"]
+    audio_filter_parts = []
 
     if sfx_files:
         for sfx_path in sfx_files:
             input_files += ["-i", sfx_path]
-            audio_filters.append(
+            audio_filter_parts.append(
                 f"[{input_count}:a]volume=0.15[a_sfx_{input_count}]"
             )
             input_count += 1
 
         mix_inputs = "[0:a]" + "".join(f"[a_sfx_{i}]" for i in range(1, input_count))
-        audio_filters[0] = f"{mix_inputs}amix=inputs={input_count}:duration=first:weights=1 0.15[aout]"
+        audio_filter_parts.append(f"{mix_inputs}amix=inputs={input_count}:duration=first:weights=1 0.15,asetpts=PTS-STARTPTS[aout]")
 
-    filter_complex = f"{full_filter};" + ";".join(audio_filters)
+    if audio_filter_parts:
+        filter_complex = f"{full_filter};" + ";".join(audio_filter_parts)
+        audio_map = "[aout]"
+    else:
+        filter_complex = full_filter
+        audio_map = "0:a?"
 
     cmd = [
         _FFMPEG_BIN, "-y",
     ] + input_files + [
         "-filter_complex", filter_complex,
         "-map", f"[{last_label}]",
-        "-map", "[aout]",
+        "-map", audio_map,
         "-c:v", "libx264", "-preset", "slow", "-crf", str(RENDER_CRF),
         "-b:v", RENDER_BITRATE,
         "-maxrate", RENDER_BITRATE,
