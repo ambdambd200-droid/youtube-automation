@@ -1270,7 +1270,7 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
         "-filter_complex", filter_complex,
         "-map", f"[{last_label}]",
         "-map", audio_map,
-        "-c:v", "libx264", "-preset", "slow", "-crf", str(RENDER_CRF),
+        "-c:v", "libx264", "-preset", "fast", "-crf", str(RENDER_CRF),
         "-b:v", RENDER_BITRATE,
         "-maxrate", RENDER_BITRATE,
         "-bufsize", RENDER_BUFFER_SIZE,
@@ -1810,7 +1810,7 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
 
     cmd += [
         "-c:v", "libx264",
-        "-preset", "slow",
+        "-preset", RENDER_FINAL_PRESET,
         "-crf", str(RENDER_CRF),
         "-b:v", RENDER_BITRATE,
         "-maxrate", RENDER_BITRATE,

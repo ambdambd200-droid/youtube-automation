@@ -39,7 +39,7 @@ LOG_DIR = os.path.join(OUTPUT_DIR, "logs")
 SHORTS_WIDTH = 1080
 SHORTS_HEIGHT = 1920
 FPS = 30
-CLIP_MAX_DURATION = 60       # Max 60s for YouTube Shorts
+CLIP_MAX_DURATION = 25       # Max 25s for YouTube Shorts (keeps processing fast)
 CLIP_MIN_DURATION = 15
 
 # ── Blueprint Render Specs (Section 6: The Final Render) ──
@@ -54,7 +54,7 @@ RENDER_CRF = 18              # 18 = transparent for web, much smaller files = fa
 RENDER_PIX_FMT = "yuv420p"
 RENDER_MOVFLAGS = "+faststart"
 RENDER_INTERMEDIATE_PRESET = "fast"  # faster preset for intermediate steps (avoid timeouts)
-RENDER_FINAL_PRESET = "slow"        # best quality for final render (only one pass)
+RENDER_FINAL_PRESET = "fast"        # fast preset for final render (CRF 18 maintains quality)
 
 # ── Upscaling & Sharpening ────────────────────────────────
 UPSCALE_FLAGS = "spline"           # Better than lanczos for upscaling (sharper, less ringing)
