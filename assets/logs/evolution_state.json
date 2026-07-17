@@ -1,6 +1,6 @@
 {
-  "generation": 6,
-  "last_updated": "2026-07-17T14:28:58.996221",
+  "generation": 7,
+  "last_updated": "2026-07-17T15:01:22.258057",
   "parameters": {
     "content_weights": {
       "movie": 0.38,
@@ -83,14 +83,14 @@
     "posting_times_by_day": {}
   },
   "performance": {
-    "average_score": 47.1,
+    "average_score": 48.6,
     "peak_score": 59.7,
-    "total_clips_analyzed": 35,
-    "total_evolutions": 5,
+    "total_clips_analyzed": 46,
+    "total_evolutions": 6,
     "history_by_type": {
       "football": 52.3,
       "series": 42.6,
-      "movie": 47.8
+      "movie": 50.4
     },
     "history_by_hour": {
       "23": 47.9,
@@ -99,7 +99,7 @@
       "11": 46.3,
       "12": 46.3,
       "13": 59.7,
-      "14": 36.4
+      "14": 49.3
     },
     "real_performance_average": null,
     "real_performance_best_type": null,
@@ -185,6 +185,18 @@
         "movie scene plot twist": 59.4,
         "film scene intense dialogue": 59.4,
         "movie scene action sequence": 59.4
+      }
+    },
+    {
+      "timestamp": "2026-07-17T15:01:22.242015",
+      "axis": "keywords",
+      "change": "Top keyword: 'movie scene emotional moment' (58.2)",
+      "keyword_scores": {
+        "movie scene emotional moment": 58.2,
+        "film scene dramatic acting": 58.2,
+        "movie scene plot twist": 58.2,
+        "film scene intense dialogue": 58.2,
+        "movie scene action sequence": 58.2
       }
     }
   ]

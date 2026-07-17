@@ -1217,12 +1217,11 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
     texts = _laugh_track_texts(title, clip_duration=duration)
 
     z_start = 1.0
-    z_end = 1.18
+    z_end = 1.15
     z_step = (z_end - 1.02) / max(duration * FPS, 1)
     filter_parts = [
-        f"[0:v]zoompan=z='if(lte(zoom,{z_start}),1.02,min(zoom+{z_step},{z_end}))':"
-        f"d=1:fps={FPS}:"
-        f"s={SHORTS_WIDTH}x{SHORTS_HEIGHT}:"
+        f"[0:v]zoompan=z='if(eq(zoom,0),1.02,min(zoom+{z_step},{z_end}))':"
+        f"d=1:s={SHORTS_WIDTH}x{SHORTS_HEIGHT}:"
         f"x='iw/2-(iw/zoom/2)+8*sin(t/2.5)':y='ih/2-(ih/zoom/2)+6*cos(t/3)',"
         f"unsharp=7:7:1.2:5:5:0.6[base]"
     ]
