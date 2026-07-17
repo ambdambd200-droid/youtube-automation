@@ -60,7 +60,7 @@ RENDER_FINAL_PRESET = "slow"        # best quality for final render (only one pa
 UPSCALE_FLAGS = "spline"           # Better than lanczos for upscaling (sharper, less ringing)
 UPSCALE_UNSHARP_LUMA = "5:5:0.8"  # luma_mask=radius:power:threshold
 UPSCALE_UNSHARP_CHROMA = "3:3:0.4" # chroma_mask=radius:power:threshold
-UPSCALE_CONTRAST = 1.05            # Slight contrast boost before scaling
+UPSCALE_CONTRAST = 1.15  # Slight contrast boost before scaling
 
 # ── Background Music (BGM) ────────────────────────────────
 BGM_LUFS_TARGET = -24.0           # BGM should sit well below dialogue/foley
@@ -83,10 +83,10 @@ AUDIO_DUCK_DURATION = 0.5    # 0.5 second duck duration
 
 # ── Video Color Specs (Section 3: Visual Alchemy) ─────────
 COLOR_SHADOW_LIFT = "#101010"  # Lift black point to avoid pure black
-COLOR_TEAL_SHADOWS = 0.15     # Push shadows toward teal/cyan
-COLOR_ORANGE_MIDTONES = 0.12  # Push midtones toward warm orange
-COLOR_GLOBAL_SATURATION = -0.10  # Reduce global saturation by 10%
-COLOR_VIBRANCE_BOOST = 0.15   # Increase vibrance by 15%
+COLOR_TEAL_SHADOWS = 0.22     # Push shadows toward teal/cyan
+COLOR_ORANGE_MIDTONES = 0.20  # Push midtones toward warm orange
+COLOR_GLOBAL_SATURATION = 0.05  # Increase global saturation by 5%
+COLOR_VIBRANCE_BOOST = 0.25   # Increase vibrance by 25%
 COLOR_GRAIN_INTENSITY = 5     # Film grain intensity (0-100)
 COLOR_GRAIN_SIZE = 0.3        # Film grain size
 COLOR_SHARPEN_RADIUS = 0.5    # Unsharp mask radius
@@ -94,9 +94,9 @@ COLOR_SHARPEN_AMOUNT = 50     # Unsharp mask amount
 
 # ── Temporal Specs (Section 4: Temporal Dynamics) ─────────
 TEMP_PRE_ACTION_WINDOW = 1.5  # Start 1.5s before main event
-TEMP_SLOW_MOTION_SPEED = 0.4 # 40% speed at impact
+TEMP_SLOW_MOTION_SPEED = 0.3 # 30% speed at impact (dramatic slow-mo)
 TEMP_FREEZE_DURATION = 0.4   # Freeze frame for 0.4s (10-12 frames)
-TEMP_SPEED_UP_SPEED = 2.0    # 200% speed after impact
+TEMP_SPEED_UP_SPEED = 2.5    # 250% speed after impact (snappy recovery)
 TEMP_REACTION_DURATION = 2.0 # End 2s after action for reaction
 TEMP_ZOOM_IN_SCALE = 1.10    # Micro-zoom 110% for focus
 TEMP_ZOOM_DURATION = 0.5     # Zoom over 0.5 seconds

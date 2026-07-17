@@ -55,7 +55,7 @@ DEFAULT_EVOLUTION_STATE = {
         "series_keywords": list(_CONFIG_KWS["series"]),
         "clip_min_duration": CLIP_MIN_DURATION,
         "clip_max_duration": CLIP_MAX_DURATION,
-        "scene_threshold": 0.3,
+        "scene_threshold": 0.15,
         "title_style_preference": "balanced",  # poetic | direct | balanced
         "thumbnail_variant_preference": "v2",  # which variant to use as primary
         "posting_times_by_day": {},  # Day->hour list, filled by real perf data

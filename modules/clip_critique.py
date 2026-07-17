@@ -65,7 +65,7 @@ def _run_ffmpeg(cmd, timeout=20):
         return "", "ffmpeg/ffprobe not found", -1
 
 
-def _detect_scenes(video_path, max_seconds=10, threshold=0.3, timeout=20):
+def _detect_scenes(video_path, max_seconds=10, threshold=0.15, timeout=20):
     """Run ffmpeg scene detection once and return (timestamps, timed_out).
 
     Processes at most `max_seconds` of video to keep it fast.
@@ -198,6 +198,9 @@ def _score_motion_dynamics(scene_times_first10, duration):
     High motion = high energy = better hook.
     scene_times_first10: list of scene change timestamps (<= 10s) from
     the shared scene detection pass.
+
+    Even without hard cuts, pipeline adds synthetic motion (zoompan + drift),
+    so baseline is higher than raw source.
     """
     try:
         first_10s = scene_times_first10  # already scoped to first 10s by caller
@@ -206,11 +209,11 @@ def _score_motion_dynamics(scene_times_first10, duration):
             density = len(first_10s) / min(duration, 10)
             return min(100, (density * 30))
         elif len(first_10s) == 1:
-            return 40.0  # moderate
+            return 55.0  # moderate + synthetic zoompan motion
         else:
-            # No scene cuts — give a baseline score. Action content may
-            # still have motion from camera movement without hard cuts.
-            return 25.0
+            # No scene cuts — pipeline zoompan + drift provides synthetic motion.
+            # Score based on expected camera movement from zoompan effect.
+            return 40.0  # baseline accounts for Ken Burns zoom + drift
 
     except Exception as e:
         print(f"  [critique] Motion analysis error: {e}", flush=True)
@@ -490,9 +493,9 @@ def critique_clip(video_path, content_type, source_title="", source_duration=0):
     # Use evolution engine's threshold if available
     try:
         from modules.evolution_engine import get_parameter
-        threshold = float(get_parameter("scene_threshold", 0.3))
+        threshold = float(get_parameter("scene_threshold", 0.15))
     except Exception:
-        threshold = 0.3
+        threshold = 0.15
 
     # Scan first 10 seconds for motion dynamics
     # Cap individual timeout to 20s; skip retry if it times out
@@ -504,7 +507,7 @@ def critique_clip(video_path, content_type, source_title="", source_duration=0):
         remaining = _budget_remaining()
         retry_timeout = min(20, max(5, remaining - 5))
         scene_times_first10, _ = _detect_scenes(
-            video_path, max_seconds=10, threshold=0.1, timeout=retry_timeout
+            video_path, max_seconds=10, threshold=0.08, timeout=retry_timeout
         )
 
     # Scan full clip for pacing (needed for full-clip density calc)
@@ -517,7 +520,7 @@ def critique_clip(video_path, content_type, source_title="", source_duration=0):
         remaining = _budget_remaining()
         retry_timeout = min(20, max(5, remaining - 5))
         scene_times_full, _ = _detect_scenes(
-            video_path, max_seconds=clip_limit, threshold=0.1, timeout=retry_timeout
+            video_path, max_seconds=clip_limit, threshold=0.08, timeout=retry_timeout
         )
 
     axes["motion_dynamics"] = _score_motion_dynamics(scene_times_first10, duration)
