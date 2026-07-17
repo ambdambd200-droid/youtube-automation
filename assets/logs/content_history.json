@@ -159,7 +159,12 @@
       "type": "movie",
       "search_query": "movie scene heartbreaking",
       "date": "2026-07-17T11:47:11.229624"
+    },
+    {
+      "type": "football",
+      "search_query": "football player amazing dribble",
+      "date": "2026-07-17T12:24:31.661188"
     }
   ],
-  "total_count": 32
+  "total_count": 33
 }
