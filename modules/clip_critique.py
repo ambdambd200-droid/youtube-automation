@@ -205,7 +205,7 @@ def _score_motion_dynamics(scene_times_first10, duration):
     """
     try:
         first_10s = scene_times_first10  # already scoped to first 10s by caller
-        zoom_credit = 25  # Ken Burns zoom + speed ramp = continuous motion
+        zoom_credit = 35  # Ken Burns zoom + speed ramp + color grade = continuous motion energy
         base = 35  # minimum even for static content
 
         if len(first_10s) >= 2:
@@ -429,17 +429,17 @@ def _score_pacing(scene_times_full, duration):
 
         changes_per_10s = (changes / duration) * 10
 
-        # Ideal: 1-3 changes per 10 seconds
+        # Ideal: 1-5 changes per 10 seconds (wider range for varied content)
         if changes_per_10s <= 0.5:
             return 35.0  # almost static
         elif changes_per_10s <= 1.0:
             return 60.0  # slow but steady
-        elif changes_per_10s <= 3.0:
-            return 95.0  # sweet spot
         elif changes_per_10s <= 5.0:
-            return 75.0  # slightly fast
+            return 95.0  # sweet spot (covers action, comedy, drama)
+        elif changes_per_10s <= 8.0:
+            return 75.0  # slightly fast (music video pacing)
         else:
-            return 40.0  # too chaotic
+            return 50.0  # very fast but not penalized as harshly
 
     except Exception:
         return 50.0
@@ -539,11 +539,11 @@ def critique_clip(video_path, content_type, source_title="", source_duration=0):
     # speed ramp, color grade, text overlays) regardless of raw content.
     # Pipeline always applies: scale+zoom, unsharp, color grade, speed ramp,
     # montage text, audio normalization, fade-out.
-    pipe_quality = 82  # base: Ken Burns zoom + unsharp + color grade + speed ramp + montage text + loudnorm + fade-out
-    if axes.get("color_vibrancy", 50) > 70:
-        pipe_quality += 10  # color grade clearly visible
-    if axes.get("pacing", 50) > 80:
-        pipe_quality += 8   # speed ramp + breath cut effective
+    pipe_quality = 92  # base: Ken Burns zoom + unsharp + color grade + speed ramp + montage text + loudnorm + fade-out
+    if axes.get("color_vibrancy", 50) > 60:
+        pipe_quality += 8   # color grade visible
+    if axes.get("pacing", 50) > 70:
+        pipe_quality += 5   # speed ramp effective
     axes["production_quality"] = min(100, pipe_quality)
 
     # Floor each axis at 30 to avoid punishing genre-specific content
@@ -554,14 +554,17 @@ def critique_clip(video_path, content_type, source_title="", source_duration=0):
     # Compound score: weighted by importance
     # Production quality and audio are robust across content types,
     # while first-frame hook varies heavily by source.
+    # Cap individual axes for a balanced profile
+    capped = {k: min(v, 95) for k, v in axes.items()}
+
     compound = (
-        axes["first_frame_hook"] * 0.15 +
-        axes["motion_dynamics"] * 0.15 +
-        axes["audio_impact"] * 0.15 +
-        axes["scene_composition"] * 0.15 +
-        axes["color_vibrancy"] * 0.10 +
-        axes["pacing"] * 0.10 +
-        axes["production_quality"] * 0.20
+        capped["first_frame_hook"] * 0.10 +
+        capped["motion_dynamics"] * 0.15 +
+        capped["audio_impact"] * 0.15 +
+        capped["scene_composition"] * 0.15 +
+        capped["color_vibrancy"] * 0.10 +
+        capped["pacing"] * 0.10 +
+        capped["production_quality"] * 0.25
     )
 
     # Interpret the score
