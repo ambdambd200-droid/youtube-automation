@@ -96,6 +96,14 @@ COMPILATION_PATTERNS = [
     r"all\s+(time|best|greatest)",
     r"every\s+(movie|scene|moment|line)",
     r"100\s+most", r"50\s+best", r"top\s+10", r"top\s+20", r"top\s+100",
+    r"beautiful\s+(shots|moments|cinematography)",
+    r"cinematic\s+(history|moments|scenes|masterpieces)",
+    r"best\s+(shots|moments|scenes)",
+    r"(movie|film)\s+moments",
+    r"scenes\s+that\s+(will|made|make)",
+    r"(movies|films)\s+that\s+(will|changed|made)",
+    r"cinematic\s+(masterpiece|excellence|wonders)",
+    r"most\s+beautiful\s+(shots|scenes|moments)",
 ]
 
 # ── Violations log ──────────────────────────────────────────────

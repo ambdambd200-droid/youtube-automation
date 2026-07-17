@@ -116,15 +116,18 @@ def _load_evolved_keywords(content_type):
         return None
 
 
+EXCLUDE_TERMS = " -compilation -top -best -most -greatest -iconic -moments -scenes -beautiful -cinematic -supercut -collection -mix -ultimate -every -amazing"
+
 def generate_search_query(content_type):
     """Generate a search query for the selected content type."""
+    exclude = EXCLUDE_TERMS
     if content_type == "football":
         kws = _load_evolved_keywords(content_type) or FOOTBALL_KEYWORDS
         kw = random.choice(kws)
 
         return {
             "type": "football",
-            "search_query": kw,
+            "search_query": kw + exclude,
             "description": f"Football - {kw}",
         }
 
@@ -134,7 +137,7 @@ def generate_search_query(content_type):
 
         return {
             "type": "series",
-            "search_query": kw,
+            "search_query": kw + exclude,
             "description": f"TV Series - {kw}",
         }
 
@@ -144,7 +147,7 @@ def generate_search_query(content_type):
 
         return {
             "type": "movie",
-            "search_query": kw,
+            "search_query": kw + exclude,
             "description": f"Movie Scene - {kw}",
         }
 

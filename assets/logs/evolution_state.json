@@ -1,11 +1,11 @@
 {
-  "generation": 3,
-  "last_updated": "2026-07-17T12:47:12.591745",
+  "generation": 4,
+  "last_updated": "2026-07-17T12:59:44.197901",
   "parameters": {
     "content_weights": {
-      "movie": 0.41,
-      "football": 0.3,
-      "series": 0.3
+      "movie": 0.39,
+      "football": 0.32,
+      "series": 0.29
     },
     "football_keywords": [
       "football goal crazy skill",
@@ -83,21 +83,21 @@
     "posting_times_by_day": {}
   },
   "performance": {
-    "average_score": 48.6,
+    "average_score": 46.8,
     "peak_score": 59.0,
-    "total_clips_analyzed": 11,
-    "total_evolutions": 2,
+    "total_clips_analyzed": 18,
+    "total_evolutions": 3,
     "history_by_type": {
       "football": 52.3,
       "series": 42.6,
-      "movie": 59.0
+      "movie": 47.5
     },
     "history_by_hour": {
       "23": 47.9,
       "19": 45.5,
       "20": 48.8,
       "11": 46.3,
-      "12": 56.7
+      "12": 46.3
     },
     "real_performance_average": null,
     "real_performance_best_type": null,
@@ -129,6 +129,23 @@
     },
     {
       "timestamp": "2026-07-17T12:47:12.575755",
+      "axis": "keywords",
+      "change": "Top keyword: 'movie scene emotional moment' (59.0)",
+      "keyword_scores": {
+        "movie scene emotional moment": 59.0,
+        "film scene dramatic acting": 59.0,
+        "movie scene plot twist": 59.0,
+        "film scene intense dialogue": 59.0,
+        "movie scene action sequence": 59.0
+      }
+    },
+    {
+      "timestamp": "2026-07-17T12:59:44.179301",
+      "axis": "content_weights",
+      "change": "Boosted football from 0.30 to 0.32 (score: 52.3)"
+    },
+    {
+      "timestamp": "2026-07-17T12:59:44.179301",
       "axis": "keywords",
       "change": "Top keyword: 'movie scene emotional moment' (59.0)",
       "keyword_scores": {

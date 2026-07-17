@@ -1216,7 +1216,15 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
 
     texts = _laugh_track_texts(title, clip_duration=duration)
 
-    filter_parts = [f"[0:v]scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=0,setsar=1[base]"]
+    z_start = 1.0
+    z_end = 1.08
+    z_step = (z_end - z_start) / max(duration * FPS, 1)
+    filter_parts = [
+        f"[0:v]zoompan=z='if(lte(zoom,{z_start}),{z_start},min(zoom+{z_step},{z_end}))':"
+        f"d=1:fps={FPS}:"
+        f"s={SHORTS_WIDTH}x{SHORTS_HEIGHT}:"
+        f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'[base]"
+    ]
     prev_label = "base"
 
     for i, item in enumerate(texts):
