@@ -1218,6 +1218,9 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
 
     filter_parts = [
         f"[0:v]scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=0,setsar=1,"
+        f"scale='floor(iw*(1.0+0.15*t/{max(duration,0.1)}))':"
+        f"'floor(ih*(1.0+0.15*t/{max(duration,0.1)}))':eval=frame,"
+        f"crop={SHORTS_WIDTH}:{SHORTS_HEIGHT},"
         f"unsharp=7:7:1.2:5:5:0.6[base]"
     ]
     prev_label = "base"
