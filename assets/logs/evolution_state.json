@@ -1,6 +1,6 @@
 {
-  "generation": 8,
-  "last_updated": "2026-07-17T15:13:16.920880",
+  "generation": 9,
+  "last_updated": "2026-07-17T16:19:40.625305",
   "parameters": {
     "content_weights": {
       "movie": 0.38,
@@ -83,14 +83,14 @@
     "posting_times_by_day": {}
   },
   "performance": {
-    "average_score": 50.1,
+    "average_score": 49.5,
     "peak_score": 66.6,
-    "total_clips_analyzed": 58,
-    "total_evolutions": 7,
+    "total_clips_analyzed": 71,
+    "total_evolutions": 8,
     "history_by_type": {
       "football": 52.3,
       "series": 42.6,
-      "movie": 52.7
+      "movie": 51.3
     },
     "history_by_hour": {
       "23": 47.9,
@@ -100,7 +100,8 @@
       "12": 46.3,
       "13": 59.7,
       "14": 49.3,
-      "15": 66.6
+      "15": 66.6,
+      "16": 41.3
     },
     "real_performance_average": null,
     "real_performance_best_type": null,
@@ -210,6 +211,18 @@
         "film scene amazing visual effects": 60.3,
         "film scene goosebumps moment": 60.3,
         "film scene inspiring speech": 60.3
+      }
+    },
+    {
+      "timestamp": "2026-07-17T16:19:40.594306",
+      "axis": "keywords",
+      "change": "Top keyword: 'soccer skills training match' (56.7)",
+      "keyword_scores": {
+        "soccer skills training match": 56.7,
+        "film scene dramatic acting": 56.5,
+        "film scene intense dialogue": 56.5,
+        "film scene amazing visual effects": 56.5,
+        "film scene goosebumps moment": 56.5
       }
     }
   ]

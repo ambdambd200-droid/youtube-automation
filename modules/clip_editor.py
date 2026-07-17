@@ -1257,33 +1257,9 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
     full_filter = ";".join(filter_parts)
     last_label = f"t{len(texts)-1}" if texts else "base"
 
-    sfx_files = []
-    for sfx_type in ["whoosh", "bassdrop"]:
-        sfx_path = _generate_sfx(sfx_type)
-        if sfx_path:
-            sfx_files.append(sfx_path)
-
     input_files = ["-i", input_path]
-    input_count = 1
-    audio_filter_parts = []
-
-    if sfx_files:
-        for sfx_path in sfx_files:
-            input_files += ["-i", sfx_path]
-            audio_filter_parts.append(
-                f"[{input_count}:a]volume=0.15[a_sfx_{input_count}]"
-            )
-            input_count += 1
-
-        mix_inputs = "[0:a]" + "".join(f"[a_sfx_{i}]" for i in range(1, input_count))
-        audio_filter_parts.append(f"{mix_inputs}amix=inputs={input_count}:duration=first:weights=1 0.15,asetpts=PTS-STARTPTS[aout]")
-
-    if audio_filter_parts:
-        filter_complex = f"{full_filter};" + ";".join(audio_filter_parts)
-        audio_map = "[aout]"
-    else:
-        filter_complex = full_filter
-        audio_map = "0:a?"
+    filter_complex = full_filter
+    audio_map = "0:a?"
 
     cmd = [
         _FFMPEG_BIN, "-y",
