@@ -54,6 +54,22 @@ _COPYRIGHT_SAFE_CHANNELS = [
     "kimer", "vibey", "yellow sub", "uday",
 ]
 
+# Indian cinema — completely blocked (user requirement)
+_INDIAN_BLOCKLIST = [
+    "shemaroo", "zeetv", "zee tv", "zee music", "zee5",
+    "star india", "star maa", "star plus", "star jalsha",
+    "sony tv", "sony sab", "sony max", "sony marathi",
+    "colors tv", "colors kannada", "voot",
+    "hotstar", "disney+ hotstar",
+    "etv", "etv telugu", "etv cinema",
+    "tv9", "tv5", "ntv",
+    "ap international", "ap cinema",
+    "telugu", "tamil", "hindi", "bollywood", "tollywood",
+    "kollywood", "mallu", "kannada", "malayalam", "bengali",
+    "punjabi", "marathi", "bhojpuri",
+    "mflix", "movie", "south movie",
+]
+
 
 # ── Viral Score ──────────────────────────────────────────────
 
@@ -582,11 +598,15 @@ def download_best_match(search_query, used_ids=None, content_type=None, min_reso
     copyright_safe = []
     for v in quality_candidates:
         channel = (v.get("channel") or "").lower()
+        title = (v.get("title") or "").lower()
         # Skip major studio channels (aggressive Content ID)
         if any(studio in channel for studio in _COPYRIGHT_BLACKLIST):
-            # But allow if channel is in the safe list
             if not any(safe in channel for safe in _COPYRIGHT_SAFE_CHANNELS):
                 continue
+        # Skip Indian cinema (user requirement)
+        if any(kw in channel for kw in _INDIAN_BLOCKLIST) or \
+           any(kw in title for kw in _INDIAN_BLOCKLIST):
+            continue
         copyright_safe.append(v)
     if copyright_safe and len(copyright_safe) >= 2:
         quality_candidates = copyright_safe

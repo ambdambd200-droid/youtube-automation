@@ -55,6 +55,10 @@ STUDIO_CHANNELS = [
     "abc news", "bbc news",
     "associated press", "ap archive",
     "reuters",
+    # Indian cinema — completely blocked
+    "shemaroo", "zee tv", "star maa", "star plus",
+    "colors tv", "etv telugu", "sony tv india",
+    "disney+ hotstar", "hotstar",
 ]
 
 # Channels that are SAFE to download from (fan content, analysis, commentary)

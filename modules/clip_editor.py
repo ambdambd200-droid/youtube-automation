@@ -914,56 +914,41 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
             except Exception:
                 print(f"  [editor] Speed ramp fallback also failed, continuing", flush=True)
 
-        # ── Step 6: Karaoke Subtitles (ALL content types, Section 5.1) ──
-        if title:
-            sub_success = False
-            for sub_attempt in range(2):
-                try:
-                    step4 = os.path.join(work_dir, "04_subtitled.mp4")
-                    text_segs = _generate_text_segments(title, clip_duration, content_type)
-                    subbed = apply_karaoke_subtitles(current, step4, text_segs)
-                    if subbed:
-                        current = subbed
-                        sub_success = True
-                        break
-                except Exception as e:
-                    if sub_attempt == 0:
-                        print(f"  [editor] Subtitles attempt {sub_attempt+1} failed: {e}, retrying...", flush=True)
-            if not sub_success:
-                print(f"  [editor] Subtitles failed, continuing without text overlays", flush=True)
-
-        # ── Step 7: Audio Pipeline (Blueprint Section 2) ──
-        audio_success = False
-        for audio_attempt in range(2):
+        # ── Step 6: Montage Effects (LaughTrack-style text + SFX) ──
+        montage_success = False
+        for montage_attempt in range(2):
             try:
-                from modules.audio_pipeline import full_audio_pipeline
-                step5 = os.path.join(work_dir, "05_audio.mp4")
-                audio_processed = full_audio_pipeline(current, content_type, step5)
-                if audio_processed and audio_processed != current:
-                    current = audio_processed
-                    audio_success = True
+                step4 = os.path.join(work_dir, "04_montage.mp4")
+                montage_result = apply_movie_effects(current, step4, content_type, title=title or "")
+                if montage_result and os.path.exists(step4):
+                    current = step4
+                    montage_success = True
                     break
             except Exception as e:
-                if audio_attempt == 0:
-                    print(f"  [editor] Audio pipeline attempt {audio_attempt+1} failed: {e}", flush=True)
+                if montage_attempt == 0:
+                    print(f"  [editor] Montage attempt {montage_attempt+1} failed: {e}, retrying...", flush=True)
                     time.sleep(2)
-        if not audio_success:
-            # Fallback: just normalize audio with ffmpeg loudnorm
-            try:
-                step5_fb = os.path.join(work_dir, "05_audio_fallback.mp4")
-                fb_cmd = [
-                    _FFMPEG_BIN, "-y", "-i", current,
-                    "-c:v", "copy",
-                    "-af", "loudnorm=I=-14:LRA=7:TP=-1",
-                    "-c:a", "aac", "-b:a", "192k",
-                    step5_fb,
-                ]
-                subprocess.run(fb_cmd, capture_output=True, timeout=120)
-                if os.path.exists(step5_fb) and os.path.getsize(step5_fb) > 10000:
-                    current = step5_fb
-                    print(f"  [editor] Audio fallback: loudnorm only", flush=True)
-            except Exception:
-                print(f"  [editor] Audio fallback also failed, keeping original audio", flush=True)
+        if not montage_success:
+            print(f"  [editor] Montage failed, keeping source as-is", flush=True)
+
+        # ── Step 7: Audio — simple loudnorm only (no BGM, no complex pipeline) ──
+        try:
+            step5 = os.path.join(work_dir, "05_audio_norm.mp4")
+            norm_cmd = [
+                _FFMPEG_BIN, "-y", "-i", current,
+                "-c:v", "copy",
+                "-af", "loudnorm=I=-14:LRA=7:TP=-1",
+                "-c:a", "aac", "-b:a", "192k",
+                step5,
+            ]
+            subprocess.run(norm_cmd, capture_output=True, timeout=120)
+            if os.path.exists(step5) and os.path.getsize(step5) > 10000:
+                current = step5
+                print(f"  [editor] Audio normalized to -14 LUFS (simple pass)", flush=True)
+            else:
+                print(f"  [editor] Audio normalization produced no output, keeping original", flush=True)
+        except Exception as e:
+            print(f"  [editor] Audio normalization skipped: {e}", flush=True)
 
         # ── Step 8: VARY Watermark Overlay ────────────────
         try:
@@ -1196,7 +1181,7 @@ def _laugh_track_texts(title="", clip_duration=15):
 
     # Opening: absolute timestamps — always hits at same second regardless of clip length
     opening = [
-        {"text": "⚡ VARY", "start": 0.0, "end": 0.5, "pos": "center"},
+        {"text": "VARY", "start": 0.0, "end": 0.5, "pos": "center"},
         {"text": f"\"{movie_name}\"", "start": 0.5, "end": 1.5, "pos": "center"},
     ]
 
@@ -1204,8 +1189,8 @@ def _laugh_track_texts(title="", clip_duration=15):
     remaining = [
         ("wait for it...", 0.15, "bottom"),
         ("peak cinema.", 0.30, "bottom"),
-        ("👀", 0.45, "center"),
-        ("🔥", 0.60, "center"),
+        ("this is the scene.", 0.45, "bottom"),
+        ("pure intensity.", 0.60, "bottom"),
         ("watch this.", 0.75, "bottom"),
     ]
 

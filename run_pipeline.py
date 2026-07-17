@@ -25,6 +25,7 @@ if hasattr(sys.stdout, 'reconfigure'):
         pass
 
 sys.path.insert(0, os.path.dirname(__file__))
+from modules.utils import find_ffmpeg, find_ffprobe
 
 from config import (
     LOG_DIR, FOOTBALL_KEYWORDS, MOVIE_KEYWORDS, SERIES_KEYWORDS,
@@ -226,6 +227,42 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
     else:
         print(f"  [SKIP] Critique returned no result", flush=True)
         log_result("critique", "skipped", {"reason": "no result"})
+
+    # ── Audio validation: ensure output has an audio stream ──
+    clip_path = clip_result["path"]
+    _has_audio = False
+    try:
+        _r = subprocess.run(
+            [find_ffprobe(), "-v", "error", "-select_streams", "a:0",
+             "-show_entries", "stream=codec_type", "-of", "default=noprint_wrappers=1:nokey=1",
+             clip_path],
+            capture_output=True, text=True, timeout=15,
+        )
+        _has_audio = _r.returncode == 0 and _r.stdout.strip() == "audio"
+    except Exception:
+        pass
+
+    if not _has_audio:
+        print(f"  [WARNING] Clip has NO audio stream — adding audio from original", flush=True)
+        try:
+            _audio_fixed = clip_path.replace(".mp4", "_audiofix.mp4")
+            _r2 = subprocess.run(
+                [find_ffmpeg(), "-y", "-i", clip_path,
+                 "-i", download_result["path"],
+                 "-c:v", "copy",
+                 "-c:a", "aac", "-b:a", "128k",
+                 "-map", "0:v:0",
+                 "-map", "1:a:0",
+                 "-shortest",
+                 _audio_fixed],
+                capture_output=True, text=True, timeout=120,
+            )
+            if os.path.exists(_audio_fixed) and os.path.getsize(_audio_fixed) > 10000:
+                clip_path = _audio_fixed
+                clip_result["path"] = _audio_fixed
+                print(f"  [AUDIO] Fixed — re-added audio from original source", flush=True)
+        except Exception as _e:
+            print(f"  [AUDIO] Fix failed: {_e}, uploading as-is", flush=True)
 
     # ── Step 8: Upload to YouTube ────────────────────────
     register_stage(pipeline_id, "upload")
