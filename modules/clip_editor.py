@@ -1223,7 +1223,8 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
         f"[0:v]zoompan=z='if(lte(zoom,{z_start}),{z_start},min(zoom+{z_step},{z_end}))':"
         f"d=1:fps={FPS}:"
         f"s={SHORTS_WIDTH}x{SHORTS_HEIGHT}:"
-        f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'[base]"
+        f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)',"
+        f"unsharp=5:5:0.8:3:3:0.4[base]"
     ]
     prev_label = "base"
 
