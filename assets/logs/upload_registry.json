@@ -241,6 +241,28 @@
       "critique_grade": "B \u2014 Strong. Above-average performance predicted.",
       "uploaded_at": "2026-07-18T16:58:30.889838",
       "last_fetched": null
+    },
+    {
+      "video_id": "JG6mS1vJrC4",
+      "title": "A Quiet Place - Short Film | ft. Siren Head",
+      "content_type": "movie",
+      "search_query": "movie scene quiet dramatic",
+      "seo_title": "Pure Shock \u2014 A Quiet Place - S \u2014 Notice The Background",
+      "critique_score": 81.8,
+      "critique_grade": "A \u2014 Elite hook potential. High retention expected.",
+      "uploaded_at": "2026-07-18T18:46:53.307191",
+      "last_fetched": null
+    },
+    {
+      "video_id": "1cDNBCgq3nA",
+      "title": "Truck-chase scene | Terminator 2 [Remastered]",
+      "content_type": "movie",
+      "search_query": "film scene chase sequence",
+      "seo_title": "Pure Shock \u2014 Truck-chase Scene \u2014 He Didn't See It",
+      "critique_score": 75.5,
+      "critique_grade": "B \u2014 Strong. Above-average performance predicted.",
+      "uploaded_at": "2026-07-18T19:05:17.157134",
+      "last_fetched": null
     }
   ]
 }

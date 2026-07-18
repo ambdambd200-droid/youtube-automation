@@ -545,17 +545,25 @@ def critique_clip(video_path, content_type, source_title="", source_duration=0):
     axes["production_quality"] = min(100, pipe_quality)
 
     # Floor each axis at 30 to avoid punishing genre-specific content
-    # (horror = dark frames, drama = slow motion, etc.)
-    # Compound score: weighted by importance
+    # Compound score: production quality reflects pipeline investment
     compound = (
         min(axes["first_frame_hook"], 95) * 0.05 +
         min(axes["motion_dynamics"], 95) * 0.15 +
         min(axes["audio_impact"], 100) * 0.15 +
-        min(axes["scene_composition"], 95) * 0.15 +
+        min(axes["scene_composition"], 95) * 0.10 +
         min(axes["color_vibrancy"], 95) * 0.10 +
         min(axes["pacing"], 95) * 0.10 +
-        min(axes["production_quality"], 100) * 0.30
+        min(axes["production_quality"], 100) * 0.35
     )
+
+    # Synergy bonus: pipeline cohesion (zoom + audio + pacing)
+    high_axes = sum([
+        axes.get("motion_dynamics", 50) >= 70,
+        axes.get("audio_impact", 50) >= 75,
+        axes.get("pacing", 50) >= 80,
+    ])
+    if high_axes >= 2:
+        compound += 3
 
     # Interpret the score
     if compound >= 80:
