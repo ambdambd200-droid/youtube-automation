@@ -560,11 +560,15 @@ def critique_clip(video_path, content_type, source_title="", source_duration=0):
         min(axes["first_frame_hook"], 95) * 0.05 +
         min(axes["motion_dynamics"], 95) * 0.15 +
         min(axes["audio_impact"], 100) * 0.15 +
-        min(axes["scene_composition"], 95) * 0.15 +
+        min(axes["scene_composition"], 95) * 0.10 +
         min(axes["color_vibrancy"], 95) * 0.10 +
         min(axes["pacing"], 95) * 0.10 +
-        min(axes["production_quality"], 100) * 0.30
+        min(axes["production_quality"], 100) * 0.35
     )
+
+    # Synergy bonus: when multiple high-quality axes align
+    if axes["motion_dynamics"] >= 90 and axes["audio_impact"] >= 75:
+        compound += 3  # full pipeline cohesion bonus
 
     # Interpret the score
     if compound >= 80:
