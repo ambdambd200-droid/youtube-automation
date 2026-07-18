@@ -1,6 +1,6 @@
 {
-  "generation": 16,
-  "last_updated": "2026-07-18T19:05:17.337140",
+  "generation": 17,
+  "last_updated": "2026-07-18T19:18:45.763129",
   "parameters": {
     "content_weights": {
       "movie": 0.38,
@@ -83,18 +83,18 @@
     "posting_times_by_day": {}
   },
   "performance": {
-    "average_score": 57.3,
+    "average_score": 58.2,
     "peak_score": 81.8,
-    "total_clips_analyzed": 199,
-    "total_evolutions": 15,
+    "total_clips_analyzed": 222,
+    "total_evolutions": 16,
     "history_by_type": {
       "football": 52.3,
       "series": 42.6,
-      "movie": 60.5
+      "movie": 61.5
     },
     "history_by_hour": {
       "23": 47.9,
-      "19": 60.5,
+      "19": 66.6,
       "20": 48.8,
       "11": 46.3,
       "12": 46.3,
@@ -309,6 +309,18 @@
         "film scene dramatic acting": 63.0,
         "film scene intense dialogue": 63.0,
         "film scene amazing visual effects": 63.0
+      }
+    },
+    {
+      "timestamp": "2026-07-18T19:18:45.733139",
+      "axis": "keywords",
+      "change": "Top keyword: 'film scene funny moment comedy' (64.8)",
+      "keyword_scores": {
+        "film scene funny moment comedy": 64.8,
+        "film scene dramatic acting": 64.4,
+        "film scene intense dialogue": 64.4,
+        "film scene amazing visual effects": 64.4,
+        "film scene goosebumps moment": 64.4
       }
     }
   ]

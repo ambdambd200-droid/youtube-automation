@@ -1240,7 +1240,7 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
             fs = 56
             x_expr = "(w-text_w)/2"
             y_expr = "h*0.55 - text_h/2"
-            style = "borderw=5:bordercolor=black@0.85:shadowcolor=black@0.4:shadowx=3:shadowy=3"
+            style = "borderw=5:bordercolor=black@0.85"
 
         filter_parts.append(
             f"[{prev_label}]drawtext=text='{safe_text}':fontcolor=white:fontsize={fs}:"
