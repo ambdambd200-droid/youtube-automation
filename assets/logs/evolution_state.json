@@ -1,6 +1,6 @@
 {
-  "generation": 12,
-  "last_updated": "2026-07-17T18:02:51.643819",
+  "generation": 13,
+  "last_updated": "2026-07-18T16:42:53.723626",
   "parameters": {
     "content_weights": {
       "movie": 0.38,
@@ -83,14 +83,14 @@
     "posting_times_by_day": {}
   },
   "performance": {
-    "average_score": 52.2,
-    "peak_score": 69.5,
-    "total_clips_analyzed": 117,
-    "total_evolutions": 11,
+    "average_score": 54.1,
+    "peak_score": 73.7,
+    "total_clips_analyzed": 136,
+    "total_evolutions": 12,
     "history_by_type": {
       "football": 52.3,
       "series": 42.6,
-      "movie": 54.5
+      "movie": 56.8
     },
     "history_by_hour": {
       "23": 47.9,
@@ -101,8 +101,9 @@
       "13": 59.7,
       "14": 49.3,
       "15": 66.6,
-      "16": 48.8,
-      "17": 69.3
+      "16": 55.0,
+      "17": 69.3,
+      "18": 67.7
     },
     "real_performance_average": null,
     "real_performance_best_type": null,
@@ -260,6 +261,18 @@
         "soccer skills training match": 56.7,
         "film scene dramatic acting": 55.0,
         "film scene intense dialogue": 55.0
+      }
+    },
+    {
+      "timestamp": "2026-07-18T16:42:53.693635",
+      "axis": "keywords",
+      "change": "Top keyword: 'film scene funny moment comedy' (59.7)",
+      "keyword_scores": {
+        "film scene funny moment comedy": 59.7,
+        "film scene epic battle": 58.3,
+        "film scene dramatic acting": 56.8,
+        "film scene intense dialogue": 56.8,
+        "film scene amazing visual effects": 56.8
       }
     }
   ]

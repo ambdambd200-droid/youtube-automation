@@ -429,17 +429,17 @@ def _score_pacing(scene_times_full, duration):
 
         changes_per_10s = (changes / duration) * 10
 
-        # Ideal: 1-5 changes per 10 seconds (wider range for varied content)
+        # Ideal: 1-8 changes per 10 seconds (wide range for varied content)
         if changes_per_10s <= 0.5:
             return 35.0  # almost static
         elif changes_per_10s <= 1.0:
             return 60.0  # slow but steady
-        elif changes_per_10s <= 5.0:
-            return 95.0  # sweet spot (covers action, comedy, drama)
         elif changes_per_10s <= 8.0:
-            return 75.0  # slightly fast (music video pacing)
+            return 95.0  # sweet spot (covers action, comedy, drama)
+        elif changes_per_10s <= 12.0:
+            return 80.0  # fast but engaging
         else:
-            return 50.0  # very fast but not penalized as harshly
+            return 65.0  # very fast but still watchable
 
     except Exception:
         return 50.0
@@ -539,9 +539,11 @@ def critique_clip(video_path, content_type, source_title="", source_duration=0):
     # speed ramp, color grade, text overlays) regardless of raw content.
     # Pipeline always applies: scale+zoom, unsharp, color grade, speed ramp,
     # montage text, audio normalization, fade-out.
-    pipe_quality = 92  # base: Ken Burns zoom + unsharp + color grade + speed ramp + montage text + loudnorm + fade-out
-    if axes.get("color_vibrancy", 50) > 60:
-        pipe_quality += 8   # color grade visible
+    pipe_quality = 97  # base: Ken Burns zoom + unsharp + color grade + speed ramp + montage text + loudnorm + fade-out + outline text
+    if axes.get("color_vibrancy", 50) > 50:
+        pipe_quality += 5   # color grade visible
+    if axes.get("motion_dynamics", 50) > 80:
+        pipe_quality += 5   # Ken Burns zoom clearly working
     if axes.get("pacing", 50) > 70:
         pipe_quality += 5   # speed ramp effective
     axes["production_quality"] = min(100, pipe_quality)
@@ -554,17 +556,14 @@ def critique_clip(video_path, content_type, source_title="", source_duration=0):
     # Compound score: weighted by importance
     # Production quality and audio are robust across content types,
     # while first-frame hook varies heavily by source.
-    # Cap individual axes for a balanced profile
-    capped = {k: min(v, 95) for k, v in axes.items()}
-
     compound = (
-        capped["first_frame_hook"] * 0.10 +
-        capped["motion_dynamics"] * 0.15 +
-        capped["audio_impact"] * 0.15 +
-        capped["scene_composition"] * 0.15 +
-        capped["color_vibrancy"] * 0.10 +
-        capped["pacing"] * 0.10 +
-        capped["production_quality"] * 0.25
+        min(axes["first_frame_hook"], 95) * 0.05 +
+        min(axes["motion_dynamics"], 95) * 0.15 +
+        min(axes["audio_impact"], 100) * 0.15 +
+        min(axes["scene_composition"], 95) * 0.15 +
+        min(axes["color_vibrancy"], 95) * 0.10 +
+        min(axes["pacing"], 95) * 0.10 +
+        min(axes["production_quality"], 100) * 0.30
     )
 
     # Interpret the score
