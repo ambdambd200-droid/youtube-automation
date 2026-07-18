@@ -1173,13 +1173,13 @@ def _generate_sfx(sfx_type):
 
 def _laugh_track_texts(title="", clip_duration=15):
     """Generate timed pop-up text for movie/series shorts.
-    All text at lower-center position for clean, consistent branding.
+    Staggered opening: VARY then movie name. Phrases spread evenly.
     """
     movie_name = title[:40] if title else "this scene"
 
     opening = [
-        {"text": "VARY", "start": 0.0, "end": 1.5},
-        {"text": f"\"{movie_name}\"", "start": 0.0, "end": 1.5},
+        {"text": "VARY", "start": 0.0, "end": 0.7},
+        {"text": f"\"{movie_name}\"", "start": 0.7, "end": 1.8},
     ]
 
     phrases = [
@@ -1192,8 +1192,8 @@ def _laugh_track_texts(title="", clip_duration=15):
 
     texts = list(opening)
     for i, phrase in enumerate(phrases):
-        t_start = clip_duration * (0.15 + i * 0.12)
-        t_end = min(t_start + 3.0, clip_duration)
+        t_start = clip_duration * (0.10 + i * 0.15)
+        t_end = min(t_start + 3.5, clip_duration)
         texts.append({"text": phrase, "start": t_start, "end": t_end})
 
     return texts
@@ -1214,8 +1214,8 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
 
     filter_parts = [
         f"[0:v]scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=0,setsar=1,"
-        f"scale='floor(iw*(1.0+0.15*t/{max(duration,0.1)}))':"
-        f"'floor(ih*(1.0+0.15*t/{max(duration,0.1)}))':eval=frame,"
+        f"scale='floor(iw*(1.0+0.30*t/{max(duration,0.1)}))':"
+        f"'floor(ih*(1.0+0.30*t/{max(duration,0.1)}))':eval=frame,"
         f"crop={SHORTS_WIDTH}:{SHORTS_HEIGHT},"
         f"unsharp=7:7:1.2:5:5:0.6[base]"
     ]
@@ -1239,8 +1239,8 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
         else:
             fs = 56
             x_expr = "(w-text_w)/2"
-            y_expr = "h*0.72 - text_h/2"
-            style = "borderw=3:bordercolor=black@0.8"
+            y_expr = "h*0.55 - text_h/2"
+            style = "borderw=5:bordercolor=black@0.85:shadowcolor=black@0.4:shadowx=3:shadowy=3"
 
         filter_parts.append(
             f"[{prev_label}]drawtext=text='{safe_text}':fontcolor=white:fontsize={fs}:"
@@ -1264,14 +1264,14 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
         "-filter_complex", filter_complex,
         "-map", f"[{last_label}]",
         "-map", audio_map,
-        "-c:v", "libx264", "-preset", "fast", "-crf", str(RENDER_CRF),
+        "-c:v", RENDER_CODEC, "-preset", RENDER_FINAL_PRESET, "-crf", str(RENDER_CRF),
         "-b:v", RENDER_BITRATE,
         "-maxrate", RENDER_BITRATE,
         "-bufsize", RENDER_BUFFER_SIZE,
         "-c:a", "aac", "-b:a", "192k",
-        "-pix_fmt", "yuv420p", "-r", str(FPS),
-        "-movflags", "+faststart",
-        "-profile:v", "high", "-level", "4.1",
+        "-pix_fmt", RENDER_PIX_FMT, "-r", str(FPS),
+        "-movflags", RENDER_MOVFLAGS,
+        "-profile:v", RENDER_PROFILE, "-level", RENDER_LEVEL,
         output_path,
     ]
 
