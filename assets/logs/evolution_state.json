@@ -1,11 +1,11 @@
 {
-  "generation": 17,
-  "last_updated": "2026-07-18T19:18:45.763129",
+  "generation": 22,
+  "last_updated": "2026-07-20T16:12:58.334867",
   "parameters": {
     "content_weights": {
-      "movie": 0.38,
-      "football": 0.34,
-      "series": 0.28
+      "movie": 0.31,
+      "football": 0.46,
+      "series": 0.23
     },
     "football_keywords": [
       "football goal crazy skill",
@@ -77,33 +77,27 @@
     ],
     "clip_min_duration": 15,
     "clip_max_duration": 60,
-    "scene_threshold": 0.3,
-    "title_style_preference": "balanced",
+    "scene_threshold": 0.45,
+    "title_style_preference": "direct",
     "thumbnail_variant_preference": "v2",
     "posting_times_by_day": {}
   },
   "performance": {
-    "average_score": 58.2,
-    "peak_score": 81.8,
-    "total_clips_analyzed": 222,
-    "total_evolutions": 16,
+    "average_score": 79.7,
+    "peak_score": 102.2,
+    "total_clips_analyzed": 318,
+    "total_evolutions": 21,
     "history_by_type": {
-      "football": 52.3,
-      "series": 42.6,
-      "movie": 61.5
+      "movie": 76.1,
+      "football": 96.7
     },
     "history_by_hour": {
-      "23": 47.9,
-      "19": 66.6,
-      "20": 48.8,
-      "11": 46.3,
-      "12": 46.3,
-      "13": 59.7,
-      "14": 49.3,
-      "15": 66.6,
-      "16": 59.0,
+      "16": 69.8,
       "17": 69.3,
-      "18": 74.8
+      "18": 74.8,
+      "19": 78.8,
+      "14": 92.3,
+      "15": 99.1
     },
     "real_performance_average": null,
     "real_performance_best_type": null,
@@ -322,6 +316,96 @@
         "film scene amazing visual effects": 64.4,
         "film scene goosebumps moment": 64.4
       }
+    },
+    {
+      "timestamp": "2026-07-18T19:31:17.131918",
+      "axis": "keywords",
+      "change": "Top keyword: 'film scene funny moment comedy' (66.0)",
+      "keyword_scores": {
+        "film scene funny moment comedy": 66.0,
+        "film scene dramatic acting": 65.9,
+        "film scene intense dialogue": 65.9,
+        "film scene amazing visual effects": 65.9,
+        "film scene goosebumps moment": 65.9
+      }
+    },
+    {
+      "timestamp": "2026-07-19T14:19:52.096564",
+      "axis": "keywords",
+      "change": "Top keyword: 'film scene goosebumps moment' (69.9)",
+      "keyword_scores": {
+        "film scene goosebumps moment": 69.9,
+        "film scene dramatic acting": 67.2,
+        "film scene intense dialogue": 67.2,
+        "film scene beautiful cinematography": 67.2,
+        "film scene amazing visual effects": 67.2
+      }
+    },
+    {
+      "timestamp": "2026-07-20T15:17:16.701089",
+      "axis": "keywords",
+      "change": "Top keyword: 'film scene goosebumps moment' (84.6)",
+      "keyword_scores": {
+        "film scene goosebumps moment": 84.6,
+        "movie scene emotional moment": 82.7,
+        "movie scene plot twist": 82.7,
+        "movie scene action sequence": 82.7,
+        "movie scene powerful performance": 82.7
+      }
+    },
+    {
+      "timestamp": "2026-07-20T15:17:16.702081",
+      "axis": "scene_threshold",
+      "change": "Raised from 0.3 to 0.35 (pacing was 80.7)"
+    },
+    {
+      "timestamp": "2026-07-20T15:17:16.704089",
+      "axis": "title_style",
+      "change": "Switched from balanced to direct (avg score was 73.8)"
+    },
+    {
+      "timestamp": "2026-07-20T15:40:58.092261",
+      "axis": "content_weights",
+      "change": "Boosted football from 0.34 to 0.42 (score: 100.7)"
+    },
+    {
+      "timestamp": "2026-07-20T15:40:58.093280",
+      "axis": "keywords",
+      "change": "Top keyword: 'world cup goal amazing finish' (100.7)",
+      "keyword_scores": {
+        "world cup goal amazing finish": 100.7,
+        "world cup goal skill": 100.7,
+        "film scene goosebumps moment": 84.6,
+        "movie scene emotional moment": 82.7,
+        "movie scene plot twist": 82.7
+      }
+    },
+    {
+      "timestamp": "2026-07-20T15:40:58.095278",
+      "axis": "scene_threshold",
+      "change": "Raised from 0.35 to 0.4 (pacing was 81.6)"
+    },
+    {
+      "timestamp": "2026-07-20T16:12:58.299983",
+      "axis": "content_weights",
+      "change": "Boosted football from 0.42 to 0.46 (score: 96.7)"
+    },
+    {
+      "timestamp": "2026-07-20T16:12:58.303981",
+      "axis": "keywords",
+      "change": "Top keyword: 'world cup goal amazing finish' (96.7)",
+      "keyword_scores": {
+        "world cup goal amazing finish": 96.7,
+        "world cup goal skill": 96.7,
+        "football match highlight play": 94.8,
+        "film scene goosebumps moment": 84.6,
+        "movie scene emotional moment": 82.7
+      }
+    },
+    {
+      "timestamp": "2026-07-20T16:12:58.305980",
+      "axis": "scene_threshold",
+      "change": "Raised from 0.4 to 0.45 (pacing was 82.4)"
     }
   ]
 }

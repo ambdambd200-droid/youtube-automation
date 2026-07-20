@@ -119,7 +119,7 @@ def verify_auth():
         }))
     return items
 
-def upload_video(video_path, title, description, tags, category_id="22", privacy_status="public", thumbnail_path=None):
+def upload_video(video_path, title, description, tags, category_id="22", privacy_status="public", thumbnail_path=None, publish_at=None):
     """Upload video to YouTube with retry logic for timeout errors."""
     try:
         from googleapiclient.http import MediaFileUpload
@@ -139,10 +139,13 @@ def upload_video(video_path, title, description, tags, category_id="22", privacy
             "categoryId": category_id
         },
         "status": {
-            "privacyStatus": privacy_status,
+            "privacyStatus": "private" if publish_at else privacy_status,
             "selfDeclaredMadeForKids": False
         }
     }
+
+    if publish_at:
+        body["status"]["publishAt"] = publish_at
 
     file_size = os.path.getsize(video_path)
     print(f"  Upload starting: {file_size / 1024 / 1024:.1f} MB, 50MB chunks", flush=True)

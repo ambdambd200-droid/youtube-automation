@@ -276,6 +276,7 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
     print(f"  [DEBUG] CLIENT_SECRET: {'SET' if YOUTUBE_CLIENT_SECRET else 'MISSING'}", flush=True)
     print(f"  [DEBUG] REFRESH_TOKEN: {'SET' if YOUTUBE_REFRESH_TOKEN else 'MISSING'}", flush=True)
 
+    publish_at = None
     if not YOUTUBE_CLIENT_ID or not YOUTUBE_CLIENT_SECRET or not YOUTUBE_REFRESH_TOKEN:
         print(f"  [SKIP] YouTube credentials not configured — skipping upload", flush=True)
         log_result("upload", "skipped", {"reason": "credentials not configured"})
@@ -290,6 +291,9 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
                 break
 
         try:
+            from config import get_next_schedule_slot
+            publish_at = get_next_schedule_slot()
+
             video_id, response = upload_video(
                 video_path=clip_result["path"],
                 title=seo["title"],
@@ -297,12 +301,16 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
                 tags=seo["tags"],
                 thumbnail_path=best_thumb,
                 privacy_status="public",
+                publish_at=publish_at,
             )
 
             video_url = f"https://youtu.be/{video_id}"
-            print(f"\n  ✅ UPLOADED: {seo['title']}", flush=True)
+            if publish_at:
+                print(f"\n  ✅ SCHEDULED: {seo['title']} → {publish_at}", flush=True)
+            else:
+                print(f"\n  ✅ UPLOADED: {seo['title']}", flush=True)
             print(f"  URL: {video_url}", flush=True)
-            log_result("upload", "success", {"video_id": video_id, "url": video_url})
+            log_result("upload", "success", {"video_id": video_id, "url": video_url, "publish_at": publish_at})
 
         except BaseException as e:
             print(f"  [FAILED] Upload error: {e}", flush=True)
@@ -372,7 +380,10 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
     print(f"  Source: {download_result['title']}")
     print(f"  Run ID: {pipeline_id}")
     if video_url:
-        print(f"  Uploaded: {video_url}")
+        if publish_at:
+            print(f"  Scheduled: {video_url} → {publish_at}")
+        else:
+            print(f"  Uploaded: {video_url}")
     if critique_result:
         print(f"  Critique: {critique_result['compound_score']}/100 ({critique_result['grade']})")
     if evolution_result:
@@ -391,6 +402,7 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
         "video_url": video_url,
         "critique_score": critique_result["compound_score"] if critique_result else None,
         "critique_grade": critique_result["grade"] if critique_result else None,
+        "publish_at": publish_at,
         "evolution_generation": evolution_result.get("generation") if evolution_result else None,
     }
 

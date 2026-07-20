@@ -231,6 +231,8 @@ DEFAULT_TAGS = [
 ]
 
 # ── Posting Schedule ────────────────────────────────────────
+SCHEDULE_UPLOADS = True           # Set True to schedule videos instead of publishing immediately
+SCHEDULE_MIN_GAP_HOURS = 3        # Minimum hours between scheduled uploads
 POSTING_TIMES_BY_DAY = {
     0: [(8, 0),  (14, 0), (19, 0)],  # Monday (Python weekday 0)
     1: [(8, 0),  (14, 0), (19, 0)],  # Tuesday
@@ -257,6 +259,41 @@ def get_posting_times():
         pass
 
     return POSTING_TIMES_BY_DAY.get(today, POSTING_TIMES_UTC_DEFAULT)
+
+
+def get_next_schedule_slot():
+    """Find the next available posting slot from now.
+    Returns ISO 8601 datetime string for YouTube publishAt, or None if not scheduling.
+    """
+    if not SCHEDULE_UPLOADS:
+        return None
+
+    now = datetime.now()
+    # Check today's slots, then future days
+    for day_offset in range(14):  # Look up to 14 days ahead
+        check_date = now + timedelta(days=day_offset)
+        # Only schedule on same or future days (not past)
+        weekday = check_date.weekday()
+        try:
+            from modules.evolution_engine import get_evolved_posting_times
+            evolved = get_evolved_posting_times()
+            if evolved and weekday in evolved:
+                times = evolved[weekday]
+            else:
+                times = POSTING_TIMES_BY_DAY.get(weekday, POSTING_TIMES_UTC_DEFAULT)
+        except Exception:
+            times = POSTING_TIMES_BY_DAY.get(weekday, POSTING_TIMES_UTC_DEFAULT)
+
+        for h, m in times:
+            slot = check_date.replace(hour=h, minute=m, second=0, microsecond=0)
+            if slot > now:
+                # Ensure minimum gap from now
+                if (slot - now).total_seconds() >= SCHEDULE_MIN_GAP_HOURS * 3600:
+                    return slot.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Fallback: 24 hours from now
+    fallback = now + timedelta(hours=24)
+    return fallback.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def get_posting_times_formatted():
