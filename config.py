@@ -3,6 +3,7 @@ VARY — Configuration for clip-based YouTube Shorts automation.
 Daily random clips from football, movies, and series.
 """
 import os
+import random
 from datetime import datetime, timedelta, date
 from dotenv import load_dotenv
 load_dotenv()
@@ -41,6 +42,31 @@ SHORTS_HEIGHT = 1920
 FPS = 30
 CLIP_MAX_DURATION = 25       # Max 25s for YouTube Shorts (keeps processing fast)
 CLIP_MIN_DURATION = 15
+
+# ── VARY Duration by Content Type ────────────────────────────
+CLIP_DURATION_LONG_PROB = 0.30   # 30% chance of longer clip
+CLIP_DURATION_SHORT_MIN = 15
+CLIP_DURATION_SHORT_MAX = 25
+CLIP_DURATION_LONG_MIN = 30
+CLIP_DURATION_LONG_MAX = 45
+
+CLIP_DURATION_BY_TYPE = {
+    "football": {
+        "short_min": 15, "short_max": 22,   # Fast-paced, shorter retention sweet spot
+        "long_min":  28, "long_max": 40,    # Extended highlights
+        "long_prob": 0.35,                  # Football benefits from slightly longer
+    },
+    "movie": {
+        "short_min": 18, "short_max": 28,   # Need time to set scene context
+        "long_min":  35, "long_max": 50,    # Epic moments need build-up
+        "long_prob": 0.25,                  # Movies work better shorter
+    },
+    "series": {
+        "short_min": 18, "short_max": 28,   # Cliffhanger moments need setup
+        "long_min":  35, "long_max": 50,    # Longer for plot-heavy scenes
+        "long_prob": 0.25,                  # Series similar to movies
+    },
+}
 
 # ── Blueprint Render Specs (Section 6: The Final Render) ──
 SAFE_ZONE_WIDTH = 1080       # Content box width within 1080x1920
@@ -300,6 +326,17 @@ def get_posting_times_formatted():
     """Get formatted posting times string for channel description."""
     times = get_posting_times()
     return " · ".join(f"{h:02d}:{m:02d} utc" for h, m in times)
+
+def get_clip_duration_range(content_type="movie"):
+    """Get (min_duration, max_duration) for a content type.
+    Randomly picks short or long mode based on probability.
+    Returns (min_seconds, max_seconds).
+    """
+    cfg = CLIP_DURATION_BY_TYPE.get(content_type, CLIP_DURATION_BY_TYPE["movie"])
+    if random.random() < cfg["long_prob"]:
+        return (cfg["long_min"], cfg["long_max"])
+    return (cfg["short_min"], cfg["short_max"])
+
 
 for d in [DOWNLOADS_DIR, CLIPS_DIR, THUMBNAILS_DIR, THUMBNAILS_VARIANTS_DIR, LOG_DIR]:
     os.makedirs(d, exist_ok=True)

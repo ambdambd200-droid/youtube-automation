@@ -53,7 +53,7 @@ def _atempo_chain(speed):
     return ",".join(filters)
 
 
-def apply_speed_ramp(input_path, output_path, impact_time=None):
+def apply_speed_ramp(input_path, output_path, impact_time=None, target_duration=None):
     """Blueprint Section 4.2: Gentle Speed Variation.
     Timeline:
       1. Normal Speed (100%) — approach/run-up
@@ -84,9 +84,10 @@ def apply_speed_ramp(input_path, output_path, impact_time=None):
     # Output contribution from ramped segments (slow + speedup)
     ramp_output = (slow_mo_duration / TEMP_SLOW_MOTION_SPEED
                    + speed_up_duration / TEMP_SPEED_UP_SPEED)
-    # Need: pre + ramp_output + post >= CLIP_MIN_DURATION
+    # Need: pre + ramp_output + post >= target_duration
+    min_post = target_duration if target_duration else CLIP_MIN_DURATION + 0.5
     needed_post = max(TEMP_REACTION_DURATION,
-                      CLIP_MIN_DURATION + 0.5 - pre_ramp_duration - ramp_output)
+                      min_post - pre_ramp_duration - ramp_output)
     available = max(0, input_dur - pre_ramp_duration - slow_mo_duration - speed_up_duration)
     post_duration = min(max(TEMP_REACTION_DURATION, min(needed_post, available)), available)
 
@@ -441,7 +442,7 @@ def detect_scenes(video_path):
         return []
 
 
-def select_clip_segment(video_path, target_duration=None, content_type="movie"):
+def select_clip_segment(video_path, target_duration=None, content_type="movie", min_duration=None, max_duration=None):
     """Select the best segment from a video to use as a clip.
 
     Uses scene detection to find the most visually interesting segments.
@@ -454,23 +455,27 @@ def select_clip_segment(video_path, target_duration=None, content_type="movie"):
     print(f"  [editor] Getting video duration for: {os.path.basename(video_path)}", flush=True)
     duration = get_video_duration(video_path)
     print(f"  [editor] Video duration: {duration:.1f}s", flush=True)
-    if duration <= 0:
-        return (0, CLIP_MIN_DURATION, None)
 
-    if duration <= CLIP_MIN_DURATION:
+    _min = min_duration or CLIP_MIN_DURATION
+    _max = max_duration or CLIP_MAX_DURATION
+
+    if duration <= 0:
+        return (0, _min, None)
+
+    if duration <= _min:
         return (0, duration, None)
 
     if target_duration is None:
         try:
             from modules.evolution_engine import get_parameter
-            evo_min = get_parameter("clip_min_duration", CLIP_MIN_DURATION)
-            evo_max = get_parameter("clip_max_duration", CLIP_MAX_DURATION)
+            evo_min = get_parameter("clip_min_duration", _min)
+            evo_max = get_parameter("clip_max_duration", _max)
             target_duration = random.randint(
-                max(CLIP_MIN_DURATION, int(evo_min)),
-                min(CLIP_MAX_DURATION, min(int(evo_max), int(duration)))
+                max(_min, int(evo_min)),
+                min(_max, min(int(evo_max), int(duration)))
             )
         except Exception:
-            target_duration = random.randint(CLIP_MIN_DURATION, min(CLIP_MAX_DURATION, int(duration)))
+            target_duration = random.randint(_min, min(_max, int(duration)))
 
     if duration <= target_duration + 10:
         return (0, duration, None)
@@ -763,11 +768,16 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
     import uuid
     clip_id = uuid.uuid4().hex[:10]
 
+    # VARY: pick duration range for this specific clip (short or long mode)
+    from config import get_clip_duration_range
+    var_min, var_max = get_clip_duration_range(content_type)
+    print(f"  [editor] VARY duration: {var_min}-{var_max}s ({content_type})", flush=True)
+
     if skip_effects:
         # Legacy mode: basic crop only
         output_path = os.path.join(CLIPS_DIR, f"{content_type}_{clip_id}.mp4")
         working_input = remux_to_compatible(input_path)
-        start_time, duration, _ = select_clip_segment(working_input, content_type=content_type)
+        start_time, duration, _ = select_clip_segment(working_input, content_type=content_type, min_duration=var_min, max_duration=var_max)
         result = crop_to_shorts(working_input, output_path, start_time, duration)
         if result:
             result["content_type"] = content_type
@@ -799,7 +809,7 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
             working_input = current
 
         # ── Step 1: Select clip segment from full video ────
-        seg_start, seg_duration, impact_point = select_clip_segment(current, content_type=content_type)
+        seg_start, seg_duration, impact_point = select_clip_segment(current, content_type=content_type, min_duration=var_min, max_duration=var_max)
 
         # ── Step 2: In Media Res — start 1.5s before impact (Blueprint 4.1) ──
         if impact_point is not None and impact_point > TEMP_PRE_ACTION_WINDOW:
@@ -807,11 +817,11 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
             desired_start = max(0, impact_point - TEMP_PRE_ACTION_WINDOW)
             new_start = min(seg_start, desired_start)
             new_duration = full_end - new_start
-            if new_duration < CLIP_MIN_DURATION:
-                new_end = min(get_video_duration(current), new_start + CLIP_MIN_DURATION)
+            if new_duration < var_min:
+                new_end = min(get_video_duration(current), new_start + var_min)
                 new_duration = new_end - new_start
             seg_start = new_start
-            seg_duration = min(CLIP_MAX_DURATION, new_duration)
+            seg_duration = min(var_max, new_duration)
             print(f"  [editor] In media res: start {seg_start:.1f}s (impact at {impact_point:.1f}s), dur {seg_duration:.0f}s", flush=True)
         else:
             if impact_point is not None:
@@ -872,7 +882,7 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
         for speed_attempt in range(2):
             try:
                 step3 = os.path.join(work_dir, "03_ramped.mp4")
-                ramp = apply_speed_ramp(current, step3, impact_time=rel_impact)
+                ramp = apply_speed_ramp(current, step3, impact_time=rel_impact, target_duration=clip_duration)
                 if ramp:
                     current = ramp["path"]
                     clip_duration = ramp.get("duration", get_video_duration(current))
@@ -1180,45 +1190,61 @@ def _estimate_climax(clip_duration):
 
 def _generate_5beat_captions(title="", clip_duration=15, content_type="movie"):
     """Generate 5-beat caption sequence: hook → build → peak_signal → emotion_label → twist.
+    For long clips (>28s), adds intermediate beats for pacing.
     Content-aware: football vs movie/series get different text templates.
     Each beat: 2-6 words, timed to climax, styled per beat type.
     Returns list of (beat_type, text, start, end).
     """
     name = title[:35] if title else "this moment"
     climax = _estimate_climax(clip_duration)
+    is_long = clip_duration > 28
 
     if content_type == "football":
         beats = {
             "hook": "SPAIN ARE CHAMPIONS" if "spain" in name.lower() else "PURE CLASS",
             "build": f"The road to glory...",
+            "build_mid": "Every pass. Every tackle." if is_long else None,
             "peak_signal": "THIS IS THE MOMENT",
             "emotion_label": "UNREAL",
             "twist": "From doubters to legends.",
+            "twist_end": "History made." if is_long else None,
         }
     elif content_type == "series":
         beats = {
             "hook": "THIS IS PEAK TV",
             "build": f"The legend of {name[:20]}...",
+            "build_mid": f"{name[:20]} never saw it coming." if is_long else None,
             "peak_signal": "THIS IS THE SCENE",
             "emotion_label": "PURE EMOTION",
             "twist": "No score. Just acting.",
+            "twist_end": f"The best dialogue ever." if is_long else None,
         }
     else:  # movie
         beats = {
             "hook": "WAIT FOR THIS",
             "build": f"Watch the legend of {name[:20]}...",
+            "build_mid": f"{name[:20]} is about to strike." if is_long else None,
             "peak_signal": "THIS IS THE MOMENT",
             "emotion_label": "PURE EMOTION",
             "twist": "No music. Just impact.",
+            "twist_end": f"Absolute cinema." if is_long else None,
         }
 
     captions = []
     # Beat 1: Hook (0-1.2s)
     captions.append(("hook", beats["hook"], 0.0, 1.2))
 
-    # Beat 2: Build (early-mid)
-    build_start = clip_duration * 0.20
-    captions.append(("build", beats["build"], build_start, build_start + 2.0))
+    if is_long:
+        # Extra: brief intro text between hook and build
+        captions.append(("build", beats["build"], max(1.5, clip_duration * 0.10), max(1.5, clip_duration * 0.10) + 1.8))
+        # Beat 2a: Mid-build (fills the middle gap)
+        if beats["build_mid"]:
+            mid_start = clip_duration * 0.30
+            captions.append(("build", beats["build_mid"], mid_start, mid_start + 2.0))
+    else:
+        # Beat 2: Build (early-mid)
+        build_start = clip_duration * 0.20
+        captions.append(("build", beats["build"], build_start, build_start + 2.0))
 
     # Beat 3: Peak Signal (just before climax)
     peak_start = max(0, climax - 1.5)
@@ -1229,8 +1255,12 @@ def _generate_5beat_captions(title="", clip_duration=15, content_type="movie"):
     captions.append(("emotion_label", beats["emotion_label"], emotion_start, min(emotion_start + 1.5, clip_duration)))
 
     # Beat 5: Twist (closing)
-    twist_start = clip_duration * 0.85
+    twist_start = clip_duration * 0.80 if is_long else clip_duration * 0.85
     captions.append(("twist", beats["twist"], twist_start, min(twist_start + 2.0, clip_duration - 0.3)))
+
+    if is_long and beats["twist_end"]:
+        end_start = clip_duration * 0.92
+        captions.append(("twist", beats["twist_end"], end_start, min(end_start + 2.0, clip_duration - 0.2)))
 
     return captions
 

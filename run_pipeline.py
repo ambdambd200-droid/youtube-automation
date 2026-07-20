@@ -384,6 +384,9 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
             print(f"  Scheduled: {video_url} → {publish_at}")
         else:
             print(f"  Uploaded: {video_url}")
+    if clip_result:
+        dur = clip_result.get("duration", 0)
+        print(f"  Duration: {dur:.0f}s {'[LONG]' if dur > 28 else '[SHORT]'} ({content_info['type']})")
     if critique_result:
         print(f"  Critique: {critique_result['compound_score']}/100 ({critique_result['grade']})")
     if evolution_result:
