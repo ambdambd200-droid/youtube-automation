@@ -33,6 +33,38 @@ from modules.utils import get_font_path, find_ffmpeg, find_ffprobe
 _FFMPEG_BIN = find_ffmpeg()
 _FFPROBE_BIN = find_ffprobe()
 
+
+def _generate_tts_wav(text, output_path, voice="en-US-GuyNeural"):
+    """Generate TTS audio WAV for hook voiceover using edge-tts.
+    Returns True on success.
+    """
+    if not text:
+        return False
+    try:
+        import edge_tts
+        import asyncio
+        asyncio.run(edge_tts.Communicate(text, voice).save(output_path))
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 200:
+            return True
+    except Exception:
+        print(f"  [tts] edge-tts failed, trying PowerShell fallback", flush=True)
+    # Fallback: Windows built-in speech
+    try:
+        safe = text.replace("'", "''").replace('"', '`"')
+        ps = (
+            f'Add-Type -AssemblyName System.Speech;'
+            f'$s=New-Object System.Speech.Synthesis.SpeechSynthesizer;'
+            f'$s.SetOutputToWaveFile("{output_path}");'
+            f'$s.SelectVoice("Microsoft David Desktop");'
+            f'$s.Speak("{safe}");'
+            f'$s.Dispose()'
+        )
+        subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, timeout=30)
+        return os.path.exists(output_path) and os.path.getsize(output_path) > 200
+    except Exception as e:
+        print(f"  [tts] Fallback failed: {e}", flush=True)
+        return False
+
 # ── Blueprint Section 4: Temporal Dynamics ──────────────────
 
 def _atempo_chain(speed):
@@ -914,14 +946,16 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
             except Exception:
                 print(f"  [editor] Speed ramp fallback also failed, continuing", flush=True)
 
-        # ── Step 6: Montage Effects (LaughTrack-style text + SFX) ──
+        # ── Step 6: Montage Effects (captions + zoom + TTS hook) ──
         montage_success = False
+        hook_text = None
         for montage_attempt in range(2):
             try:
                 step4 = os.path.join(work_dir, "04_montage.mp4")
                 montage_result = apply_movie_effects(current, step4, content_type, title=title or "")
                 if montage_result and os.path.exists(step4):
                     current = step4
+                    hook_text = montage_result.get("hook_text")
                     montage_success = True
                     break
             except Exception as e:
@@ -931,10 +965,11 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
         if not montage_success:
             print(f"  [editor] Montage failed, keeping source as-is", flush=True)
 
-        # ── Step 6.5: Sound Design (riser, silence-dip, impact, ambient) ──
+        # ── Step 6.5: Sound Design (riser + impact + ambient + TTS hook) ──
         try:
             step_sfx = os.path.join(work_dir, "045_sound_design.mp4")
-            sfx_result = add_sound_design(current, step_sfx, clip_duration)
+            tts_path = os.path.join(work_dir, "_hook_tts.wav")
+            sfx_result = add_sound_design(current, step_sfx, clip_duration, hook_tts_path=tts_path if hook_text else None)
             if sfx_result and sfx_result != current and os.path.exists(step_sfx):
                 current = step_sfx
                 print(f"  [editor] Sound design complete", flush=True)
@@ -1190,10 +1225,12 @@ def _estimate_climax(clip_duration):
 
 def _generate_5beat_captions(title="", clip_duration=15, content_type="movie"):
     """Generate 5-beat caption sequence: hook → build → peak_signal → emotion_label → twist.
+    Uses curiosity-gap hooks that trigger emotional reactions (WOW, WTF, OHH, YEAH).
     For long clips (>28s), adds intermediate beats for pacing.
     Content-aware: football vs movie/series get different text templates.
-    Each beat: 2-6 words, timed to climax, styled per beat type.
-    Returns list of (beat_type, text, start, end).
+    Returns (captions_list, tts_text).
+    Each caption: (beat_type, text, start, end).
+    tts_text is the hook text for voiceover (shorter, spoken version).
     """
     name = title[:35] if title else "this moment"
     climax = _estimate_climax(clip_duration)
@@ -1201,60 +1238,56 @@ def _generate_5beat_captions(title="", clip_duration=15, content_type="movie"):
 
     if content_type == "football":
         beats = {
-            "hook": "SPAIN ARE CHAMPIONS" if "spain" in name.lower() else "PURE CLASS",
-            "build": f"The road to glory...",
-            "build_mid": "Every pass. Every tackle." if is_long else None,
-            "peak_signal": "THIS IS THE MOMENT",
-            "emotion_label": "UNREAL",
-            "twist": "From doubters to legends.",
+            "hook": "WATCH HOW HE DID THIS...",
+            "hook_tts": "Watch how he did this",
+            "build": "The pass was IMPOSSIBLE...",
+            "build_mid": "Defenders left in the DUST." if is_long else None,
+            "peak_signal": "BUT HE DID IT ANYWAY",
+            "emotion_label": "ABSOLUTE MADMAN",
+            "twist": "This is why they call him magic.",
             "twist_end": "History made." if is_long else None,
         }
     elif content_type == "series":
         beats = {
-            "hook": "THIS IS PEAK TV",
-            "build": f"The legend of {name[:20]}...",
-            "build_mid": f"{name[:20]} never saw it coming." if is_long else None,
-            "peak_signal": "THIS IS THE SCENE",
-            "emotion_label": "PURE EMOTION",
-            "twist": "No score. Just acting.",
-            "twist_end": f"The best dialogue ever." if is_long else None,
+            "hook": "SHE DIDN'T SEE THIS COMING",
+            "hook_tts": "She didn't see this coming",
+            "build": "Episodes of build-up lead to THIS...",
+            "build_mid": "The warning signs were there." if is_long else None,
+            "peak_signal": "THIS CHANGES EVERYTHING",
+            "emotion_label": "TRUST NO ONE",
+            "twist": "The best plot twist on television.",
+            "twist_end": "You'll never watch it the same way." if is_long else None,
         }
     else:  # movie
         beats = {
-            "hook": "WAIT FOR THIS",
-            "build": f"Watch the legend of {name[:20]}...",
-            "build_mid": f"{name[:20]} is about to strike." if is_long else None,
+            "hook": "THEY HAD NO IDEA...",
+            "hook_tts": "They had no idea",
+            "build": f"{name[:20]} is about to strike...",
+            "build_mid": f"One wrong move and it's over." if is_long else None,
             "peak_signal": "THIS IS THE MOMENT",
-            "emotion_label": "PURE EMOTION",
-            "twist": "No music. Just impact.",
-            "twist_end": f"Absolute cinema." if is_long else None,
+            "emotion_label": "NO WAY",
+            "twist": "The ending changes EVERYTHING.",
+            "twist_end": "Absolute cinema." if is_long else None,
         }
 
     captions = []
-    # Beat 1: Hook (0-1.2s)
     captions.append(("hook", beats["hook"], 0.0, 1.2))
 
     if is_long:
-        # Extra: brief intro text between hook and build
         captions.append(("build", beats["build"], max(1.5, clip_duration * 0.10), max(1.5, clip_duration * 0.10) + 1.8))
-        # Beat 2a: Mid-build (fills the middle gap)
         if beats["build_mid"]:
             mid_start = clip_duration * 0.30
             captions.append(("build", beats["build_mid"], mid_start, mid_start + 2.0))
     else:
-        # Beat 2: Build (early-mid)
         build_start = clip_duration * 0.20
         captions.append(("build", beats["build"], build_start, build_start + 2.0))
 
-    # Beat 3: Peak Signal (just before climax)
     peak_start = max(0, climax - 1.5)
     captions.append(("peak_signal", beats["peak_signal"], peak_start, peak_start + 1.5))
 
-    # Beat 4: Emotion Label (right after climax)
     emotion_start = min(climax + 0.5, clip_duration - 1.5)
     captions.append(("emotion_label", beats["emotion_label"], emotion_start, min(emotion_start + 1.5, clip_duration)))
 
-    # Beat 5: Twist (closing)
     twist_start = clip_duration * 0.80 if is_long else clip_duration * 0.85
     captions.append(("twist", beats["twist"], twist_start, min(twist_start + 2.0, clip_duration - 0.3)))
 
@@ -1262,7 +1295,7 @@ def _generate_5beat_captions(title="", clip_duration=15, content_type="movie"):
         end_start = clip_duration * 0.92
         captions.append(("twist", beats["twist_end"], end_start, min(end_start + 2.0, clip_duration - 0.2)))
 
-    return captions
+    return captions, beats["hook_tts"]
 
 
 def _write_ass(captions, ass_path):
@@ -1303,9 +1336,10 @@ def _write_ass(captions, ass_path):
         f.write("\n".join(lines) + "\n")
 
 
-def add_sound_design(input_path, output_path, duration):
-    """Add sound design to video: tension riser, silence-dip, sub-bass impact, ambient bed.
+def add_sound_design(input_path, output_path, duration, hook_tts_path=None):
+    """Add sound design to video: tension riser, sub-bass impact, ambient bed, TTS hook voiceover.
     Generates SFX WAV using Python (avoids ffmpeg aevalsrc complexity), then mixes with original audio.
+    If hook_tts_path is provided and exists, mixes it as a third audio input (prominent in first 1.5s).
     """
     import struct
     if duration <= 2:
@@ -1323,23 +1357,18 @@ def add_sound_design(input_path, output_path, duration):
         t = i / sr
         if t < duration:
             if riser_start <= t <= climax:
-                # Tension riser: sine sweep 150→800Hz over 1.5s
                 freq = 150 + 650 * (t - riser_start) / 1.5
                 samples[i] += 0.12 * __import__('math').sin(2 * 3.14159 * freq * t)
             elif climax < t <= climax + 0.3:
-                # Sub-bass impact 50Hz
                 samples[i] += 0.25 * __import__('math').sin(2 * 3.14159 * 50 * t)
             else:
-                # Ambient hum 60Hz + 120Hz
                 samples[i] += 0.015 * __import__('math').sin(2 * 3.14159 * 60 * t)
                 samples[i] += 0.008 * __import__('math').sin(2 * 3.14159 * 120 * t)
 
-    # Normalize to avoid clipping
     peak = max(abs(max(samples)), abs(min(samples)), 0.001)
     scale = min(1.0 / peak, 1.0)
     scaled = [int(max(-32768, min(32767, s * scale * 32767))) for s in samples]
 
-    # Write WAV
     sfx_path = os.path.join(os.path.dirname(output_path), "_sfx.wav")
     n_bytes = len(scaled) * 2
     with open(sfx_path, "wb") as f:
@@ -1347,13 +1376,12 @@ def add_sound_design(input_path, output_path, duration):
         f.write(struct.pack("<I", 36 + n_bytes))
         f.write(b"WAVE")
         f.write(b"fmt ")
-        f.write(struct.pack("<I", 16))       # chunk size
-        f.write(struct.pack("<H", 1))         # PCM
-        f.write(struct.pack("<H", 1))         # mono
-        f.write(struct.pack("<I", sr))        # sample rate
-        f.write(struct.pack("<I", sr * 2))    # byte rate
-        f.write(struct.pack("<H", 2))         # block align
-        f.write(struct.pack("<H", 16))        # bits per sample
+        f.write(struct.pack("<I", 16))
+        f.write(struct.pack("<H", 1))
+        f.write(struct.pack("<I", sr))
+        f.write(struct.pack("<I", sr * 2))
+        f.write(struct.pack("<H", 2))
+        f.write(struct.pack("<H", 16))
         f.write(b"data")
         f.write(struct.pack("<I", n_bytes))
         for s in scaled:
@@ -1363,31 +1391,51 @@ def add_sound_design(input_path, output_path, duration):
         print(f"  [sound] SFX generation produced no output, skipping", flush=True)
         return input_path
 
-    # Mix generated SFX with original audio using amix (2 inputs only)
-    mix_cmd = [
-        _FFMPEG_BIN, "-y",
-        "-i", input_path,
-        "-i", sfx_path,
-        "-filter_complex",
-        "[0:a][1:a]amix=inputs=2:duration=first:weights=1 0.35[a_mixed]",
-        "-map", "0:v",
-        "-map", "[a_mixed]",
-        "-c:v", "copy",
-        "-c:a", "aac", "-b:a", "192k",
-        "-shortest",
-        output_path,
-    ]
+    # Check if TTS WAV exists for hook voiceover
+    has_tts = hook_tts_path and os.path.exists(hook_tts_path) and os.path.getsize(hook_tts_path) > 200
+
+    if has_tts:
+        # 3-input mix: original audio + SFX + TTS hook
+        mix_cmd = [
+            _FFMPEG_BIN, "-y",
+            "-i", input_path,
+            "-i", sfx_path,
+            "-i", hook_tts_path,
+            "-filter_complex",
+            "[0:a][1:a][2:a]amix=inputs=3:duration=first:weights=1 0.35 1.5[a_mixed]",
+            "-map", "0:v",
+            "-map", "[a_mixed]",
+            "-c:v", "copy",
+            "-c:a", "aac", "-b:a", "192k",
+            "-shortest",
+            output_path,
+        ]
+        label = "riser+impact+ambient+tts"
+    else:
+        mix_cmd = [
+            _FFMPEG_BIN, "-y",
+            "-i", input_path,
+            "-i", sfx_path,
+            "-filter_complex",
+            "[0:a][1:a]amix=inputs=2:duration=first:weights=1 0.35[a_mixed]",
+            "-map", "0:v",
+            "-map", "[a_mixed]",
+            "-c:v", "copy",
+            "-c:a", "aac", "-b:a", "192k",
+            "-shortest",
+            output_path,
+        ]
+        label = "riser+impact+ambient"
 
     try:
         subprocess.run(mix_cmd, capture_output=True, timeout=60)
         if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
-            print(f"  [sound] Sound design applied: riser+impact+ambient", flush=True)
+            print(f"  [sound] Sound design applied: {label}", flush=True)
             return output_path
         else:
             print(f"  [sound] Mix failed, keeping original audio", flush=True)
             return input_path
     except Exception as e:
-        err = e
         print(f"  [sound] Sound design mix error: {e}, keeping original", flush=True)
         return input_path
     finally:
@@ -1398,8 +1446,9 @@ def add_sound_design(input_path, output_path, duration):
 
 
 def apply_movie_effects(input_path, output_path, content_type, title=""):
-    """Apply LaughTrack-style effects to a movie/series short.
-    Adds dynamic zoom, timed pop-up text, glitch transition, and sound effects.
+    """Apply effects to a short: dynamic zoom, ASS captions, TTS voiceover hook.
+    Zoom punch 1.15x at t=0, curiosity-gap captions, hook voiceover TTS.
+    Returns dict with path, duration, hook_text (for sound design mixing).
     """
     duration = get_video_duration(input_path)
     if duration <= 0:
@@ -1410,14 +1459,22 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
     ass_file = tempfile.NamedTemporaryFile(suffix=".ass", delete=False, mode="w", encoding="utf-8")
     ass_path = ass_file.name
     ass_file.close()
-    captions = _generate_5beat_captions(title, clip_duration=duration, content_type=content_type)
+    captions, hook_tts = _generate_5beat_captions(title, clip_duration=duration, content_type=content_type)
     _write_ass(captions, ass_path)
 
-    # Zoom factor: hook punch (1.08x at t=0, settles by 0.3s) + slow zoom (1.05x after 1.5s)
+    # Generate TTS WAV for hook voiceover
+    work_dir = os.path.dirname(output_path)
+    tts_path = os.path.join(work_dir, "_hook_tts.wav")
+    tts_ok = _generate_tts_wav(hook_tts, tts_path)
+    if tts_ok:
+        print(f"  [tts] Hook voiceover generated: \"{hook_tts}\"", flush=True)
+    else:
+        print(f"  [tts] Hook voiceover failed, continuing without", flush=True)
+
+    # Zoom punch 1.15x at t=0 (was 1.08x) + slow zoom 1.05x after 1.5s
     zoom_expr = (
-        f"(1.0 + 0.08*max(0,1-t/0.3) + 0.05*max(0,t-1.5)/{max(duration,0.1)})"
+        f"(1.0 + 0.15*max(0,1-t/0.3) + 0.05*max(0,t-1.5)/{max(duration,0.1)})"
     )
-    # Virtual camera pan: slow ±20px horizontal over duration
     pan_expr = f"20*sin(2*PI*t/{max(duration,0.1)})"
     filter_complex = (
         f"[0:v]scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=0,setsar=1,"
@@ -1457,7 +1514,7 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
             if actual_dur <= 0:
                 actual_dur = fallback_duration(output_path)
             print(f"  [editor] Montage + word captions applied: {output_path} ({actual_dur:.1f}s, {os.path.getsize(output_path)} bytes)", flush=True)
-            return {"path": output_path, "duration": actual_dur}
+            return {"path": output_path, "duration": actual_dur, "hook_text": hook_tts if tts_ok else None}
         else:
             err = result.stderr[-500:].decode('utf-8', errors='replace') if result.stderr else "no stderr"
             print(f"  [editor] Montage failed (ffmpeg exit {result.returncode}): {err}", flush=True)
@@ -1476,7 +1533,8 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
         return {"path": output_path, "duration": duration}
     finally:
         try:
-            os.unlink(ass_path)
+            if ass_path and os.path.exists(ass_path):
+                os.unlink(ass_path)
         except Exception:
             pass
 
