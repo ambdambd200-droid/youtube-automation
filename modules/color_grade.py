@@ -222,13 +222,13 @@ def full_color_pipeline(input_path, output_path=None):
         "colorchannelmixer=rr=1.05:rg=0.02:rb=-0.07:"
         "gr=0.01:gg=1.00:gb=-0.01:"
         "br=-0.05:bg=-0.02:bb=1.07,"
-        "curves=all='0/0.04 0.5/0.5 1/0.96',"
-        "colorbalance=rs=-0.02:gs=0.04:bs=0.08:"
-        "rm=0.06:gm=-0.02:bm=-0.04:"
-        "rh=0.03:gh=-0.01:bh=0.01,"
+        "curves=all='0/0.06 0.5/0.5 1/0.96',"
+        "colorbalance=rs=-0.03:gs=0.05:bs=0.10:"
+        "rm=0.08:gm=-0.03:bm=-0.05:"
+        "rh=0.04:gh=-0.02:bh=0.02,"
         f"eq=saturation={1.0 + COLOR_GLOBAL_SATURATION}:"
         f"gamma={1.0 + COLOR_VIBRANCE_BOOST * 0.2},"
-        "curves=all='0/0 0.25/0.2 0.5/0.5 0.75/0.78 1/1'"
+        "curves=all='0/0 0.20/0.15 0.5/0.5 0.75/0.80 1/1'"
     )
 
     cmd = [

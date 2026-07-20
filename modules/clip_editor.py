@@ -54,13 +54,12 @@ def _atempo_chain(speed):
 
 
 def apply_speed_ramp(input_path, output_path, impact_time=None):
-    """Blueprint Section 4.2: Variable Speed Ramping (The Snare Drum Effect).
+    """Blueprint Section 4.2: Gentle Speed Variation.
     Timeline:
       1. Normal Speed (100%) — approach/run-up
-      2. Slow-Down (40%) — at impact, smooth ramp to 40%
-      3. Freeze-Frame (0%) — hold impact for 0.4s
-      4. Speed-Up (200%) — reaction/celebration
-      5. Return to 100% — final emotional linger
+      2. Gentle Slow (70%) — smooth emphasis at impact
+      3. Gentle Speed-Up (180%) — natural acceleration
+      4. Return to 100% — final linger
 
     Uses per-segment trim+setpts+concat for monotonic PTS throughout.
     Pre/post segments expand to use enough input so output >= CLIP_MIN_DURATION.
@@ -73,67 +72,59 @@ def apply_speed_ramp(input_path, output_path, impact_time=None):
         impact_time = 1.5
 
     # Guard: skip speed ramp if source is too short for the ramp segments
-    ramp_overhead = impact_time + 0.8 + TEMP_FREEZE_DURATION + 0.6
+    ramp_overhead = impact_time + 0.8 + 0.6
     if input_dur < ramp_overhead + 2.0:
         print(f"  [editor] Speed ramp skipped: source too short ({input_dur:.1f}s < {ramp_overhead + 2.0:.1f}s)", flush=True)
         return None
 
     pre_ramp_duration = impact_time
     slow_mo_duration = 0.8
-    freeze_duration = TEMP_FREEZE_DURATION
     speed_up_duration = 0.6
 
-    # Output contribution from ramped segments (slow+freeze+speedup)
+    # Output contribution from ramped segments (slow + speedup)
     ramp_output = (slow_mo_duration / TEMP_SLOW_MOTION_SPEED
-                   + freeze_duration
                    + speed_up_duration / TEMP_SPEED_UP_SPEED)
     # Need: pre + ramp_output + post >= CLIP_MIN_DURATION
     needed_post = max(TEMP_REACTION_DURATION,
                       CLIP_MIN_DURATION + 0.5 - pre_ramp_duration - ramp_output)
-    available = max(0, input_dur - pre_ramp_duration - slow_mo_duration - freeze_duration - speed_up_duration)
+    available = max(0, input_dur - pre_ramp_duration - slow_mo_duration - speed_up_duration)
     post_duration = min(max(TEMP_REACTION_DURATION, min(needed_post, available)), available)
 
     s2_start = pre_ramp_duration
     s2_end = s2_start + slow_mo_duration
-    s3_end = s2_end + freeze_duration
+    s3_end = s2_end
     s4_end = s3_end + speed_up_duration
     total = s4_end + post_duration
-
-    freeze_nframes = max(1, int(freeze_duration * FPS))
 
     atempo_slow = _atempo_chain(TEMP_SLOW_MOTION_SPEED)
     atempo_fast = _atempo_chain(TEMP_SPEED_UP_SPEED)
 
-    # Per-segment video filters
+    # Per-segment video filters (4 segments: norm, slow, fast, norm)
     seg1v = f"[0:v]trim=0:{s2_start},setpts=PTS-STARTPTS"
     seg2v = (f"[0:v]trim={s2_start}:{s2_end},setpts=PTS-STARTPTS,"
-             f"setpts=PTS/{TEMP_SLOW_MOTION_SPEED},"
-             f"minterpolate=fps={FPS}:mi_mode=blend:scd=fdiff:scd_threshold=5")
-    seg3v = (f"[0:v]trim={s2_end}:{s2_end + 0.04},setpts=PTS-STARTPTS,"
-             f"loop=loop={freeze_nframes - 1}:size=1,"
-             f"setpts=N/FRAME_RATE/TB")
-    seg4v = (f"[0:v]trim={s3_end}:{s4_end},setpts=PTS-STARTPTS,"
+             f"setpts=PTS/{TEMP_SLOW_MOTION_SPEED}")
+    seg3v = (f"[0:v]trim={s3_end}:{s4_end},setpts=PTS-STARTPTS,"
              f"setpts=PTS/{TEMP_SPEED_UP_SPEED}")
-    seg5v = f"[0:v]trim={s4_end}:{total},setpts=PTS-STARTPTS"
+    seg4v = f"[0:v]trim={s4_end}:{total},setpts=PTS-STARTPTS"
 
     # Per-segment audio filters
     seg1a = f"[0:a]atrim=0:{s2_start},asetpts=PTS-STARTPTS"
     seg2a = f"[0:a]atrim={s2_start}:{s2_end},asetpts=PTS-STARTPTS,{atempo_slow}"
-    seg3a = f"[0:a]atrim={s2_end}:{s3_end},asetpts=PTS-STARTPTS"
-    seg4a = f"[0:a]atrim={s3_end}:{s4_end},asetpts=PTS-STARTPTS,{atempo_fast}"
-    seg5a = f"[0:a]atrim={s4_end}:{total},asetpts=PTS-STARTPTS"
+    seg3a = f"[0:a]atrim={s3_end}:{s4_end},asetpts=PTS-STARTPTS,{atempo_fast}"
+    seg4a = f"[0:a]atrim={s4_end}:{total},asetpts=PTS-STARTPTS"
 
     # Label outputs and build concat
-    v_labels = [f"[seg{i}v]" for i in range(5)]
-    a_labels = [f"[seg{i}a]" for i in range(5)]
+    n_segs = 4
+    v_labels = [f"[seg{i}v]" for i in range(n_segs)]
+    a_labels = [f"[seg{i}a]" for i in range(n_segs)]
 
     filter_parts = []
-    for i in range(5):
-        filter_parts.append(f"{[seg1v, seg2v, seg3v, seg4v, seg5v][i]}{v_labels[i]}")
-        filter_parts.append(f"{[seg1a, seg2a, seg3a, seg4a, seg5a][i]}{a_labels[i]}")
+    for i in range(n_segs):
+        filter_parts.append(f"{[seg1v, seg2v, seg3v, seg4v][i]}{v_labels[i]}")
+        filter_parts.append(f"{[seg1a, seg2a, seg3a, seg4a][i]}{a_labels[i]}")
 
     concat_in = "".join(f"{vl}{al}" for vl, al in zip(v_labels, a_labels))
-    filter_parts.append(f"{concat_in}concat=n=5:v=1:a=1[vout][aout]")
+    filter_parts.append(f"{concat_in}concat=n={n_segs}:v=1:a=1[vout][aout]")
 
     filter_complex = ";".join(filter_parts)
 
@@ -151,7 +142,6 @@ def apply_speed_ramp(input_path, output_path, impact_time=None):
 
     output_duration = (pre_ramp_duration
                        + slow_mo_duration / TEMP_SLOW_MOTION_SPEED
-                       + freeze_duration
                        + speed_up_duration / TEMP_SPEED_UP_SPEED
                        + post_duration)
 
@@ -206,8 +196,8 @@ def apply_breath_cut(input_path, output_path, total_duration):
     fade_start = max(0, cut_time - 1.5)
     pad_dur = target - total_duration
 
-    vf = f"fade=t=out:st={fade_start}:d=1.5"
-    af = f"afade=t=out:st={fade_start}:d=1.5"
+    vf = f"fade=t=in:st=0:d=0.3,fade=t=out:st={fade_start}:d=1.5"
+    af = f"afade=t=in:st=0:d=0.3,afade=t=out:st={fade_start}:d=1.5"
     if pad_dur > 0:
         vf += f",tpad=stop_mode=clone:stop_duration={pad_dur}"
         af += f",apad=pad_dur={pad_dur}"
@@ -931,6 +921,18 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
         if not montage_success:
             print(f"  [editor] Montage failed, keeping source as-is", flush=True)
 
+        # ── Step 6.5: Sound Design (riser, silence-dip, impact, ambient) ──
+        try:
+            step_sfx = os.path.join(work_dir, "045_sound_design.mp4")
+            sfx_result = add_sound_design(current, step_sfx, clip_duration)
+            if sfx_result and sfx_result != current and os.path.exists(step_sfx):
+                current = step_sfx
+                print(f"  [editor] Sound design complete", flush=True)
+            else:
+                print(f"  [editor] Sound design skipped (no change)", flush=True)
+        except Exception as e:
+            print(f"  [editor] Sound design error: {e}, continuing", flush=True)
+
         # ── Step 7: Audio — simple loudnorm only (no BGM, no complex pipeline) ──
         try:
             step5 = os.path.join(work_dir, "05_audio_norm.mp4")
@@ -1171,32 +1173,198 @@ def _generate_sfx(sfx_type):
     return None
 
 
-def _laugh_track_texts(title="", clip_duration=15):
-    """Generate timed pop-up text for movie/series shorts.
-    Staggered opening: VARY then movie name. Phrases spread evenly.
+def _estimate_climax(clip_duration):
+    """Estimate climax point as 65-75% into clip duration."""
+    return clip_duration * 0.70
+
+
+def _generate_5beat_captions(title="", clip_duration=15, content_type="movie"):
+    """Generate 5-beat caption sequence: hook → build → peak_signal → emotion_label → twist.
+    Content-aware: football vs movie/series get different text templates.
+    Each beat: 2-6 words, timed to climax, styled per beat type.
+    Returns list of (beat_type, text, start, end).
     """
-    movie_name = title[:40] if title else "this scene"
+    name = title[:35] if title else "this moment"
+    climax = _estimate_climax(clip_duration)
 
-    opening = [
-        {"text": "VARY", "start": 0.0, "end": 0.7},
-        {"text": f"\"{movie_name}\"", "start": 0.7, "end": 1.8},
+    if content_type == "football":
+        beats = {
+            "hook": "SPAIN ARE CHAMPIONS" if "spain" in name.lower() else "PURE CLASS",
+            "build": f"The road to glory...",
+            "peak_signal": "THIS IS THE MOMENT",
+            "emotion_label": "UNREAL",
+            "twist": "From doubters to legends.",
+        }
+    elif content_type == "series":
+        beats = {
+            "hook": "THIS IS PEAK TV",
+            "build": f"The legend of {name[:20]}...",
+            "peak_signal": "THIS IS THE SCENE",
+            "emotion_label": "PURE EMOTION",
+            "twist": "No score. Just acting.",
+        }
+    else:  # movie
+        beats = {
+            "hook": "WAIT FOR THIS",
+            "build": f"Watch the legend of {name[:20]}...",
+            "peak_signal": "THIS IS THE MOMENT",
+            "emotion_label": "PURE EMOTION",
+            "twist": "No music. Just impact.",
+        }
+
+    captions = []
+    # Beat 1: Hook (0-1.2s)
+    captions.append(("hook", beats["hook"], 0.0, 1.2))
+
+    # Beat 2: Build (early-mid)
+    build_start = clip_duration * 0.20
+    captions.append(("build", beats["build"], build_start, build_start + 2.0))
+
+    # Beat 3: Peak Signal (just before climax)
+    peak_start = max(0, climax - 1.5)
+    captions.append(("peak_signal", beats["peak_signal"], peak_start, peak_start + 1.5))
+
+    # Beat 4: Emotion Label (right after climax)
+    emotion_start = min(climax + 0.5, clip_duration - 1.5)
+    captions.append(("emotion_label", beats["emotion_label"], emotion_start, min(emotion_start + 1.5, clip_duration)))
+
+    # Beat 5: Twist (closing)
+    twist_start = clip_duration * 0.85
+    captions.append(("twist", beats["twist"], twist_start, min(twist_start + 2.0, clip_duration - 0.3)))
+
+    return captions
+
+
+def _write_ass(captions, ass_path):
+    """Write 5-beat captions to ASS subtitle file with per-event positioning and style."""
+    lines = [
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        "PlayResX: 1080",
+        "PlayResY: 1920",
+        "ScaledBorderAndShadow: yes",
+        "",
+        "[V4+ Styles]",
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+        "Style: Hook,Arial,56,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,0,0,8,10,10,80,1",
+        "Style: Build,Arial,36,&H00FFFFFF,&H000000FF,&H00880000,&H00000000,1,0,0,0,100,100,0,0,1,3,0,2,10,10,200,1",
+        "Style: Peak,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,0,0,5,40,40,40,1",
+        "Style: Emotion,Arial,36,&H00FFFFFF,&H000000FF,&H00880000,&H00000000,1,0,0,0,100,100,0,0,1,3,0,2,10,10,200,1",
+        "Style: Twist,Arial,32,&H00FFFFFF,&H000000FF,&H00880000,&H00000000,1,0,0,0,100,100,0,0,1,3,0,2,10,10,280,1",
+        "",
+        "[Events]",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
 
-    phrases = [
-        "wait for it...",
-        "peak cinema.",
-        "this is the scene.",
-        "pure intensity.",
-        "watch this.",
+    def _ts(sec):
+        h = int(sec // 3600)
+        m = int((sec % 3600) // 60)
+        s = sec % 60
+        return f"{h}:{m:02d}:{s:05.2f}"
+
+    # Map beat types to ASS style names
+    style_map = {"hook": "Hook", "build": "Build", "peak_signal": "Peak", "emotion_label": "Emotion", "twist": "Twist"}
+
+    for idx, (beat_type, text, start, end) in enumerate(captions, 1):
+        style = style_map.get(beat_type, "Build")
+        lines.append(f"Dialogue: 0,{_ts(start)},{_ts(end)},{style},,0,0,0,,{text}")
+
+    with open(ass_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+def add_sound_design(input_path, output_path, duration):
+    """Add sound design to video: tension riser, silence-dip, sub-bass impact, ambient bed.
+    Generates SFX WAV using Python (avoids ffmpeg aevalsrc complexity), then mixes with original audio.
+    """
+    import struct
+    if duration <= 2:
+        return input_path
+
+    climax = duration * 0.70
+    riser_start = max(0, climax - 1.5)
+    sr = 48000
+
+    # Build sample array
+    n = int(duration * sr)
+    samples = [0.0] * n
+
+    for i in range(n):
+        t = i / sr
+        if t < duration:
+            if riser_start <= t <= climax:
+                # Tension riser: sine sweep 150→800Hz over 1.5s
+                freq = 150 + 650 * (t - riser_start) / 1.5
+                samples[i] += 0.12 * __import__('math').sin(2 * 3.14159 * freq * t)
+            elif climax < t <= climax + 0.3:
+                # Sub-bass impact 50Hz
+                samples[i] += 0.25 * __import__('math').sin(2 * 3.14159 * 50 * t)
+            else:
+                # Ambient hum 60Hz + 120Hz
+                samples[i] += 0.015 * __import__('math').sin(2 * 3.14159 * 60 * t)
+                samples[i] += 0.008 * __import__('math').sin(2 * 3.14159 * 120 * t)
+
+    # Normalize to avoid clipping
+    peak = max(abs(max(samples)), abs(min(samples)), 0.001)
+    scale = min(1.0 / peak, 1.0)
+    scaled = [int(max(-32768, min(32767, s * scale * 32767))) for s in samples]
+
+    # Write WAV
+    sfx_path = os.path.join(os.path.dirname(output_path), "_sfx.wav")
+    n_bytes = len(scaled) * 2
+    with open(sfx_path, "wb") as f:
+        f.write(b"RIFF")
+        f.write(struct.pack("<I", 36 + n_bytes))
+        f.write(b"WAVE")
+        f.write(b"fmt ")
+        f.write(struct.pack("<I", 16))       # chunk size
+        f.write(struct.pack("<H", 1))         # PCM
+        f.write(struct.pack("<H", 1))         # mono
+        f.write(struct.pack("<I", sr))        # sample rate
+        f.write(struct.pack("<I", sr * 2))    # byte rate
+        f.write(struct.pack("<H", 2))         # block align
+        f.write(struct.pack("<H", 16))        # bits per sample
+        f.write(b"data")
+        f.write(struct.pack("<I", n_bytes))
+        for s in scaled:
+            f.write(struct.pack("<h", s))
+
+    if not os.path.exists(sfx_path) or os.path.getsize(sfx_path) < 100:
+        print(f"  [sound] SFX generation produced no output, skipping", flush=True)
+        return input_path
+
+    # Mix generated SFX with original audio using amix (2 inputs only)
+    mix_cmd = [
+        _FFMPEG_BIN, "-y",
+        "-i", input_path,
+        "-i", sfx_path,
+        "-filter_complex",
+        "[0:a][1:a]amix=inputs=2:duration=first:weights=1 0.35[a_mixed]",
+        "-map", "0:v",
+        "-map", "[a_mixed]",
+        "-c:v", "copy",
+        "-c:a", "aac", "-b:a", "192k",
+        "-shortest",
+        output_path,
     ]
 
-    texts = list(opening)
-    for i, phrase in enumerate(phrases):
-        t_start = clip_duration * (0.10 + i * 0.15)
-        t_end = min(t_start + 3.5, clip_duration)
-        texts.append({"text": phrase, "start": t_start, "end": t_end})
-
-    return texts
+    try:
+        subprocess.run(mix_cmd, capture_output=True, timeout=60)
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
+            print(f"  [sound] Sound design applied: riser+impact+ambient", flush=True)
+            return output_path
+        else:
+            print(f"  [sound] Mix failed, keeping original audio", flush=True)
+            return input_path
+    except Exception as e:
+        err = e
+        print(f"  [sound] Sound design mix error: {e}, keeping original", flush=True)
+        return input_path
+    finally:
+        try:
+            os.unlink(sfx_path)
+        except Exception:
+            pass
 
 
 def apply_movie_effects(input_path, output_path, content_type, title=""):
@@ -1208,54 +1376,30 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
         return None
 
     import uuid
-    font_path = get_font_path()
+    import tempfile
+    ass_file = tempfile.NamedTemporaryFile(suffix=".ass", delete=False, mode="w", encoding="utf-8")
+    ass_path = ass_file.name
+    ass_file.close()
+    captions = _generate_5beat_captions(title, clip_duration=duration, content_type=content_type)
+    _write_ass(captions, ass_path)
 
-    texts = _laugh_track_texts(title, clip_duration=duration)
-
-    filter_parts = [
+    # Zoom factor: hook punch (1.08x at t=0, settles by 0.3s) + slow zoom (1.05x after 1.5s)
+    zoom_expr = (
+        f"(1.0 + 0.08*max(0,1-t/0.3) + 0.05*max(0,t-1.5)/{max(duration,0.1)})"
+    )
+    # Virtual camera pan: slow ±20px horizontal over duration
+    pan_expr = f"20*sin(2*PI*t/{max(duration,0.1)})"
+    filter_complex = (
         f"[0:v]scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=0,setsar=1,"
-        f"scale='floor(iw*(1.0+0.30*t/{max(duration,0.1)}))':"
-        f"'floor(ih*(1.0+0.30*t/{max(duration,0.1)}))':eval=frame,"
-        f"crop={SHORTS_WIDTH}:{SHORTS_HEIGHT},"
-        f"unsharp=7:7:1.2:5:5:0.6[base]"
-    ]
-    prev_label = "base"
-
-    for i, item in enumerate(texts):
-        t_start = item["start"]
-        t_end = item["end"]
-
-        safe_text = (item["text"].replace("\\", "\\\\").replace("'", "\\'")
-                         .replace(":", "\\:").replace("[", "\\[").replace("]", "\\]")
-                         .replace("%", "\\%").replace("{", "\\{").replace("}", "\\}")
-                         .replace(",", "\\,"))
-        is_emoji = any(c in safe_text for c in ["👀", "🔥", "💀", "😱", "😂"])
-
-        if is_emoji:
-            fs = 80
-            x_expr = "(w-text_w)/2"
-            y_expr = "(h-text_h)/2 - 40"
-            style = "borderw=0"
-        else:
-            fs = 56
-            x_expr = "(w-text_w)/2"
-            y_expr = "h*0.55 - text_h/2"
-            style = "borderw=5:bordercolor=black@0.85"
-
-        filter_parts.append(
-            f"[{prev_label}]drawtext=text='{safe_text}':fontcolor=white:fontsize={fs}:"
-            f"x={x_expr}:y={y_expr}:"
-            f"{style}:"
-            f"fontfile='{font_path}':"
-            f"enable='between(t,{t_start},{t_end})'[t{i}]"
-        )
-        prev_label = f"t{i}"
-
-    full_filter = ";".join(filter_parts)
-    last_label = f"t{len(texts)-1}" if texts else "base"
+        f"scale='floor(iw*{zoom_expr})':'floor(ih*{zoom_expr})':eval=frame,"
+        f"crop={SHORTS_WIDTH}:{SHORTS_HEIGHT}:(iw-{SHORTS_WIDTH})/2+({pan_expr}):(ih-{SHORTS_HEIGHT})/2,"
+        f"unsharp=7:7:1.2:5:5:0.6,"
+        f"ass='{ass_path.replace(chr(92), chr(92)*2).replace(':', chr(92)+chr(58))}'"
+        f"[outv]"
+    )
+    last_label = "outv"
 
     input_files = ["-i", input_path]
-    filter_complex = full_filter
     audio_map = "0:a?"
 
     cmd = [
@@ -1282,24 +1426,29 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
             actual_dur = get_video_duration(output_path)
             if actual_dur <= 0:
                 actual_dur = fallback_duration(output_path)
-            print(f"  [editor] LaughTrack effects applied: {output_path} ({actual_dur:.1f}s, {os.path.getsize(output_path)} bytes)", flush=True)
+            print(f"  [editor] Montage + word captions applied: {output_path} ({actual_dur:.1f}s, {os.path.getsize(output_path)} bytes)", flush=True)
             return {"path": output_path, "duration": actual_dur}
         else:
             err = result.stderr[-500:].decode('utf-8', errors='replace') if result.stderr else "no stderr"
-            print(f"  [editor] LaughTrack effects failed (ffmpeg exit {result.returncode}): {err}", flush=True)
+            print(f"  [editor] Montage failed (ffmpeg exit {result.returncode}): {err}", flush=True)
             import shutil
             shutil.copy2(input_path, output_path)
             return {"path": output_path, "duration": duration}
     except subprocess.TimeoutExpired:
-        print(f"  [editor] LaughTrack effects timed out — returning original crop", flush=True)
+        print(f"  [editor] Montage timed out — returning original crop", flush=True)
         import shutil
         shutil.copy2(input_path, output_path)
         return {"path": output_path, "duration": duration}
     except Exception as e:
-        print(f"  [editor] LaughTrack effects error: {e}", flush=True)
+        print(f"  [editor] Montage error: {e}", flush=True)
         import shutil
         shutil.copy2(input_path, output_path)
         return {"path": output_path, "duration": duration}
+    finally:
+        try:
+            os.unlink(ass_path)
+        except Exception:
+            pass
 
 
 # ── Weekly Video Pipeline ─────────────────────────────────

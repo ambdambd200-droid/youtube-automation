@@ -94,9 +94,9 @@ COLOR_SHARPEN_AMOUNT = 50     # Unsharp mask amount
 
 # ── Temporal Specs (Section 4: Temporal Dynamics) ─────────
 TEMP_PRE_ACTION_WINDOW = 1.5  # Start 1.5s before main event
-TEMP_SLOW_MOTION_SPEED = 0.3 # 30% speed at impact (dramatic slow-mo)
-TEMP_FREEZE_DURATION = 0.4   # Freeze frame for 0.4s (10-12 frames)
-TEMP_SPEED_UP_SPEED = 2.5    # 250% speed after impact (snappy recovery)
+TEMP_SLOW_MOTION_SPEED = 0.7 # 70% speed at impact (smooth, not stutter)
+TEMP_FREEZE_DURATION = 0.0   # No freeze frame (clean professional style)
+TEMP_SPEED_UP_SPEED = 1.8    # 180% speed after impact (gentle acceleration)
 TEMP_REACTION_DURATION = 2.0 # End 2s after action for reaction
 TEMP_ZOOM_IN_SCALE = 1.10    # Micro-zoom 110% for focus
 TEMP_ZOOM_DURATION = 0.5     # Zoom over 0.5 seconds

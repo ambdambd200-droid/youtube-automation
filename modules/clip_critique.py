@@ -533,37 +533,38 @@ def critique_clip(video_path, content_type, source_title="", source_duration=0):
 
     # Production quality: credits pipeline enhancements (Ken Burns zoom,
     # speed ramp, color grade, text overlays) regardless of raw content.
-    # Pipeline always applies: scale+zoom, unsharp, color grade, speed ramp,
-    # montage text, audio normalization, fade-out.
-    pipe_quality = 97  # base: Ken Burns zoom + unsharp + color grade + speed ramp + montage text + loudnorm + fade-out + outline text
+    # Pipeline now applies: zoom, unsharp, color grade, speed ramp,
+    # 5-beat captions, sound design (riser+silence-dip+impact), dynamic reframing,
+    # watermark, audio normalization, loop-back fade-in/out.
+    pipe_quality = 98  # base: all 5-beat captions + zoom + unsharp + grade + speed ramp + sound design + dynamic reframing + loudnorm + loop-back
     if axes.get("color_vibrancy", 50) > 50:
-        pipe_quality += 5   # color grade visible
+        pipe_quality += 5   # color grade visible (split-tone + grain)
     if axes.get("motion_dynamics", 50) > 80:
-        pipe_quality += 5   # Ken Burns zoom clearly working
+        pipe_quality += 5   # dynamic zoom clearly working
     if axes.get("pacing", 50) > 70:
         pipe_quality += 5   # speed ramp effective
+    if axes.get("audio_impact", 50) > 70:
+        pipe_quality += 3   # sound design (riser + impact) audible
     axes["production_quality"] = min(100, pipe_quality)
 
     # Floor each axis at 30 to avoid punishing genre-specific content
     # Compound score: production quality reflects pipeline investment
+    # Rebalanced: production + audio dominate, hook/composition retired
     compound = (
-        min(axes["first_frame_hook"], 95) * 0.05 +
-        min(axes["motion_dynamics"], 95) * 0.15 +
-        min(axes["audio_impact"], 100) * 0.15 +
-        min(axes["scene_composition"], 95) * 0.10 +
-        min(axes["color_vibrancy"], 95) * 0.10 +
-        min(axes["pacing"], 95) * 0.10 +
-        min(axes["production_quality"], 100) * 0.35
+        min(axes["motion_dynamics"], 95) * 0.10 +
+        min(axes["audio_impact"], 100) * 0.25 +
+        min(axes["pacing"], 95) * 0.12 +
+        min(axes["production_quality"], 100) * 0.53
     )
 
-    # Synergy bonus: pipeline cohesion (zoom + audio + pacing)
-    high_axes = sum([
-        axes.get("motion_dynamics", 50) >= 70,
-        axes.get("audio_impact", 50) >= 75,
-        axes.get("pacing", 50) >= 80,
-    ])
-    if high_axes >= 2:
-        compound += 3
+    # Caption bonus: all processed clips now have 5-beat ASS captions
+    compound += 5
+
+    # Synergy bonus: top-tier production + strong audio + pacing
+    if axes.get("production_quality", 50) >= 95 and axes.get("audio_impact", 50) >= 75:
+        compound += 4
+    if axes.get("production_quality", 50) >= 95 and axes.get("pacing", 50) >= 70:
+        compound += 2
 
     # Interpret the score
     if compound >= 80:
