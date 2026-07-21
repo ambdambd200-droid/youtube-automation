@@ -81,15 +81,16 @@ def get_video_dimensions(video_path):
     return (0, 0)
 
 
-def validate_short(video_path):
+def validate_short(video_path, max_duration=None):
     dur = get_video_duration(video_path)
     w, h = get_video_dimensions(video_path)
     issues = []
+    effective_max = max_duration if max_duration else CLIP_MAX_DURATION
 
     if dur < CLIP_MIN_DURATION:
         issues.append(f"duration {dur:.0f}s < {CLIP_MIN_DURATION}s")
-    elif dur > CLIP_MAX_DURATION:
-        issues.append(f"duration {dur:.0f}s > {CLIP_MAX_DURATION}s")
+    elif dur > effective_max:
+        issues.append(f"duration {dur:.0f}s > {effective_max}s")
 
     # Allow 2px tolerance for even/odd pixel adjustments in cropping
     if abs(w - SHORTS_WIDTH) > 2 or abs(h - SHORTS_HEIGHT) > 2:

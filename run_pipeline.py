@@ -18,6 +18,11 @@ import random
 import traceback
 from datetime import datetime
 
+# Add Python Scripts to PATH (for yt-dlp, etc.)
+_py_scripts = os.path.join(os.path.dirname(sys.executable), "Scripts")
+if os.path.exists(_py_scripts):
+    os.environ["PATH"] = _py_scripts + os.pathsep + os.environ.get("PATH", "")
+
 # Fix Windows console encoding for Unicode characters (em dashes, arrows, etc.)
 if hasattr(sys.stdout, 'reconfigure'):
     try:
@@ -56,7 +61,7 @@ def log_result(stage, status, details=None):
     return entry
 
 
-def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
+def run_pipeline(force_type=None, force_query=None, pipeline_id=None, publish_at_override=None):
     """Run the full daily pipeline.
 
     Args:
@@ -292,7 +297,10 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None):
 
         try:
             from config import get_next_schedule_slot
-            publish_at = get_next_schedule_slot()
+            if publish_at_override:
+                publish_at = publish_at_override
+            else:
+                publish_at = get_next_schedule_slot()
 
             video_id, response = upload_video(
                 video_path=clip_result["path"],
@@ -416,6 +424,8 @@ if __name__ == "__main__":
                         help="Force a specific content type")
     parser.add_argument("--query", default=None,
                         help="Force a specific search query")
+    parser.add_argument("--publish-at", default=None,
+                        help="Override publish time (ISO 8601, e.g. 2026-07-21T10:30:00Z)")
     args = parser.parse_args()
 
     force_type = args.type
@@ -440,7 +450,7 @@ if __name__ == "__main__":
     from modules.pipeline_watchdog import register_run_start, register_run_failure
     pipeline_id = register_run_start("daily")
     try:
-        result = run_pipeline(force_type=force_type, force_query=args.query, pipeline_id=pipeline_id)
+        result = run_pipeline(force_type=force_type, force_query=args.query, pipeline_id=pipeline_id, publish_at_override=args.publish_at)
         print(json.dumps(result, indent=2, default=str))
     except Exception as e:
         print(f"\n  ❌ PIPELINE CRASHED: {e}", flush=True)

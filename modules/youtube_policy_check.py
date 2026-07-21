@@ -45,12 +45,21 @@ STUDIO_CHANNELS = [
     "dreamworks animation",
     "illumination",
     "studio ghibli",
-    # Less aggressive — allow partial matches (fan channels may have these in name)
-    # "paramount", "universal", "warner bros", "netflix",
-    # "hbo", "disney", "marvel", "nbc", "abc", "cbs",
-    # "lionsgate", "mgm", "a24",
-    # "apple tv", "amazon prime video", "prime video",
-    # Football broadcasters are SAFE for short clips (news/editorial value)
+    # ── Official sports leagues — Content ID on match footage ──
+    "fifa",                        # FIFA World Cup matches
+    "premier league",              # English Premier League
+    "uefa",                        # Champions League
+    "laliga",                      # Spanish league
+    "serie a",                     # Italian league
+    "bundesliga",                  # German league
+    "ligue 1",                     # French league
+    "mls",                         # US league
+    "nba",                         # Basketball
+    "nfl",                         # American football
+    "nhl",                         # Hockey
+    "espn",                        # Sports broadcaster
+    "sky sports",                  # UK sports broadcaster
+    "beIN SPORTS", "bein sports",   # MENA sports broadcaster
     # News agencies — aggressive on any news footage
     "abc news", "bbc news",
     "associated press", "ap archive",
@@ -74,8 +83,10 @@ SAFE_CHANNEL_PATTERNS = [
 ]
 
 # Content types that NEVER get copyrighted (safe to use)
+# NOTE: Official channel footage (FIFA, Premier League) still gets claimed.
+# Only fan/commentary channels are safe for these content types.
 SAFE_CONTENT_TYPES = [
-    "football",  # Match highlights are generally safe (news/editorial)
+    "football",  # Safe ONLY from non-official channels
 ]
 
 # Video title patterns that indicate risky content

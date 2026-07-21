@@ -33,6 +33,7 @@ from config import (
 # Major studios with aggressive Content ID (skip these channels)
 # See .github/POLICIES.md and modules/youtube_policy_check.py for full list
 _COPYRIGHT_BLACKLIST = [
+    # ── Major movie studios ──
     "paramount pictures", "paramount movies",
     "universal pictures",
     "warner bros. pictures", "warner bros pictures",
@@ -44,9 +45,21 @@ _COPYRIGHT_BLACKLIST = [
     "dreamworks", "illumination", "studio ghibli",
     "lionsgate", "mgm", "a24",
     "apple tv+", "amazon prime video",
-    # Less aggressive on these — fan channels exist under them
-    # "netflix", "hbo", "paramount", "universal",
-    # "nbc", "abc", "cbs", "prime video",
+    # ── Official sports leagues (aggressive Content ID) ──
+    "fifa",                        # FIFA World Cup matches
+    "premier league",              # EPL highlights
+    "uefa",                        # Champions League
+    "laliga",                      # Spanish league
+    "serie a",                     # Italian league
+    "bundesliga",                  # German league
+    "ligue 1",                     # French league
+    "mls",                         # US league
+    "nba",                         # Basketball
+    "nfl",                         # Football
+    "nhl",                         # Hockey
+    "espn",                        # Sports broadcaster
+    "sky sports",                  # UK sports broadcaster
+    "beIN SPORTS", "bein sports",   # MENA sports broadcaster
 ]
 # But allow these specific copyright-safe channels
 _COPYRIGHT_SAFE_CHANNELS = [

@@ -179,7 +179,7 @@ def apply_speed_ramp(input_path, output_path, impact_time=None, target_duration=
                        + post_duration)
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
             print(f"  [editor] Speed ramp applied: {os.path.basename(output_path)}", flush=True)
             return {"path": output_path, "duration": output_duration}
@@ -219,43 +219,99 @@ def apply_in_media_res(input_path, output_path, action_time=1.5, total_duration=
 
 
 def apply_breath_cut(input_path, output_path, total_duration):
-    """Blueprint Section 4.3: Breath Cut — smooth fade-out + padding to CLIP_MIN_DURATION.
+    """Blueprint Section 4.3: Breath Cut — smooth fade-out + retention loop.
+    Last 1.5s fades into first 2s of clip for seamless rewatch loop.
     Always produces at least CLIP_MIN_DURATION+0.5s output.
-    If source is shorter, pads with black frames + silence (cloned last frame).
     """
+    import shutil
     min_out = CLIP_MIN_DURATION + 0.5
     target = max(total_duration, min_out)
     cut_time = total_duration
     fade_start = max(0, cut_time - 1.5)
-    pad_dur = target - total_duration
 
+    loop_dur = min(2.0, total_duration * 0.15)
+
+    # Two-pass: first add fade + CTA, then append loop tail
+    pass1 = os.path.join(os.path.dirname(output_path), "_breath_pass1.mp4")
     vf = f"fade=t=in:st=0:d=0.3,fade=t=out:st={fade_start}:d=1.5"
     af = f"afade=t=in:st=0:d=0.3,afade=t=out:st={fade_start}:d=1.5"
-    if pad_dur > 0:
-        vf += f",tpad=stop_mode=clone:stop_duration={pad_dur}"
-        af += f",apad=pad_dur={pad_dur}"
+    if target > total_duration:
+        pad = target - total_duration
+        vf += f",tpad=stop_mode=clone:stop_duration={pad}"
+        af += f",apad=pad_dur={pad}"
 
-    cmd = [
+    cmd1 = [
         _FFMPEG_BIN, "-y", "-i", input_path,
-        "-ss", "0",
-        "-t", str(target),
-        "-vf", vf,
-        "-af", af,
+        "-ss", "0", "-t", str(target),
+        "-vf", vf, "-af", af,
         "-c:v", RENDER_CODEC, "-preset", RENDER_FINAL_PRESET,
         "-crf", str(RENDER_CRF),
         "-c:a", "aac", "-b:a", "192k",
         "-pix_fmt", RENDER_PIX_FMT,
-        output_path,
+        pass1,
     ]
     try:
-        subprocess.run(cmd, capture_output=True, timeout=180)
-        if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
-            print(f"  [editor] Breath cut: end at {cut_time:.1f}s + 1.5s fade-out"
-                  f"{' + ' + str(pad_dur) + 's black pad' if pad_dur > 0 else ''}", flush=True)
+        subprocess.run(cmd1, capture_output=True, timeout=180)
+        if not os.path.exists(pass1) or os.path.getsize(pass1) < 10000:
+            shutil.copy2(input_path, output_path)
+            print(f"  [editor] Breath cut pass1 failed, returning original", flush=True)
             return output_path
     except Exception as e:
-        print(f"  [editor] Breath cut error: {e}", flush=True)
-    return None
+        print(f"  [editor] Breath cut pass1 error: {e}, returning original", flush=True)
+        shutil.copy2(input_path, output_path)
+        return output_path
+
+    # Pass 2: append first 2 seconds as loop tail
+    # Concat: pass1 (faded out) → first loop_dur seconds of original (faded in)
+    loop_start = input_path
+    loop_tail = os.path.join(os.path.dirname(output_path), "_breach_loop_tail.mp4")
+    cmd_loop = [
+        _FFMPEG_BIN, "-y", "-i", loop_start,
+        "-ss", "0", "-t", str(loop_dur),
+        "-vf", "fade=t=in:st=0:d=0.3",
+        "-af", "afade=t=in:st=0:d=0.3",
+        "-c:v", RENDER_CODEC, "-preset", "fast",
+        "-crf", str(RENDER_CRF + 2),
+        "-c:a", "aac", "-b:a", "192k",
+        "-pix_fmt", RENDER_PIX_FMT,
+        loop_tail,
+    ]
+    try:
+        subprocess.run(cmd_loop, capture_output=True, timeout=60)
+    except Exception:
+        pass
+
+    if os.path.exists(loop_tail) and os.path.getsize(loop_tail) > 5000:
+        concat_file = os.path.join(os.path.dirname(output_path), "_breach_concat.txt")
+        try:
+            with open(concat_file, "w") as cf:
+                cf.write(f"file '{pass1.replace(chr(92), chr(92)+chr(92))}'\n")
+                cf.write(f"file '{loop_tail.replace(chr(92), chr(92)+chr(92))}'\n")
+            cmd_concat = [
+                _FFMPEG_BIN, "-y", "-f", "concat", "-safe", "0",
+                "-i", concat_file,
+                "-c", "copy",
+                output_path,
+            ]
+            subprocess.run(cmd_concat, capture_output=True, timeout=60)
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
+                print(f"  [editor] Breath cut: end at {cut_time:.1f}s + 1.5s fade-out"
+                      f" + {loop_dur:.1f}s loop tail", flush=True)
+                return output_path
+        except Exception:
+            pass
+        finally:
+            for _f in [concat_file, loop_tail]:
+                try:
+                    os.unlink(_f)
+                except Exception:
+                    pass
+
+    # Fallback: return pass1 if loop fails
+    shutil.copy2(pass1, output_path)
+    print(f"  [editor] Breath cut: end at {cut_time:.1f}s + 1.5s fade-out"
+          f" (no loop)", flush=True)
+    return output_path
 
 
 # ── Blueprint Section 5: Visual Information Layers ─────────
@@ -1050,7 +1106,7 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
             continue
 
         # ── Validate final output ──────────────────────────
-        passed, last_issues = validate_short(final_path)
+        passed, last_issues = validate_short(final_path, max_duration=var_max)
         if passed:
             result = {
                 "path": final_path,
@@ -1071,7 +1127,7 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
         print(f"  [editor] Validation failed: {'; '.join(last_issues)}", flush=True)
         _v_dur = get_video_duration(final_path)
         _v_w, _v_h = get_video_dimensions(final_path)
-        print(f"  [editor] Actual: {_v_w}x{_v_h}, {_v_dur:.1f}s | Expected: {SHORTS_WIDTH}x{SHORTS_HEIGHT}, {CLIP_MIN_DURATION}-{CLIP_MAX_DURATION}s", flush=True)
+        print(f"  [editor] Actual: {_v_w}x{_v_h}, {_v_dur:.1f}s | Expected: {SHORTS_WIDTH}x{SHORTS_HEIGHT}, {CLIP_MIN_DURATION}-{var_max}s", flush=True)
         _clean_work_dir(work_dir)
 
     print(f"  [editor] All {max_retries} attempts failed — no valid clip produced", flush=True)
@@ -1295,11 +1351,21 @@ def _generate_5beat_captions(title="", clip_duration=15, content_type="movie"):
         end_start = clip_duration * 0.92
         captions.append(("twist", beats["twist_end"], end_start, min(end_start + 2.0, clip_duration - 0.2)))
 
+    cta_start = max(clip_duration - 3.0, clip_duration * 0.85)
+    cta_options = [
+        "What do you think? \\NSubscribe for more \\N🔥👇",
+        "Comment below 👇 \\NSubscribe 🔔",
+        "Would you try this? \\N👇 Comment \\NSubscribe 🔔",
+        "Rate this 1-10 👇 \\NSubscribe for daily clips 🔔",
+    ]
+    import random as _r
+    captions.append(("cta", _r.choice(cta_options), cta_start, clip_duration))
+
     return captions, beats["hook_tts"]
 
 
 def _write_ass(captions, ass_path):
-    """Write 5-beat captions to ASS subtitle file with per-event positioning and style."""
+    """Write 5-beat captions to ASS subtitle file — center-screen word blocks (2026 viral style)."""
     lines = [
         "[Script Info]",
         "ScriptType: v4.00+",
@@ -1309,11 +1375,12 @@ def _write_ass(captions, ass_path):
         "",
         "[V4+ Styles]",
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        "Style: Hook,Arial,56,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,0,0,8,10,10,80,1",
-        "Style: Build,Arial,36,&H00FFFFFF,&H000000FF,&H00880000,&H00000000,1,0,0,0,100,100,0,0,1,3,0,2,10,10,200,1",
-        "Style: Peak,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,0,0,5,40,40,40,1",
-        "Style: Emotion,Arial,36,&H00FFFFFF,&H000000FF,&H00880000,&H00000000,1,0,0,0,100,100,0,0,1,3,0,2,10,10,200,1",
-        "Style: Twist,Arial,32,&H00FFFFFF,&H000000FF,&H00880000,&H00000000,1,0,0,0,100,100,0,0,1,3,0,2,10,10,280,1",
+        "Style: Hook,Arial,72,&H00FFFFFF,&H00FFFF00,&H00000000,&H80000000,1,0,0,0,100,100,10,0,1,4,2,5,0,0,400,1",
+        "Style: Build,Arial,48,&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,1,0,0,0,100,100,5,0,1,3,1,5,0,0,350,1",
+        "Style: Peak,Arial,64,&H00FFFF00,&H00FF4444,&H00000000,&H80000000,1,0,0,0,100,100,10,0,1,4,2,5,0,0,300,1",
+        "Style: Emotion,Arial,52,&H00FF8800,&H00FFFFFF,&H00000000,&H80000000,1,0,0,0,100,100,5,0,1,3,1,5,0,0,320,1",
+        "Style: Twist,Arial,44,&H00FFFFFF,&H00FF44FF,&H00000000,&H80000000,1,0,0,0,100,100,5,0,1,3,1,5,0,0,350,1",
+        "Style: CTA,Arial,40,&H00FFFFFF,&H00FF4444,&H00000000,&H80000000,1,0,0,0,100,100,5,0,1,3,1,2,0,0,100,1",
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -1325,8 +1392,7 @@ def _write_ass(captions, ass_path):
         s = sec % 60
         return f"{h}:{m:02d}:{s:05.2f}"
 
-    # Map beat types to ASS style names
-    style_map = {"hook": "Hook", "build": "Build", "peak_signal": "Peak", "emotion_label": "Emotion", "twist": "Twist"}
+    style_map = {"hook": "Hook", "build": "Build", "peak_signal": "Peak", "emotion_label": "Emotion", "twist": "Twist", "cta": "CTA"}
 
     for idx, (beat_type, text, start, end) in enumerate(captions, 1):
         style = style_map.get(beat_type, "Build")
@@ -1336,21 +1402,36 @@ def _write_ass(captions, ass_path):
         f.write("\n".join(lines) + "\n")
 
 
+def _get_wav_duration(wav_path):
+    """Get duration of a WAV file in seconds."""
+    import wave as _w
+    try:
+        with _w.open(wav_path, "rb") as wf:
+            frames = wf.getnframes()
+            rate = wf.getframerate()
+            return frames / rate if rate > 0 else 0
+    except Exception:
+        return 0
+
+
 def add_sound_design(input_path, output_path, duration, hook_tts_path=None):
     """Add sound design to video: tension riser, sub-bass impact, ambient bed, TTS hook voiceover.
-    Generates SFX WAV using Python (avoids ffmpeg aevalsrc complexity), then mixes with original audio.
-    If hook_tts_path is provided and exists, mixes it as a third audio input (prominent in first 1.5s).
+    Uses 2-pass mixing to avoid sample-rate conflicts: (video audio + TTS) + SFX.
     """
     import struct
+    import shutil
     if duration <= 2:
         return input_path
 
+    _orig_input = input_path
+    import wave as _wave
+    sr = 48000
+    n = int(duration * sr)
+    math_mod = __import__('math')
+
+    # Build SFX sample array (mono)
     climax = duration * 0.70
     riser_start = max(0, climax - 1.5)
-    sr = 48000
-
-    # Build sample array
-    n = int(duration * sr)
     samples = [0.0] * n
 
     for i in range(n):
@@ -1358,91 +1439,142 @@ def add_sound_design(input_path, output_path, duration, hook_tts_path=None):
         if t < duration:
             if riser_start <= t <= climax:
                 freq = 150 + 650 * (t - riser_start) / 1.5
-                samples[i] += 0.12 * __import__('math').sin(2 * 3.14159 * freq * t)
+                samples[i] += 0.12 * math_mod.sin(2 * 3.14159 * freq * t)
             elif climax < t <= climax + 0.3:
-                samples[i] += 0.25 * __import__('math').sin(2 * 3.14159 * 50 * t)
+                samples[i] += 0.25 * math_mod.sin(2 * 3.14159 * 50 * t)
             else:
-                samples[i] += 0.015 * __import__('math').sin(2 * 3.14159 * 60 * t)
-                samples[i] += 0.008 * __import__('math').sin(2 * 3.14159 * 120 * t)
+                samples[i] += 0.015 * math_mod.sin(2 * 3.14159 * 60 * t)
+                samples[i] += 0.008 * math_mod.sin(2 * 3.14159 * 120 * t)
 
     peak = max(abs(max(samples)), abs(min(samples)), 0.001)
     scale = min(1.0 / peak, 1.0)
     scaled = [int(max(-32768, min(32767, s * scale * 32767))) for s in samples]
 
     sfx_path = os.path.join(os.path.dirname(output_path), "_sfx.wav")
-    n_bytes = len(scaled) * 2
-    with open(sfx_path, "wb") as f:
-        f.write(b"RIFF")
-        f.write(struct.pack("<I", 36 + n_bytes))
-        f.write(b"WAVE")
-        f.write(b"fmt ")
-        f.write(struct.pack("<I", 16))
-        f.write(struct.pack("<H", 1))
-        f.write(struct.pack("<I", sr))
-        f.write(struct.pack("<I", sr * 2))
-        f.write(struct.pack("<H", 2))
-        f.write(struct.pack("<H", 16))
-        f.write(b"data")
-        f.write(struct.pack("<I", n_bytes))
+    with _wave.open(sfx_path, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sr)
         for s in scaled:
-            f.write(struct.pack("<h", s))
+            wf.writeframes(struct.pack("<h", s))
 
-    if not os.path.exists(sfx_path) or os.path.getsize(sfx_path) < 100:
+    if not os.path.exists(sfx_path) or os.path.getsize(sfx_path) < 200:
         print(f"  [sound] SFX generation produced no output, skipping", flush=True)
+        if hook_tts_path and os.path.exists(hook_tts_path):
+            return _mix_tts(input_path, output_path, hook_tts_path)
         return input_path
 
-    # Check if TTS WAV exists for hook voiceover
+    # Pass 1: mix original audio + TTS (resample TTS to 44100, duck original during TTS)
     has_tts = hook_tts_path and os.path.exists(hook_tts_path) and os.path.getsize(hook_tts_path) > 200
-
     if has_tts:
-        # 3-input mix: original audio + SFX + TTS hook
-        mix_cmd = [
-            _FFMPEG_BIN, "-y",
-            "-i", input_path,
-            "-i", sfx_path,
-            "-i", hook_tts_path,
+        tts_sec = _get_wav_duration(hook_tts_path)
+        pass1 = os.path.join(os.path.dirname(output_path), "_pass1_tts.mp4")
+        # Duck original audio during TTS: volume 1.0 normally -> 0.3 during TTS
+        orig_vol = (
+            f"volume='if(between(t,0,{tts_sec}),0.3,1.0)':eval=frame"
+        )
+        mix1_cmd = [
+            _FFMPEG_BIN, "-y", "-i", input_path, "-i", hook_tts_path,
             "-filter_complex",
-            "[0:a][1:a][2:a]amix=inputs=3:duration=first:weights=1 0.35 1.5[a_mixed]",
-            "-map", "0:v",
-            "-map", "[a_mixed]",
-            "-c:v", "copy",
-            "-c:a", "aac", "-b:a", "192k",
+            f"[0:a]{orig_vol}[orig_ducked];[1:a]aresample=44100[a1];[orig_ducked][a1]amix=inputs=2:duration=first:weights=1 1.8[a_mixed]",
+            "-map", "0:v", "-map", "[a_mixed]",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+            "-shortest",
+            pass1,
+        ]
+        try:
+            r1 = subprocess.run(mix1_cmd, capture_output=True, timeout=60)
+            if r1.returncode != 0:
+                err1 = r1.stderr[-500:].decode('utf-8', errors='replace') if r1.stderr else "no stderr"
+                print(f"  [sound] TTS mix returned {r1.returncode}: {err1}", flush=True)
+            if os.path.exists(pass1) and os.path.getsize(pass1) > 10000:
+                input_path = pass1
+                print(f"  [sound] TTS mixed: hook voiceover", flush=True)
+            else:
+                print(f"  [sound] TTS mix failed, using original", flush=True)
+        except Exception as e:
+            print(f"  [sound] TTS mix error: {e}, using original", flush=True)
+
+    # Pass 2: mix (video audio + TTS) + SFX with audio ducking during TTS
+    tts_dur = 0
+    if has_tts and hook_tts_path:
+        tts_dur = _get_wav_duration(hook_tts_path)
+    if has_tts and tts_dur > 0:
+        # Duck SFX during TTS: volume 0.35 normally -> 0.08 during TTS
+        sfx_vol = (
+            f"volume='if(between(t,0,{tts_dur}),0.08,0.35)':eval=frame"
+        )
+        mix2_cmd = [
+            _FFMPEG_BIN, "-y", "-i", input_path, "-i", sfx_path,
+            "-filter_complex",
+            f"[1:a]{sfx_vol}[sfx_ducked];[0:a][sfx_ducked]amix=inputs=2:duration=first:weights=1 1[a_mixed]",
+            "-map", "0:v", "-map", "[a_mixed]",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
             "-shortest",
             output_path,
         ]
-        label = "riser+impact+ambient+tts"
     else:
-        mix_cmd = [
-            _FFMPEG_BIN, "-y",
-            "-i", input_path,
-            "-i", sfx_path,
+        mix2_cmd = [
+            _FFMPEG_BIN, "-y", "-i", input_path, "-i", sfx_path,
             "-filter_complex",
             "[0:a][1:a]amix=inputs=2:duration=first:weights=1 0.35[a_mixed]",
-            "-map", "0:v",
-            "-map", "[a_mixed]",
-            "-c:v", "copy",
-            "-c:a", "aac", "-b:a", "192k",
+            "-map", "0:v", "-map", "[a_mixed]",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
             "-shortest",
             output_path,
         ]
-        label = "riser+impact+ambient"
-
     try:
-        subprocess.run(mix_cmd, capture_output=True, timeout=60)
+        result2 = subprocess.run(mix2_cmd, capture_output=True, timeout=60)
+        if result2.returncode != 0:
+            err2 = result2.stderr[-500:].decode('utf-8', errors='replace') if result2.stderr else "no stderr"
+            print(f"  [sound] SFX mix returned {result2.returncode}: {err2}", flush=True)
         if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
+            label = "riser+impact+ambient" + ("+tts" if has_tts else "")
             print(f"  [sound] Sound design applied: {label}", flush=True)
             return output_path
         else:
-            print(f"  [sound] Mix failed, keeping original audio", flush=True)
+            print(f"  [sound] SFX mix failed, keeping current audio", flush=True)
+            # If TTS pass1 exists, copy it to output_path so caller uses TTS audio
+            if has_tts and input_path != _orig_input and os.path.exists(input_path):
+                import shutil
+                shutil.copy2(input_path, output_path)
+                print(f"  [sound] Using TTS-only audio from pass1", flush=True)
+                return output_path
             return input_path
     except Exception as e:
-        print(f"  [sound] Sound design mix error: {e}, keeping original", flush=True)
+        print(f"  [sound] SFX mix error: {e}, keeping current", flush=True)
+        if has_tts and input_path != _orig_input and os.path.exists(input_path):
+            import shutil
+            shutil.copy2(input_path, output_path)
+            print(f"  [sound] Using TTS-only audio from pass1 (fallback)", flush=True)
+            return output_path
         return input_path
     finally:
         try:
             os.unlink(sfx_path)
         except Exception:
             pass
+
+
+def _mix_tts(input_path, output_path, tts_path):
+    """Minimal mix: original audio + TTS voiceover only (no SFX)."""
+    mix_cmd = [
+        _FFMPEG_BIN, "-y", "-i", input_path, "-i", tts_path,
+        "-filter_complex",
+        "[1:a]aresample=44100[a1];[0:a][a1]amix=inputs=2:duration=first:weights=1 1.5[a_mixed]",
+        "-map", "0:v", "-map", "[a_mixed]",
+        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+        "-shortest",
+        output_path,
+    ]
+    try:
+        subprocess.run(mix_cmd, capture_output=True, timeout=60)
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
+            print(f"  [sound] TTS-only mix applied", flush=True)
+            return output_path
+    except Exception:
+        pass
+    return input_path
 
 
 def apply_movie_effects(input_path, output_path, content_type, title=""):
@@ -1471,15 +1603,26 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
     else:
         print(f"  [tts] Hook voiceover failed, continuing without", flush=True)
 
-    # Zoom punch 1.15x at t=0 (was 1.08x) + slow zoom 1.05x after 1.5s
+    # Pattern interrupt: zoom punch 1.15x at t=0 + micro-pulse at 30%/60% + slow drift
+    # 2026 viral style: visual movement every 2-4 seconds
+    pulse_t1 = duration * 0.30
+    pulse_t2 = duration * 0.60
     zoom_expr = (
-        f"(1.0 + 0.15*max(0,1-t/0.3) + 0.05*max(0,t-1.5)/{max(duration,0.1)})"
+        f"(1.0"
+        f" + 0.15*max(0,1-t/0.3)"                          # hook punch
+        f" + 0.06*max(0,1-abs(t-{pulse_t1})/0.2)"          # interrupt at 30%
+        f" + 0.06*max(0,1-abs(t-{pulse_t2})/0.2)"          # interrupt at 60%
+        f" + 0.04*max(0,t-1.5)/{max(duration,0.1)})"        # slow drift
     )
-    pan_expr = f"20*sin(2*PI*t/{max(duration,0.1)})"
+    # Micro-shake on pulse points
+    shake_expr = (
+        f"12*sin(12*PI*t)*exp(-3*abs(t-{pulse_t1}))"
+        f" + 12*sin(15*PI*t)*exp(-3*abs(t-{pulse_t2}))"
+    )
     filter_complex = (
         f"[0:v]scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=0,setsar=1,"
         f"scale='floor(iw*{zoom_expr})':'floor(ih*{zoom_expr})':eval=frame,"
-        f"crop={SHORTS_WIDTH}:{SHORTS_HEIGHT}:(iw-{SHORTS_WIDTH})/2+({pan_expr}):(ih-{SHORTS_HEIGHT})/2,"
+        f"crop={SHORTS_WIDTH}:{SHORTS_HEIGHT}:(iw-{SHORTS_WIDTH})/2+({shake_expr}):(ih-{SHORTS_HEIGHT})/2,"
         f"unsharp=7:7:1.2:5:5:0.6,"
         f"ass='{ass_path.replace(chr(92), chr(92)*2).replace(':', chr(92)+chr(58))}'"
         f"[outv]"
