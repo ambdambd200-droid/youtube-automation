@@ -4,10 +4,10 @@ Daily clip-based pipeline: Select → Download → Edit → Critique → Thumbna
 
 Usage:
     python run_pipeline.py                     # Auto-select content (random daily)
-    python run_pipeline.py --type football     # Force football clip
     python run_pipeline.py --type movie        # Force movie scene
     python run_pipeline.py --type series       # Force TV series clip
     python run_pipeline.py --query "custom search"  # Custom search
+    python run_pipeline.py --force-short       # Force short duration (8-12s)
 """
 import argparse
 import json
@@ -34,7 +34,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from modules.utils import find_ffmpeg, find_ffprobe
 
 from config import (
-    LOG_DIR, FOOTBALL_KEYWORDS, MOVIE_KEYWORDS, SERIES_KEYWORDS,
+    LOG_DIR, MOVIE_KEYWORDS, SERIES_KEYWORDS,
 )
 from modules.content_selector import select_today_content, load_used_scenes, save_used_scene
 from modules.clip_downloader import download_best_match
@@ -61,7 +61,7 @@ def log_result(stage, status, details=None):
     return entry
 
 
-def run_pipeline(force_type=None, force_query=None, pipeline_id=None, publish_at_override=None):
+def run_pipeline(force_type=None, force_query=None, pipeline_id=None, publish_at_override=None, force_short=True):
     """Run the full daily pipeline.
 
     Args:
@@ -110,7 +110,7 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None, publish_at
     register_stage(pipeline_id, "content_selection")
     print(f">>> Step 1/10: Selecting content...")
     if force_type:
-        keyword_map = {"football": FOOTBALL_KEYWORDS, "movie": MOVIE_KEYWORDS, "series": SERIES_KEYWORDS}
+        keyword_map = {"movie": MOVIE_KEYWORDS, "series": SERIES_KEYWORDS}
         content_info = {
             "type": force_type,
             "search_query": force_query or random.choice(
@@ -138,7 +138,7 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None, publish_at
     print(f"\n>>> Step 2/10: Downloading clip...")
     used = load_used_scenes()
     used_ids = set()
-    for key in ["movie_scenes", "football_matches", "series_scenes"]:
+    for key in ["movie_scenes", "series_scenes"]:
         for entry in used.get(key, []):
             used_ids.add(entry.get("identifier", ""))
 
@@ -152,7 +152,7 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None, publish_at
         print(f"  [FAILED] No video found for query", flush=True)
         log_result("download", "failed", {"search": content_info["search_query"]})
         # Try one more time with a different query
-        keyword_map = {"football": FOOTBALL_KEYWORDS, "movie": MOVIE_KEYWORDS, "series": SERIES_KEYWORDS}
+        keyword_map = {"movie": MOVIE_KEYWORDS, "series": SERIES_KEYWORDS}
         alt_queries = keyword_map.get(content_info.get("type"), MOVIE_KEYWORDS)
         alt_query = random.choice([q for q in alt_queries if q != content_info["search_query"]] or alt_queries)
         print(f"  Retrying with: {alt_query}", flush=True)
@@ -184,6 +184,7 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None, publish_at
         content_info["type"],
         title=download_result["title"],
         skip_effects=False,
+        force_short=force_short,
     )
 
     if not clip_result:
@@ -230,9 +231,21 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None, publish_at
     if critique_result:
         print(f"  Critique: {critique_result['compound_score']}/100 ({critique_result['grade']})", flush=True)
         log_result("critique", "success", critique_result)
+        # Hard gate: do NOT publish F-grade clips or those with hard_block.
+        # A weak first-frame hook = dead thumbnail. Better to retry than ship it.
+        _crit = critique_result
+        if (_crit.get("compound_score", 100) < 40.0
+                or _crit.get("content_quality_avg", 100) < 25.0):
+            raise Exception(
+                f"Critique gate: {critique_result['grade']} ({critique_result['compound_score']}) — "
+                f"content_quality avg={critique_result.get('content_quality_avg', '?')}, "
+                f"hard_blocked={critique_result.get('hard_blocked')} — "
+                "refusing to publish short with weak cover."
+            )
     else:
         print(f"  [SKIP] Critique returned no result", flush=True)
         log_result("critique", "skipped", {"reason": "no result"})
+        raise Exception("Critique returned no result — refusing to publish without visual verification.")
 
     # ── Audio validation: ensure output has an audio stream ──
     clip_path = clip_result["path"]
@@ -363,6 +376,20 @@ def run_pipeline(force_type=None, force_query=None, pipeline_id=None, publish_at
         print(f"  [SKIP] Evolution error: {e}", flush=True)
         log_result("evolution", "skipped", {"error": str(e)})
 
+    # ── Step 9b: Reality check — critique vs actual performance ──
+    try:
+        from modules.performance_tracker import critique_reality_check
+        reality = critique_reality_check(weeks_back=1)
+        if reality and abs(reality.get("average_delta", 0)) > 5:
+            print(
+                f"  [reality] Critique-vs-reality gap: {reality['average_delta']:+.1f} "
+                f"({'over' if reality['average_delta'] < 0 else 'under'}-estimates by "
+                f"{abs(reality['average_delta']):.1f})",
+                flush=True,
+            )
+    except Exception as e:
+        print(f"  [SKIP] Reality check error: {e}", flush=True)
+
     # ── Step 10: Space Cleanup ────────────────────────────
     register_stage(pipeline_id, "cleanup")
     print(f"\n>>> Step 10/10: Cleaning up all downloaded files...")
@@ -426,10 +453,13 @@ if __name__ == "__main__":
                         help="Force a specific search query")
     parser.add_argument("--publish-at", default=None,
                         help="Override publish time (ISO 8601, e.g. 2026-07-21T10:30:00Z)")
+    parser.add_argument("--force-short", action="store_true",
+                        help="Force short duration (8-12s) for Shorts")
     args = parser.parse_args()
 
     force_type = args.type
     force_query = args.query
+    force_short = args.force_short
 
     # Auto-detect content type from query keywords if not specified
     if force_query and not force_type:
@@ -450,7 +480,7 @@ if __name__ == "__main__":
     from modules.pipeline_watchdog import register_run_start, register_run_failure
     pipeline_id = register_run_start("daily")
     try:
-        result = run_pipeline(force_type=force_type, force_query=args.query, pipeline_id=pipeline_id, publish_at_override=args.publish_at)
+        result = run_pipeline(force_type=force_type, force_query=args.query, pipeline_id=pipeline_id, publish_at_override=args.publish_at, force_short=force_short)
         print(json.dumps(result, indent=2, default=str))
     except Exception as e:
         print(f"\n  ❌ PIPELINE CRASHED: {e}", flush=True)

@@ -23,10 +23,11 @@ SKIN_UPPER_HSV = (20, 150, 255)
 SKIN2_LOWER_HSV = (170, 20, 60)
 SKIN2_UPPER_HSV = (180, 150, 255)
 
-SKIN_EXPOSURE_THRESHOLD = 0.18       # 18%+ avg skin = likely NSFW
-SKIN_PEAK_THRESHOLD = 0.25           # 25%+ on any frame = risky
-SKIN_PEAK_MIN_FRAMES = 10            # need at least this many peak frames to block (higher for sports content)
-SKIN_WARNING_THRESHOLD = 0.10        # 10-18% = borderline
+# More lenient thresholds for movie/TV content (faces, arms, etc. are normal)
+SKIN_EXPOSURE_THRESHOLD = 0.45       # 45%+ avg skin = likely NSFW (movie faces/arms ~35-45%)
+SKIN_PEAK_THRESHOLD = 0.55           # 55%+ on any frame = risky
+SKIN_PEAK_MIN_FRAMES = 35            # need at least this many peak frames to block
+SKIN_WARNING_THRESHOLD = 0.35        # 35-45% = borderline (log but proceed)
 SAFETY_SAMPLE_INTERVAL = 30          # sample every 30th frame (~1fps at 30fps)
 SAFETY_MAX_FRAMES = 60               # max frames to check per video
 

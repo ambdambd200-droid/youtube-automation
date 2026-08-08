@@ -1,0 +1,118 @@
+name: Daily VARY Pipeline
+
+on:
+  schedule:
+    # Runs daily at 17:00 UTC (20:00 AST / 8 PM local)
+    - cron: '0 17 * * *'
+  workflow_dispatch:  # Manual trigger
+
+permissions:
+  contents: write
+  issues: write
+
+env:
+  PYTHON_VERSION: '3.12'
+  FISH_API_KEY: ${{ secrets.FISH_API_KEY }}
+  YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+  YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+  YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+
+jobs:
+  build-and-upload:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install FFmpeg (Gyan)
+        run: |
+          choco install ffmpeg-full -y --version=8.1.1
+          echo "C:\ProgramData\chocolatey\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # Ensure Piper model exists
+          python -c "
+          from piper.voice import PiperVoice
+          from pathlib import Path
+          model_dir = Path.cwd() / 'piper_models'
+          model_dir.mkdir(exist_ok=True)
+          onnx = model_dir / 'en_US-lessac-medium.onnx'
+          json_file = model_dir / 'en_US-lessac-medium.onnx.json'
+          if not onnx.exists():
+              import requests
+              print('Downloading Piper model...')
+              requests.get('https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx', stream=True).raw.readinto(open(onnx, 'wb'))
+              requests.get('https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json', stream=True).raw.readinto(open(json_file, 'wb'))
+              print('Model downloaded')
+          "
+
+      - name: Create .env file
+        run: |
+          echo "YOUTUBE_CLIENT_ID=${{ env.YOUTUBE_CLIENT_ID }}" > .env
+          echo "YOUTUBE_CLIENT_SECRET=${{ env.YOUTUBE_CLIENT_SECRET }}" >> .env
+          echo "YOUTUBE_REFRESH_TOKEN=${{ env.YOUTUBE_REFRESH_TOKEN }}" >> .env
+          echo "FISH_API_KEY=${{ env.FISH_API_KEY }}" >> .env
+
+      - name: Run Daily Pipeline (Movie)
+        id: pipeline
+        run: |
+          python run_pipeline.py --type movie --force-short
+        shell: cmd
+
+      - name: Run Weekly Pipeline (Friday only)
+        if: github.event.schedule == '0 17 * * 5' || github.event_name == 'workflow_dispatch'
+        run: |
+          python run_pipeline.py --type weekly
+        shell: cmd
+
+      - name: Upload logs as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-logs-${{ github.run_id }}
+          path: assets/logs/
+          retention-days: 7
+
+      - name: Commit output registry
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/logs/upload_registry.json assets/logs/pipeline_state.json 2>nul || true
+          git diff --staged --quiet || git commit -m "chore: update upload registry [skip ci]"
+          git push
+        shell: cmd
+
+      - name: Notify on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Daily Pipeline Failed - ${new Date().toISOString().split('T')[0]}`,
+              body: `Workflow: ${context.workflow}\nRun: ${context.runId}\n\nCheck logs: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            })

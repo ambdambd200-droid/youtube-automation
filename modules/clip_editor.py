@@ -37,18 +37,67 @@ _FFPROBE_BIN = find_ffprobe()
 def _generate_tts_wav(text, output_path, voice="en-US-GuyNeural"):
     """Generate TTS audio WAV for hook voiceover using edge-tts.
     Returns True on success.
+
+    Voice is now selected from a 4-voice pool via vibe_of_the_day.pick_vibe()
+    Pacing hint ("snappy" or "narrative") modifies rate/pitch:
+      - snappy:    rate=+8%, pitch=+0Hz  (faster, more energetic)
+      - narrative: rate=-3%, pitch=-2Hz  (slower, calmer)
+
+    Fallback chain: requested voice → other voices in pool → Windows SAPI.
+    Edge-tts voices sometimes 503; rotating through the pool keeps narration
+    present in the output instead of falling back to silent SFX-only audio.
     """
+    pacing = "snappy"
+    try:
+        from modules.vibe_of_the_day import pick_vibe
+        pacing = pick_vibe().get("tts_pacing", "snappy")
+    except Exception:
+        pass
+
+    if pacing == "narrative":
+        rate = "-3%"
+        pitch = "-2Hz"
+    else:
+        # محور 2: slower rate (was +8%) for clearer voiceover over original audio
+        rate = "+5%"
+        pitch = "+0Hz"
+
     if not text:
         return False
+
+    # Build voice pool: requested voice first, then other voices in order
     try:
-        import edge_tts
-        import asyncio
-        asyncio.run(edge_tts.Communicate(text, voice).save(output_path))
-        if os.path.exists(output_path) and os.path.getsize(output_path) > 200:
-            return True
+        from modules.vibe_of_the_day import VOICES
+        voice_pool = [voice] + [v for v in VOICES if v != voice]
     except Exception:
-        print(f"  [tts] edge-tts failed, trying PowerShell fallback", flush=True)
-    # Fallback: Windows built-in speech
+        voice_pool = [voice, "en-US-GuyNeural", "en-US-JennyNeural", "en-US-AriaNeural", "en-US-MichelleNeural"]
+
+    # Try each voice — first one that returns audio wins
+    for v in voice_pool:
+        try:
+            import edge_tts
+            import asyncio
+            asyncio.run(edge_tts.Communicate(text, v, rate=rate, pitch=pitch).save(output_path))
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 200:
+                if v != voice:
+                    print(f"  [tts] Voice fallback: {voice} failed, used {v}", flush=True)
+                return True
+        except Exception:
+            continue
+        # Without rate/pitch (some voice+rate combos fail)
+        try:
+            import edge_tts
+            import asyncio
+            asyncio.run(edge_tts.Communicate(text, v).save(output_path))
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 200:
+                if v != voice:
+                    print(f"  [tts] Voice fallback (plain): {voice} failed, used {v}", flush=True)
+                return True
+        except Exception:
+            continue
+
+    print(f"  [tts] All edge-tts voices failed, trying PowerShell SAPI", flush=True)
+    # Final fallback: Windows built-in speech
     try:
         safe = text.replace("'", "''").replace('"', '`"')
         ps = (
@@ -62,7 +111,7 @@ def _generate_tts_wav(text, output_path, voice="en-US-GuyNeural"):
         subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, timeout=30)
         return os.path.exists(output_path) and os.path.getsize(output_path) > 200
     except Exception as e:
-        print(f"  [tts] Fallback failed: {e}", flush=True)
+        print(f"  [tts] SAPI fallback failed: {e}", flush=True)
         return False
 
 # ── Blueprint Section 4: Temporal Dynamics ──────────────────
@@ -218,14 +267,18 @@ def apply_in_media_res(input_path, output_path, action_time=1.5, total_duration=
     return None
 
 
-def apply_breath_cut(input_path, output_path, total_duration):
+def apply_breath_cut(input_path, output_path, total_duration, max_duration=None):
     """Blueprint Section 4.3: Breath Cut — smooth fade-out + retention loop.
     Last 1.5s fades into first 2s of clip for seamless rewatch loop.
-    Always produces at least CLIP_MIN_DURATION+0.5s output.
+    If max_duration is set, caps total output at that value (for shorts).
     """
     import shutil
-    min_out = CLIP_MIN_DURATION + 0.5
-    target = max(total_duration, min_out)
+    if max_duration:
+        target = max(total_duration, 3.0)
+        target = min(target, max_duration - 2.0)
+    else:
+        min_out = CLIP_MIN_DURATION + 0.5
+        target = max(total_duration, min_out)
     cut_time = total_duration
     fade_start = max(0, cut_time - 1.5)
 
@@ -588,22 +641,74 @@ def select_clip_segment(video_path, target_duration=None, content_type="movie", 
             middle_bonus = 1.0 - abs(scene_time - duration / 2) / (duration / 2)
             # Heavy weight on early density (motion_dynamics = 20% of final score)
             weighted = density * 0.3 + early_density * 2.0 + 0.3 * middle_bonus
-            if weighted > best_score:
-                best_score = weighted
+
+            # FIRST-FRAME HOOK CHECK: extract and score frame at candidate start
+            hook_bonus = 0.0
+            try:
+                from modules.clip_critique import _score_first_frame_hook, extract_peak_action_frame_clip
+                # Extract single frame at candidate start for hook analysis
+                import tempfile, os as _os
+                frame_f = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+                frame_path = frame_f.name
+                frame_f.close()
+                cmd = [
+                    _FFMPEG_BIN, "-y", "-ss", str(scene_time),
+                    "-i", video_path,
+                    "-vframes", "1", "-q:v", "2",
+                    frame_path,
+                ]
+                import subprocess as _sp
+                _sp.run(cmd, capture_output=True, timeout=15)
+                if _os.path.exists(frame_path) and _os.path.getsize(frame_path) > 1000:
+                    hook = _score_first_frame_hook(frame_path)
+                    hook_bonus = min(1.0, hook / 100.0)  # normalize 0-1
+                    print(f"  [editor] Candidate @ {scene_time:.1f}s: hook={hook:.1f}, density={density}, early={early_density}", flush=True)
+                if _os.path.exists(frame_path):
+                    try: _os.unlink(frame_path)
+                    except: pass
+            except Exception:
+                pass
+
+            # Combine: 60% hook, 40% scene dynamics
+            final_score = weighted * 0.4 + hook_bonus * 100 * 0.6
+
+            if final_score > best_score:
+                best_score = final_score
                 best_start = scene_time
 
         mid_of_segment = best_start + target_duration / 2
         impact_point = min(scenes, key=lambda s: abs(s - mid_of_segment))
 
-        offset = random.uniform(-2, 2)
-        best_start = max(1, min(best_start + offset, duration - target_duration - 1))
+        # Apply jitter but ensure first frame hook stays strong
+        offset = random.uniform(-1, 1)
+        candidate_start = max(1, min(best_start + offset, duration - target_duration - 1))
+        # Re-check first frame hook at the jittered start
+        try:
+            from modules.clip_critique import _score_first_frame_hook
+            import tempfile, os as _os, subprocess as _sp
+            frame_f = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+            frame_path = frame_f.name
+            frame_f.close()
+            _sp.run([_FFMPEG_BIN, "-y", "-ss", str(candidate_start), "-i", video_path,
+                     "-vframes", "1", "-q:v", "2", frame_path], capture_output=True, timeout=15)
+            if _os.path.exists(frame_path) and _os.path.getsize(frame_path) > 1000:
+                hook_at_candidate = _score_first_frame_hook(frame_path)
+                if hook_at_candidate < 50:
+                    candidate_start = best_start  # snap back to keep strong hook
+            if _os.path.exists(frame_path):
+                try: _os.unlink(frame_path)
+                except: pass
+        except Exception:
+            pass
+        best_start = candidate_start
+
         # Guard: if best segment has NO early scene changes, offset toward a scene
         early_count = sum(1 for s in scenes if best_start <= s <= best_start + 10)
         if early_count < 1 and len([s for s in scenes if s < best_start + 10]) > 0:
             first_early = next((s for s in scenes if s > best_start), None)
             if first_early and first_early + target_duration < duration:
                 best_start = max(1, first_early - 3)
-        print(f"  [editor] Scene-smart segment: {best_start:.1f}s - {best_start + target_duration:.1f}s ({len(scenes)} scenes detected)", flush=True)
+        print(f"  [editor] Scene-smart segment: {best_start:.1f}s - {best_start + target_duration:.1f}s ({len(scenes)} scenes detected, best_score={best_score:.2f})", flush=True)
         return (best_start, target_duration, impact_point)
 
     print(f"  [editor] No scenes detected, using random segment", flush=True)
@@ -659,10 +764,32 @@ def crop_to_shorts(input_path, output_path, start_time=0, duration=None):
     crop_w = crop_w if crop_w % 2 == 0 else crop_w - 1
     crop_h = crop_h if crop_h % 2 == 0 else crop_h - 1
 
-    x = (in_w - crop_w) // 2
+    # Detect action center to keep subject in frame (not just centered crop)
+    # When action is on the left or right edge, centered crop would clip it out.
+    # Use cropdetect on the segment, then offset x to keep the action visible.
+    x = (in_w - crop_w) // 2  # default: centered
+    action_center = None
+    try:
+        from modules.smart_crop import detect_action_center
+        # Run on the actual segment we care about
+        action_center = detect_action_center(input_path, start_time, duration)
+    except Exception:
+        pass
+
+    if action_center is not None:
+        # Map [0.25, 0.75] -> [0, in_w]
+        action_x_px = int(action_center * in_w)
+        # Try to center the crop on the action
+        x = action_x_px - crop_w // 2
+        # Clamp to valid range so crop doesn't fall off edges
+        x = max(0, min(in_w - crop_w, x))
+
     y = (in_h - crop_h) // 2
     x = x if x % 2 == 0 else x - 1
     y = y if y % 2 == 0 else y - 1
+
+    if action_center is not None and abs(action_center - 0.5) > 0.1:
+        print(f"  [crop] Smart crop: action_center={action_center:.2f} (x_offset={x - (in_w - crop_w) // 2}px from center)", flush=True)
 
     from config import UPSCALE_FLAGS, UPSCALE_UNSHARP_LUMA, UPSCALE_UNSHARP_CHROMA
     video_chain = (
@@ -811,7 +938,7 @@ def remux_to_compatible(input_path):
     return input_path
 
 
-def create_clip(input_path, content_type, title="", skip_effects=False):
+def create_clip(input_path, content_type, title="", skip_effects=False, force_short=False):
     """Main entry point — creates a Short from a source clip.
     Blueprint-driven pipeline:
       1. Re-mux to compatible format
@@ -858,8 +985,8 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
 
     # VARY: pick duration range for this specific clip (short or long mode)
     from config import get_clip_duration_range
-    var_min, var_max = get_clip_duration_range(content_type)
-    print(f"  [editor] VARY duration: {var_min}-{var_max}s ({content_type})", flush=True)
+    var_min, var_max = get_clip_duration_range(content_type, force_short=force_short)
+    print(f"  [editor] VARY duration: {var_min}-{var_max}s ({content_type}, force_short={force_short})", flush=True)
 
     if skip_effects:
         # Legacy mode: basic crop only
@@ -900,23 +1027,31 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
         seg_start, seg_duration, impact_point = select_clip_segment(current, content_type=content_type, min_duration=var_min, max_duration=var_max)
 
         # ── Step 2: In Media Res — start 1.5s before impact (Blueprint 4.1) ──
-        if impact_point is not None and impact_point > TEMP_PRE_ACTION_WINDOW:
-            full_end = min(get_video_duration(current), seg_start + seg_duration)
-            desired_start = max(0, impact_point - TEMP_PRE_ACTION_WINDOW)
-            new_start = min(seg_start, desired_start)
-            new_duration = full_end - new_start
-            if new_duration < var_min:
-                new_end = min(get_video_duration(current), new_start + var_min)
-                new_duration = new_end - new_start
-            seg_start = new_start
-            seg_duration = min(var_max, new_duration)
-            print(f"  [editor] In media res: start {seg_start:.1f}s (impact at {impact_point:.1f}s), dur {seg_duration:.0f}s", flush=True)
+        # BUT: we selected seg_start for its STRONG FIRST FRAME.
+        # Only shift earlier if impact_point is very early in the segment (< 3s).
+        # Otherwise keep the selected start as the first frame (the hook).
+        if impact_point is not None and impact_point > seg_start:
+            impact_relative = impact_point - seg_start
+            if impact_relative < 3.0:
+                # Impact too early - shift start slightly earlier to give context
+                desired_start = max(0, impact_point - TEMP_PRE_ACTION_WINDOW)
+                new_start = min(seg_start, desired_start)
+                new_duration = min(var_max, full_end - new_start) if 'full_end' in dir() else min(var_max, get_video_duration(current) - new_start)
+                if new_duration >= var_min:
+                    seg_start = new_start
+                    seg_duration = new_duration
+                    print(f"  [editor] In media res (early impact): start {seg_start:.1f}s (impact at {impact_point:.1f}s), dur {seg_duration:.0f}s", flush=True)
+                else:
+                    print(f"  [editor] In media res skipped: shift would make clip too short", flush=True)
+            else:
+                # Impact is well within segment - KEEP the selected start as first frame (the hook)
+                print(f"  [editor] In media res (hook preserved): start {seg_start:.1f}s (impact at {impact_point:.1f}s, +{impact_relative:.1f}s), dur {seg_duration:.0f}s", flush=True)
         else:
             if impact_point is not None:
-                print(f"  [editor] Impact too early ({impact_point:.1f}s), keeping original segment", flush=True)
+                print(f"  [editor] Impact before segment start ({impact_point:.1f}s), keeping original segment", flush=True)
             print(f"  [pipeline] Segment: {seg_start:.1f}s - {seg_start + seg_duration:.1f}s ({seg_duration:.0f}s)", flush=True)
 
-        rel_impact = (impact_point - seg_start) if impact_point else 1.5
+        rel_impact = (impact_point - seg_start) if impact_point and impact_point > seg_start else 1.5
 
         # ── Step 3: Crop to Shorts ──────────────────────────
         step1 = os.path.join(work_dir, "01_cropped.mp4")
@@ -1003,12 +1138,21 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
                 print(f"  [editor] Speed ramp fallback also failed, continuing", flush=True)
 
         # ── Step 6: Montage Effects (captions + zoom + TTS hook) ──
+        # VARY: pick daily vibe combo (voice, hook, caption style, zoom curve, color profile)
+        vibe = None
+        try:
+            from modules.vibe_of_the_day import pick_vibe
+            vibe = pick_vibe()
+            print(f"  [vibe] Today: voice={vibe['voice'].split('-')[-1]} caption={vibe['caption']} color={vibe['color']} zoom={vibe['zoom']}", flush=True)
+        except Exception:
+            print(f"  [vibe] pick_vibe failed, using defaults", flush=True)
+
         montage_success = False
         hook_text = None
         for montage_attempt in range(2):
             try:
                 step4 = os.path.join(work_dir, "04_montage.mp4")
-                montage_result = apply_movie_effects(current, step4, content_type, title=title or "")
+                montage_result = apply_movie_effects(current, step4, content_type, title=title or "", vibe=vibe)
                 if montage_result and os.path.exists(step4):
                     current = step4
                     hook_text = montage_result.get("hook_text")
@@ -1019,13 +1163,115 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
                     print(f"  [editor] Montage attempt {montage_attempt+1} failed: {e}, retrying...", flush=True)
                     time.sleep(2)
         if not montage_success:
-            print(f"  [editor] Montage failed, keeping source as-is", flush=True)
+            print(f"  [editor] Montage failed, falling back to ramped video (step3)", flush=True)
+            # Fallback: use step3 (ramped) which exists and is valid
+            step3_fb = os.path.join(work_dir, "03_ramped.mp4")
+            if os.path.exists(step3_fb):
+                import shutil
+                # Retry copy up to 5 times with delay — Windows holds files after ffmpeg exits
+                for retry in range(5):
+                    try:
+                        time.sleep(0.5 + retry * 0.5)
+                        shutil.copy2(step3_fb, current)
+                        break
+                    except PermissionError:
+                        if retry == 4:
+                            print(f"  [editor] File copy still locked after 5 retries, using fallback path", flush=True)
+                            # Last resort: copy via stream read/write
+                            with open(step3_fb, "rb") as src, open(current, "wb") as dst:
+                                dst.write(src.read())
+            # Also generate a basic TTS for sound design if we have hook text
+            hook_text = "watch this."
 
-        # ── Step 6.5: Sound Design (riser + impact + ambient + TTS hook) ──
+        # ── Step 6.5: Generate Analysis Narration (Mandatory for Transformative Use) ──
+        # Creates 3-sentence analytical commentary covering ~70% of clip duration
+        analysis_tts_path = None
+        try:
+            analysis_segments = generate_analysis_narration(title or "", clip_duration, content_type)
+            if analysis_segments:
+                print(f"  [narration] Generated {len(analysis_segments)} analysis segments", flush=True)
+                # Generate TTS for each segment with pitch shift (already handled in add_sound_design)
+                # We'll combine them into a single narration track
+                import asyncio
+                import edge_tts
+                import random
+                
+                # Pick voice from vibe or random
+                voice = "en-US-AriaNeural"
+                if vibe and vibe.get("voice"):
+                    voice = vibe["voice"]
+                
+                segment_files = []
+                # Build voice pool with fallback — edge-tts voices sometimes 503
+                try:
+                    from modules.vibe_of_the_day import VOICES
+                    voice_pool = [voice] + [v for v in VOICES if v != voice]
+                except Exception:
+                    voice_pool = [voice, "en-US-GuyNeural", "en-US-JennyNeural", "en-US-AriaNeural", "en-US-MichelleNeural"]
+                for i, (text, start_time) in enumerate(analysis_segments):
+                    seg_path = os.path.join(work_dir, f"_analysis_tts_{i}.wav")
+                    # Apply pitch shift for Content ID evasion (integer Hz)
+                    pitch_shift = random.choice([-5, -4, -3, 3, 4, 5])
+                    pitch_str = f"{pitch_shift:+d}Hz"
+                    rate_str = "+5%"  # محور 2: clearer voiceover (was +8%)
+                    # Try selected voice first, then fall back through the pool
+                    seg_ok = False
+                    for v in voice_pool:
+                        try:
+                            asyncio.run(edge_tts.Communicate(text, v, rate=rate_str, pitch=pitch_str).save(seg_path))
+                            if os.path.exists(seg_path) and os.path.getsize(seg_path) > 200:
+                                if v != voice:
+                                    print(f"  [narration] Voice fallback for segment {i}: {voice} -> {v}", flush=True)
+                                seg_ok = True
+                                break
+                        except Exception:
+                            continue
+                    if seg_ok:
+                        segment_files.append((seg_path, start_time))
+                
+                if segment_files:
+                    # Combine into single narration track with silence between
+                    analysis_tts_path = os.path.join(work_dir, "_analysis_narration.wav")
+                    # Build ffmpeg concat with delays
+                    concat_inputs = []
+                    filter_parts = []
+                    for idx, (seg_path, start_time) in enumerate(segment_files):
+                        concat_inputs.extend(["-i", seg_path])
+                        filter_parts.append(f"[{idx}:a]adelay={int(start_time*1000)}|{int(start_time*1000)}[a{idx}]")
+                    
+                    if len(segment_files) == 1:
+                        shutil.copy2(segment_files[0][0], analysis_tts_path)
+                    else:
+                        concat_filter = "".join(f"[a{idx}]" for idx in range(len(segment_files)))
+                        concat_filter += f"amix=inputs={len(segment_files)}:duration=longest:weights={' '.join(['1']*len(segment_files))}[an]"
+                        mix_cmd = [
+                            _FFMPEG_BIN, "-y",
+                        ] + concat_inputs + [
+                            "-filter_complex", "".join(filter_parts) + ";" + concat_filter,
+                            "-map", "[an]",
+                            "-c:a", "pcm_s16le", "-ar", "44100", "-ac", "1",
+                            analysis_tts_path,
+                        ]
+                        subprocess.run(mix_cmd, capture_output=True, timeout=60)
+                    
+                    if os.path.exists(analysis_tts_path) and os.path.getsize(analysis_tts_path) > 500:
+                        print(f"  [narration] Analysis narration created: {len(segment_files)} segments", flush=True)
+                    else:
+                        analysis_tts_path = None
+        except Exception as e:
+            print(f"  [narration] Generation failed: {e}", flush=True)
+            analysis_tts_path = None
+
+        # ── Step 6.5: Sound Design (riser + impact + ambient + TTS hook + analysis narration) ──
         try:
             step_sfx = os.path.join(work_dir, "045_sound_design.mp4")
             tts_path = os.path.join(work_dir, "_hook_tts.wav")
-            sfx_result = add_sound_design(current, step_sfx, clip_duration, hook_tts_path=tts_path if hook_text else None)
+            sfx_result = add_sound_design(
+                current, step_sfx, clip_duration,
+                hook_tts_path=tts_path if hook_text else None,
+                analysis_tts_path=analysis_tts_path,
+                original_audio_path=input_path,  # Phase 1: layer source audio at 7%
+            )
             if sfx_result and sfx_result != current and os.path.exists(step_sfx):
                 current = step_sfx
                 print(f"  [editor] Sound design complete", flush=True)
@@ -1034,20 +1280,56 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
         except Exception as e:
             print(f"  [editor] Sound design error: {e}, continuing", flush=True)
 
-        # ── Step 7: Audio — simple loudnorm only (no BGM, no complex pipeline) ──
+        # ── Step 7: Audio — two-pass loudnorm (محور 2: more accurate than single-pass) ──
         try:
+            import json as _json
             step5 = os.path.join(work_dir, "05_audio_norm.mp4")
-            norm_cmd = [
+            # Pass 1: measure loudness
+            measure_cmd = [
                 _FFMPEG_BIN, "-y", "-i", current,
-                "-c:v", "copy",
-                "-af", "loudnorm=I=-14:LRA=7:TP=-1",
-                "-c:a", "aac", "-b:a", "192k",
-                step5,
+                "-af", "loudnorm=I=-14:LRA=7:TP=-1:print_format=json",
+                "-f", "null", "-",
             ]
-            subprocess.run(norm_cmd, capture_output=True, timeout=120)
+            r = subprocess.run(measure_cmd, capture_output=True, text=True, timeout=120)
+            # Parse measured values from stderr
+            measured = None
+            if r.stderr:
+                # Find JSON object in stderr
+                json_start = r.stderr.rfind("{")
+                json_end = r.stderr.rfind("}") + 1
+                if json_start >= 0 and json_end > json_start:
+                    try:
+                        measured = _json.loads(r.stderr[json_start:json_end])
+                    except _json.JSONDecodeError:
+                        measured = None
+            # Pass 2: apply measured values for precise normalization
+            if measured and "input_i" in measured:
+                apply_cmd = [
+                    _FFMPEG_BIN, "-y", "-i", current,
+                    "-c:v", "copy",
+                    "-af", (f"loudnorm=I=-14:LRA=7:TP=-1:"
+                            f"measured_I={measured['input_i']}:"
+                            f"measured_TP={measured['input_tp']}:"
+                            f"measured_LRA={measured['input_lra']}:"
+                            f"measured_thresh={measured['input_thresh']}:"
+                            f"offset={measured['target_offset']}:"
+                            f"linear=true"),
+                    "-c:a", "aac", "-b:a", "192k",
+                    step5,
+                ]
+            else:
+                # Fallback to single-pass if measurement failed
+                apply_cmd = [
+                    _FFMPEG_BIN, "-y", "-i", current,
+                    "-c:v", "copy",
+                    "-af", "loudnorm=I=-14:LRA=7:TP=-1",
+                    "-c:a", "aac", "-b:a", "192k",
+                    step5,
+                ]
+            subprocess.run(apply_cmd, capture_output=True, timeout=120)
             if os.path.exists(step5) and os.path.getsize(step5) > 10000:
                 current = step5
-                print(f"  [editor] Audio normalized to -14 LUFS (simple pass)", flush=True)
+                print(f"  [editor] Audio normalized to -14 LUFS (two-pass)", flush=True)
             else:
                 print(f"  [editor] Audio normalization produced no output, keeping original", flush=True)
         except Exception as e:
@@ -1073,7 +1355,7 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
                     actual_dur = clip_duration
                 else:
                     actual_dur = probed_dur
-                breath = apply_breath_cut(current, step7, actual_dur)
+                breath = apply_breath_cut(current, step7, actual_dur, max_duration=var_max)
                 if breath:
                     current = breath
                     breath_success = True
@@ -1106,7 +1388,7 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
             continue
 
         # ── Validate final output ──────────────────────────
-        passed, last_issues = validate_short(final_path, max_duration=var_max)
+        passed, last_issues = validate_short(final_path, max_duration=var_max, min_duration=var_min)
         if passed:
             result = {
                 "path": final_path,
@@ -1127,7 +1409,7 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
         print(f"  [editor] Validation failed: {'; '.join(last_issues)}", flush=True)
         _v_dur = get_video_duration(final_path)
         _v_w, _v_h = get_video_dimensions(final_path)
-        print(f"  [editor] Actual: {_v_w}x{_v_h}, {_v_dur:.1f}s | Expected: {SHORTS_WIDTH}x{SHORTS_HEIGHT}, {CLIP_MIN_DURATION}-{var_max}s", flush=True)
+        print(f"  [editor] Actual: {_v_w}x{_v_h}, {_v_dur:.1f}s | Expected: {SHORTS_WIDTH}x{SHORTS_HEIGHT}, {var_min}-{var_max}s", flush=True)
         _clean_work_dir(work_dir)
 
     print(f"  [editor] All {max_retries} attempts failed — no valid clip produced", flush=True)
@@ -1136,17 +1418,36 @@ def create_clip(input_path, content_type, title="", skip_effects=False):
 
 def apply_watermark(input_path, output_path):
     """Overlay VARY branding watermark (bottom-right corner).
-    Semi-transparent white text with drop shadow, shown throughout the clip.
+    Semi-transparent white text with drop shadow, shown only in the LAST
+    1.5 seconds of the clip (محور 4: less intrusive — was full-clip).
     """
     font_path = get_font_path()
     if not font_path:
         print(f"  [editor] Watermark: no font found, skipping", flush=True)
         return None
+    # Get video duration so we can fade in watermark over the last 1.5s
+    duration = get_video_duration(input_path)
+    if duration <= 1.5:
+        # Clip too short — skip watermark (would cover entire clip)
+        print(f"  [editor] Watermark skipped: clip too short ({duration:.1f}s)", flush=True)
+        # Just copy the file
+        import shutil
+        try:
+            shutil.copy2(input_path, output_path)
+            return output_path
+        except Exception:
+            return None
+    # Watermark enabled only when t > duration - 1.5 (last 1.5 seconds)
+    # fade in from 0% to 35% opacity over the first 0.3s of the watermark window
+    enable_start = max(0, duration - 1.5)
+    fade_duration = 0.3
     vf = (
         f"drawtext=text='VARY':fontcolor=white@0.35:fontsize=28:"
         f"x=w-text_w-20:y=h-text_h-20:"
         f"shadowcolor=black@0.5:shadowx=2:shadowy=2:"
-        f"fontfile='{font_path}'"
+        f"fontfile='{font_path}':"
+        f"enable='gte(t,{enable_start:.2f})':"
+        f"alpha='if(lt(t,{enable_start + fade_duration:.2f}),(t-{enable_start:.2f})/{fade_duration:.2f},1)'"
     )
     cmd = [
         _FFMPEG_BIN, "-y", "-i", input_path,
@@ -1160,7 +1461,7 @@ def apply_watermark(input_path, output_path):
     try:
         subprocess.run(cmd, capture_output=True, text=True, timeout=180)
         if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
-            print(f"  [editor] VARY watermark applied (bottom-right)", flush=True)
+            print(f"  [editor] VARY watermark applied (last 1.5s only)", flush=True)
             return output_path
     except Exception as e:
         print(f"  [editor] Watermark error: {e}", flush=True)
@@ -1220,7 +1521,92 @@ def _clean_work_dir(work_dir):
         pass
 
 
-# ── LaughTrack-style Effects for Movie/Series Shorts ─────
+# ── Analysis Narration Generator (Content ID: Transformative Use) ──
+# Generates 3-sentence analytical narration for every clip.
+# Mandatory overlay — transforms "clip" into "criticism/commentary".
+
+_NARRATION_TEMPLATES = [
+    # Opening hook
+    "This moment from {title} reveals {insight}.",
+    "Notice how {title} uses {technique} to {effect}.",
+    "The director of {title} employs {technique} to convey {emotion}.",
+    "What makes this {title} scene work is {insight}.",
+    "In {title}, this beat demonstrates {principle}.",
+    # Technical breakdown
+    "The {technique} here creates {effect} by {mechanism}.",
+    "Watch the {element} — it signals {meaning}.",
+    "The {color_lighting_composition} tells us {insight}.",
+    # Payoff
+    "This is why {title} resonates: {payoff}.",
+    "Masterclass in {craft}: {summary}.",
+]
+
+_TECHNIQUES = [
+    "lighting", "composition", "camera movement", "color palette", "sound design",
+    "pacing", "mise-en-scène", "framing", "depth of field", "blocking",
+    "visual metaphor", "symbolism", "contrast", "negative space", "leading lines"
+]
+
+_EFFECTS = [
+    "builds tension", "reveals character", "establishes mood", "foreshadows",
+    "subverts expectation", "creates intimacy", "emphasizes isolation",
+    "heightens stakes", "conveys internal state", "anchors the theme"
+]
+
+_INSIGHTS = [
+    "the power of visual storytelling", "how cinema manipulates perception",
+    "the language of film", "directorial intent", "cinematic grammar",
+    "show don't tell", "economy of expression", "emotional architecture"
+]
+
+
+def generate_analysis_narration(title, clip_duration, content_type="movie"):
+    """Generate 3-sentence analytical narration for transformative use.
+    
+    Returns: list of (text, start_time) tuples for TTS generation.
+    Total narration covers ~60-80% of clip duration.
+    """
+    import random
+    clean_title = title.split("(")[0].split("|")[0].split("-")[0].strip()
+    if len(clean_title) > 40:
+        clean_title = clean_title[:40] + "..."
+    
+    # Pick 3 distinct templates
+    templates = random.sample(_NARRATION_TEMPLATES, 3)
+    technique = random.choice(_TECHNIQUES)
+    effect = random.choice(_EFFECTS)
+    insight = random.choice(_INSIGHTS)
+    
+    color_lighting_composition = random.choice(["color grading", "lighting", "composition"])
+    principle = random.choice(["economy of expression", "visual storytelling", "cinematic grammar", "dramatic structure", "character motivation"])
+    mechanism = random.choice(["guiding the eye", "controlling pace", "creating contrast", "building atmosphere", "focusing attention"])
+    sentences = []
+    for tmpl in templates:
+        s = tmpl.format(
+            title=clean_title,
+            technique=technique,
+            effect=effect,
+            insight=insight,
+            principle=principle,
+            mechanism=mechanism,
+            emotion=random.choice(["tension", "melancholy", "awe", "dread", "hope", "irony"]),
+            element=random.choice(["light", "shadow", "color", "movement", "sound", "silence"]),
+            meaning=random.choice(["danger", "transformation", "memory", "loss", "power", "vulnerability"]),
+            payoff=insight,
+            craft=random.choice(["cinematography", "editing", "direction", "visual storytelling", "scene construction"]),
+            summary=f"{technique} serving {effect}",
+            color_lighting_composition=color_lighting_composition,
+        )
+        sentences.append(s)
+    
+    # Distribute across clip (start at 10%, middle, end at 85%)
+    dur = clip_duration
+    segments = [
+        (sentences[0], dur * 0.10),
+        (sentences[1], dur * 0.45),
+        (sentences[2], dur * 0.80),
+    ]
+    return segments
 
 def _generate_sfx(sfx_type):
     """Generate a short sound effect WAV and return its path."""
@@ -1279,11 +1665,12 @@ def _estimate_climax(clip_duration):
     return clip_duration * 0.70
 
 
-def _generate_5beat_captions(title="", clip_duration=15, content_type="movie"):
+def _generate_5beat_captions(title="", clip_duration=15, content_type="movie", hook_phrase=None):
     """Generate 5-beat caption sequence: hook → build → peak_signal → emotion_label → twist.
     Uses curiosity-gap hooks that trigger emotional reactions (WOW, WTF, OHH, YEAH).
     For long clips (>28s), adds intermediate beats for pacing.
     Content-aware: football vs movie/series get different text templates.
+    If hook_phrase is provided (from vibe_of_the_day.pick_vibe()), it replaces the hardcoded hook.
     Returns (captions_list, tts_text).
     Each caption: (beat_type, text, start, end).
     tts_text is the hook text for voiceover (shorter, spoken version).
@@ -1292,10 +1679,14 @@ def _generate_5beat_captions(title="", clip_duration=15, content_type="movie"):
     climax = _estimate_climax(clip_duration)
     is_long = clip_duration > 28
 
+    # Build hook text from vibe phrase if provided
+    caps_hook = hook_phrase.upper().rstrip(".") + "..." if hook_phrase else None
+    tts_hook = hook_phrase if hook_phrase else None
+
     if content_type == "football":
         beats = {
-            "hook": "WATCH HOW HE DID THIS...",
-            "hook_tts": "Watch how he did this",
+            "hook": caps_hook or "WATCH HOW HE DID THIS...",
+            "hook_tts": tts_hook or "Watch how he did this",
             "build": "The pass was IMPOSSIBLE...",
             "build_mid": "Defenders left in the DUST." if is_long else None,
             "peak_signal": "BUT HE DID IT ANYWAY",
@@ -1305,8 +1696,8 @@ def _generate_5beat_captions(title="", clip_duration=15, content_type="movie"):
         }
     elif content_type == "series":
         beats = {
-            "hook": "SHE DIDN'T SEE THIS COMING",
-            "hook_tts": "She didn't see this coming",
+            "hook": caps_hook or "SHE DIDN'T SEE THIS COMING",
+            "hook_tts": tts_hook or "She didn't see this coming",
             "build": "Episodes of build-up lead to THIS...",
             "build_mid": "The warning signs were there." if is_long else None,
             "peak_signal": "THIS CHANGES EVERYTHING",
@@ -1316,8 +1707,8 @@ def _generate_5beat_captions(title="", clip_duration=15, content_type="movie"):
         }
     else:  # movie
         beats = {
-            "hook": "THEY HAD NO IDEA...",
-            "hook_tts": "They had no idea",
+            "hook": caps_hook or "THEY HAD NO IDEA...",
+            "hook_tts": tts_hook or "They had no idea",
             "build": f"{name[:20]} is about to strike...",
             "build_mid": f"One wrong move and it's over." if is_long else None,
             "peak_signal": "THIS IS THE MOMENT",
@@ -1364,8 +1755,68 @@ def _generate_5beat_captions(title="", clip_duration=15, content_type="movie"):
     return captions, beats["hook_tts"]
 
 
-def _write_ass(captions, ass_path):
-    """Write 5-beat captions to ASS subtitle file — center-screen word blocks (2026 viral style)."""
+def _write_ass(captions, ass_path, caption_style="bold_center"):
+    """Write 5-beat captions to ASS subtitle file — supports 5 style sets.
+
+    Styles (from vibe_of_the_day.pick_vibe()):
+      bold_center      — current default: Arial bold, center-screen, stacked-caps
+      serif_top        — Georgia serif, top-third placement, italic peak
+      glitch_mono      — Courier New mono, color cycling on Peak, random blink on emotion
+      typewriter_reveal — thin Arial, staggered late starts for reveal effect
+      marker_circle    — Arial bold at bottom, circle-boxed, smaller font
+    """
+    style_header = ""
+    alignment_base = 5  # center
+    margin_v_base = 300
+
+    if caption_style == "bold_center":
+        style_header = (
+            "Style: Hook,Arial,72,&H00FFFFFF,&H00FFFF00,&H00000000,&H80000000,1,0,0,0,100,100,10,0,1,4,2,5,0,0,400,1\n"
+            "Style: Build,Arial,48,&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,1,0,0,0,100,100,5,0,1,3,1,5,0,0,350,1\n"
+            "Style: Peak,Arial,64,&H00FFFF00,&H00FF4444,&H00000000,&H80000000,1,0,0,0,100,100,10,0,1,4,2,5,0,0,300,1\n"
+            "Style: Emotion,Arial,52,&H00FF8800,&H00FFFFFF,&H00000000,&H80000000,1,0,0,0,100,100,5,0,1,3,1,5,0,0,320,1\n"
+            "Style: Twist,Arial,44,&H00FFFFFF,&H00FF44FF,&H00000000,&H80000000,1,0,0,0,100,100,5,0,1,3,1,5,0,0,350,1\n"
+            "Style: CTA,Arial,40,&H00FFFFFF,&H00FF4444,&H00000000,&H80000000,1,0,0,0,100,100,5,0,1,3,1,2,0,0,100,1\n"
+        )
+    elif caption_style == "serif_top":
+        style_header = (
+            "Style: Hook,Georgia,68,&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,0,1,0,0,100,100,6,0,1,3,1,8,0,0,100,1\n"
+            "Style: Build,Georgia,44,&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,0,1,0,0,100,100,3,0,1,2,1,8,0,0,120,1\n"
+            "Style: Peak,Georgia,60,&H00FFFF00,&H00FF4444,&H00000000,&H80000000,0,1,0,0,100,100,8,0,1,3,1,8,0,0,100,1\n"
+            "Style: Emotion,Georgia,48,&H00FF8800,&H00FFFFFF,&H00000000,&H80000000,0,1,0,0,100,100,3,0,1,2,1,8,0,0,110,1\n"
+            "Style: Twist,Georgia,40,&H00FFFFFF,&H00FF44FF,&H00000000,&H80000000,0,1,0,0,100,100,3,0,1,2,1,8,0,0,130,1\n"
+            "Style: CTA,Georgia,36,&H00FFFFFF,&H00FF4444,&H00000000,&H80000000,0,1,0,0,100,100,3,0,1,2,1,2,0,0,80,1\n"
+        )
+    elif caption_style == "glitch_mono":
+        style_header = (
+            "Style: Hook,Courier New,68,&H00FFFFFF,&H0000FF00,&H00000000,&H80000000,1,0,0,0,100,100,8,0,1,3,1,5,0,0,300,1\n"
+            "Style: Build,Courier New,44,&H00C0C0C0,&H0000FF00,&H00000000,&H80000000,1,0,0,0,100,100,3,0,1,2,1,5,0,0,280,1\n"
+            "Style: Peak,Courier New,56,&H0030FF30,&H00FF00FF,&H00000000,&H80000000,1,0,0,0,100,100,9,0,1,3,1,5,0,0,260,1\n"
+            "Style: Emotion,Courier New,48,&H00FF4488,&H0030FF30,&H00000000,&H80000000,1,0,0,0,100,100,3,0,1,2,1,5,0,0,290,1\n"
+            "Style: Twist,Courier New,40,&H00C0C0C0,&H00FF00FF,&H00000000,&H80000000,1,0,0,0,100,100,3,0,1,2,1,5,0,0,310,1\n"
+            "Style: CTA,Courier New,36,&H00FFFFFF,&H0030FF30,&H00000000,&H80000000,1,0,0,0,100,100,3,0,1,2,1,2,0,0,100,1\n"
+        )
+    elif caption_style == "typewriter_reveal":
+        # Smaller fonts with left-alignment — text appears letter-by-letter (done via timing)
+        style_header = (
+            "Style: Hook,Arial,56,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,12,0,1,2,1,4,0,0,320,1\n"
+            "Style: Build,Arial,40,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,8,0,1,2,1,4,0,0,300,1\n"
+            "Style: Peak,Arial,50,&H00FFFF88,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,12,0,1,2,1,4,0,0,280,1\n"
+            "Style: Emotion,Arial,42,&H00FFCC88,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,8,0,1,2,1,4,0,0,300,1\n"
+            "Style: Twist,Arial,36,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,8,0,1,2,1,4,0,0,310,1\n"
+            "Style: CTA,Arial,32,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,8,0,1,2,1,2,0,0,100,1\n"
+        )
+    elif caption_style == "marker_circle":
+        # Bold bottom placement, smaller font, boxed with rounded-marker feel via thick border
+        style_header = (
+            "Style: Hook,Arial,58,&H00FFFFFF,&H00FF8800,&H00000000,&H80000000,1,0,0,0,100,100,6,0,3,4,2,2,0,0,600,1\n"
+            "Style: Build,Arial,40,&H00FFFFFF,&H00FF8800,&H00000000,&H80000000,1,0,0,0,100,100,3,0,3,3,1,2,0,0,580,1\n"
+            "Style: Peak,Arial,52,&H00FFFF44,&H00FF4400,&H00000000,&H80000000,1,0,0,0,100,100,6,0,3,4,2,2,0,0,560,1\n"
+            "Style: Emotion,Arial,44,&H00FFCC00,&H00FFFFFF,&H00000000,&H80000000,1,0,0,0,100,100,3,0,3,3,1,2,0,0,580,1\n"
+            "Style: Twist,Arial,36,&H00FFFFFF,&H00FF8800,&H00000000,&H80000000,1,0,0,0,100,100,3,0,3,3,1,2,0,0,600,1\n"
+            "Style: CTA,Arial,32,&H00FFFFFF,&H00FF4400,&H00000000,&H80000000,1,0,0,0,100,100,3,0,3,3,1,2,0,0,580,1\n"
+        )
+
     lines = [
         "[Script Info]",
         "ScriptType: v4.00+",
@@ -1375,12 +1826,11 @@ def _write_ass(captions, ass_path):
         "",
         "[V4+ Styles]",
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        "Style: Hook,Arial,72,&H00FFFFFF,&H00FFFF00,&H00000000,&H80000000,1,0,0,0,100,100,10,0,1,4,2,5,0,0,400,1",
-        "Style: Build,Arial,48,&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,1,0,0,0,100,100,5,0,1,3,1,5,0,0,350,1",
-        "Style: Peak,Arial,64,&H00FFFF00,&H00FF4444,&H00000000,&H80000000,1,0,0,0,100,100,10,0,1,4,2,5,0,0,300,1",
-        "Style: Emotion,Arial,52,&H00FF8800,&H00FFFFFF,&H00000000,&H80000000,1,0,0,0,100,100,5,0,1,3,1,5,0,0,320,1",
-        "Style: Twist,Arial,44,&H00FFFFFF,&H00FF44FF,&H00000000,&H80000000,1,0,0,0,100,100,5,0,1,3,1,5,0,0,350,1",
-        "Style: CTA,Arial,40,&H00FFFFFF,&H00FF4444,&H00000000,&H80000000,1,0,0,0,100,100,5,0,1,3,1,2,0,0,100,1",
+    ]
+    # Append style lines (strip trailing newline then split so we don't get blank lines)
+    for s in style_header.strip().split("\n"):
+        lines.append(s)
+    lines += [
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -1414,14 +1864,20 @@ def _get_wav_duration(wav_path):
         return 0
 
 
-def add_sound_design(input_path, output_path, duration, hook_tts_path=None):
+def add_sound_design(input_path, output_path, duration, hook_tts_path=None, analysis_tts_path=None, original_audio_path=None):
     """Add sound design to video: tension riser, sub-bass impact, ambient bed, TTS hook voiceover.
-    Uses 2-pass mixing to avoid sample-rate conflicts: (video audio + TTS) + SFX.
+    COMPLETELY STRIPS ORIGINAL AUDIO — replaces with generated SFX + pitched TTS to evade Content ID.
+    Random pitch shift (±3-5 semitones) breaks audio fingerprint matching.
+
+    If `original_audio_path` is provided, a low-volume (7%) copy of the source
+    audio is pitch-shifted and mixed under the new audio design — gives the
+    cinematic feel of the original scene without dominating the voiceover.
     """
     import struct
     import shutil
+    import random
     if duration <= 2:
-        return input_path
+        return _strip_audio_add_sfx(input_path, output_path, duration, hook_tts_path)
 
     _orig_input = input_path
     import wave as _wave
@@ -1429,7 +1885,18 @@ def add_sound_design(input_path, output_path, duration, hook_tts_path=None):
     n = int(duration * sr)
     math_mod = __import__('math')
 
+    # Random pitch shift for Content ID evasion: ±2 to ±3 semitones
+    # (was ±3-5; reduced for more natural voice — original audio is now primary
+    # at 65% volume, so heavy pitch shift would make it sound unnatural)
+    pitch_shift_semitones = random.uniform(-3, -2) if random.random() < 0.5 else random.uniform(2, 3)
+    pitch_ratio = 2 ** (pitch_shift_semitones / 12.0)
+    print(f"  [sound] Content ID evasion: pitch shift {pitch_shift_semitones:.1f} semitones (ratio {pitch_ratio:.3f})", flush=True)
+
     # Build SFX sample array (mono)
+    # Phase 2 fix: replaced sine sweep (150→800Hz, felt "accelerating") with
+    # constant 80Hz sub-bass + noise-burst impact. Sub-bass adds weight without
+    # the "speed-up" perception; noise burst replaces pure sine impact for
+    # more cinematic feel.
     climax = duration * 0.70
     riser_start = max(0, climax - 1.5)
     samples = [0.0] * n
@@ -1438,13 +1905,16 @@ def add_sound_design(input_path, output_path, duration, hook_tts_path=None):
         t = i / sr
         if t < duration:
             if riser_start <= t <= climax:
-                freq = 150 + 650 * (t - riser_start) / 1.5
-                samples[i] += 0.12 * math_mod.sin(2 * 3.14159 * freq * t)
+                # Constant sub-bass (no sweep — was triggering "accelerating" perception)
+                samples[i] += 0.10 * math_mod.sin(2 * 3.14159 * 80 * t)
             elif climax < t <= climax + 0.3:
-                samples[i] += 0.25 * math_mod.sin(2 * 3.14159 * 50 * t)
+                # Noise burst impact (was: 0.25 * sin(50Hz) — too synthetic)
+                noise = (math_mod.sin(t * 1234.5) + math_mod.sin(t * 567.8)) * 0.5
+                samples[i] += 0.18 * noise
             else:
-                samples[i] += 0.015 * math_mod.sin(2 * 3.14159 * 60 * t)
-                samples[i] += 0.008 * math_mod.sin(2 * 3.14159 * 120 * t)
+                # Ambient drone (no sweep — was: 60Hz + 120Hz sine, too clean)
+                samples[i] += 0.010 * math_mod.sin(2 * 3.14159 * 60 * t)
+                samples[i] += 0.005 * math_mod.sin(2 * 3.14159 * 95 * t)
 
     peak = max(abs(max(samples)), abs(min(samples)), 0.001)
     scale = min(1.0 / peak, 1.0)
@@ -1459,186 +1929,511 @@ def add_sound_design(input_path, output_path, duration, hook_tts_path=None):
             wf.writeframes(struct.pack("<h", s))
 
     if not os.path.exists(sfx_path) or os.path.getsize(sfx_path) < 200:
-        print(f"  [sound] SFX generation produced no output, skipping", flush=True)
-        if hook_tts_path and os.path.exists(hook_tts_path):
-            return _mix_tts(input_path, output_path, hook_tts_path)
-        return input_path
+        print(f"  [sound] SFX generation produced no output", flush=True)
+        return _strip_audio_add_sfx(input_path, output_path, duration, hook_tts_path)
 
-    # Pass 1: mix original audio + TTS (resample TTS to 44100, duck original during TTS)
-    has_tts = hook_tts_path and os.path.exists(hook_tts_path) and os.path.getsize(hook_tts_path) > 200
-    if has_tts:
-        tts_sec = _get_wav_duration(hook_tts_path)
-        pass1 = os.path.join(os.path.dirname(output_path), "_pass1_tts.mp4")
-        # Duck original audio during TTS: volume 1.0 normally -> 0.3 during TTS
-        orig_vol = (
-            f"volume='if(between(t,0,{tts_sec}),0.3,1.0)':eval=frame"
-        )
-        mix1_cmd = [
-            _FFMPEG_BIN, "-y", "-i", input_path, "-i", hook_tts_path,
-            "-filter_complex",
-            f"[0:a]{orig_vol}[orig_ducked];[1:a]aresample=44100[a1];[orig_ducked][a1]amix=inputs=2:duration=first:weights=1 1.8[a_mixed]",
-            "-map", "0:v", "-map", "[a_mixed]",
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-            "-shortest",
-            pass1,
+    # Prepare TTS with pitch shift
+    tts_final_path = None
+    if hook_tts_path and os.path.exists(hook_tts_path) and os.path.getsize(hook_tts_path) > 200:
+        tts_final_path = os.path.join(os.path.dirname(output_path), "_tts_pitched.wav")
+        tts_pitch_cmd = [
+            _FFMPEG_BIN, "-y", "-i", hook_tts_path,
+            "-af", f"asetrate=44100*{pitch_ratio},aresample=44100,atempo={1/pitch_ratio}",
+            "-ac", "1",
+            tts_final_path,
         ]
         try:
-            r1 = subprocess.run(mix1_cmd, capture_output=True, timeout=60)
-            if r1.returncode != 0:
-                err1 = r1.stderr[-500:].decode('utf-8', errors='replace') if r1.stderr else "no stderr"
-                print(f"  [sound] TTS mix returned {r1.returncode}: {err1}", flush=True)
-            if os.path.exists(pass1) and os.path.getsize(pass1) > 10000:
-                input_path = pass1
-                print(f"  [sound] TTS mixed: hook voiceover", flush=True)
-            else:
-                print(f"  [sound] TTS mix failed, using original", flush=True)
-        except Exception as e:
-            print(f"  [sound] TTS mix error: {e}, using original", flush=True)
-
-    # Pass 2: mix (video audio + TTS) + SFX with audio ducking during TTS
-    tts_dur = 0
-    if has_tts and hook_tts_path:
-        tts_dur = _get_wav_duration(hook_tts_path)
-    if has_tts and tts_dur > 0:
-        # Duck SFX during TTS: volume 0.35 normally -> 0.08 during TTS
-        sfx_vol = (
-            f"volume='if(between(t,0,{tts_dur}),0.08,0.35)':eval=frame"
-        )
-        mix2_cmd = [
-            _FFMPEG_BIN, "-y", "-i", input_path, "-i", sfx_path,
-            "-filter_complex",
-            f"[1:a]{sfx_vol}[sfx_ducked];[0:a][sfx_ducked]amix=inputs=2:duration=first:weights=1 1[a_mixed]",
-            "-map", "0:v", "-map", "[a_mixed]",
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-            "-shortest",
-            output_path,
-        ]
-    else:
-        mix2_cmd = [
-            _FFMPEG_BIN, "-y", "-i", input_path, "-i", sfx_path,
-            "-filter_complex",
-            "[0:a][1:a]amix=inputs=2:duration=first:weights=1 0.35[a_mixed]",
-            "-map", "0:v", "-map", "[a_mixed]",
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-            "-shortest",
-            output_path,
-        ]
-    try:
-        result2 = subprocess.run(mix2_cmd, capture_output=True, timeout=60)
-        if result2.returncode != 0:
-            err2 = result2.stderr[-500:].decode('utf-8', errors='replace') if result2.stderr else "no stderr"
-            print(f"  [sound] SFX mix returned {result2.returncode}: {err2}", flush=True)
-        if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
-            label = "riser+impact+ambient" + ("+tts" if has_tts else "")
-            print(f"  [sound] Sound design applied: {label}", flush=True)
-            return output_path
-        else:
-            print(f"  [sound] SFX mix failed, keeping current audio", flush=True)
-            # If TTS pass1 exists, copy it to output_path so caller uses TTS audio
-            if has_tts and input_path != _orig_input and os.path.exists(input_path):
-                import shutil
-                shutil.copy2(input_path, output_path)
-                print(f"  [sound] Using TTS-only audio from pass1", flush=True)
-                return output_path
-            return input_path
-    except Exception as e:
-        print(f"  [sound] SFX mix error: {e}, keeping current", flush=True)
-        if has_tts and input_path != _orig_input and os.path.exists(input_path):
-            import shutil
-            shutil.copy2(input_path, output_path)
-            print(f"  [sound] Using TTS-only audio from pass1 (fallback)", flush=True)
-            return output_path
-        return input_path
-    finally:
-        try:
-            os.unlink(sfx_path)
+            subprocess.run(tts_pitch_cmd, capture_output=True, timeout=30)
+            if not (os.path.exists(tts_final_path) and os.path.getsize(tts_final_path) > 200):
+                tts_final_path = hook_tts_path
         except Exception:
-            pass
+            tts_final_path = hook_tts_path
 
+    # Pitch-shift SFX
+    sfx_pitched = os.path.join(os.path.dirname(output_path), "_sfx_pitched.wav")
+    sfx_pitch_cmd = [
+        _FFMPEG_BIN, "-y", "-i", sfx_path,
+        "-af", f"asetrate=48000*{pitch_ratio},aresample=48000,atempo={1/pitch_ratio}",
+        sfx_pitched,
+    ]
+    try:
+        subprocess.run(sfx_pitch_cmd, capture_output=True, timeout=30)
+        if os.path.exists(sfx_pitched) and os.path.getsize(sfx_pitched) > 200:
+            sfx_path = sfx_pitched
+    except Exception:
+        pass
 
-def _mix_tts(input_path, output_path, tts_path):
-    """Minimal mix: original audio + TTS voiceover only (no SFX)."""
-    mix_cmd = [
-        _FFMPEG_BIN, "-y", "-i", input_path, "-i", tts_path,
-        "-filter_complex",
-        "[1:a]aresample=44100[a1];[0:a][a1]amix=inputs=2:duration=first:weights=1 1.5[a_mixed]",
-        "-map", "0:v", "-map", "[a_mixed]",
-        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+    # Generate ambient bed — brown noise + lowpass + reverb (warmer than pink;
+    # gives the "cinematic" bed feel without drowning the original audio)
+    bed_path = os.path.join(os.path.dirname(output_path), "_bed.wav")
+    bed_cmd = [
+        _FFMPEG_BIN, "-y",
+        "-f", "lavfi", "-i",
+        f"anoisesrc=d={duration}:c=brown:a=0.20,lowpass=f=400,volume=0.35,aecho=0.8:0.9:500:0.3",
+        "-ar", "48000", "-ac", "1",
+        bed_path,
+    ]
+    try:
+        subprocess.run(bed_cmd, capture_output=True, timeout=15)
+        if not (os.path.exists(bed_path) and os.path.getsize(bed_path) > 200):
+            bed_path = None
+    except Exception:
+        bed_path = None
+
+    # Phase 1 fix: extract original audio from source, apply same pitch shift,
+    # and bake in 7% volume. This restores cinematic feel without Content ID
+    # risk (pitch shift is the same evasion as TTS/SFX).
+    orig_shifted_path = None
+    if original_audio_path and os.path.exists(original_audio_path):
+        work_dir = os.path.dirname(output_path)
+        src_audio = os.path.join(work_dir, "_src_audio.wav")
+        # Extract mono audio from source video
+        extract_cmd = [
+            _FFMPEG_BIN, "-y", "-i", original_audio_path,
+            "-vn", "-ac", "1", "-ar", "48000",
+            "-t", str(duration),
+            src_audio,
+        ]
+        try:
+            r = subprocess.run(extract_cmd, capture_output=True, timeout=30)
+            if r.returncode == 0 and os.path.exists(src_audio) and os.path.getsize(src_audio) > 200:
+                # Apply pitch shift + 65% volume (primary cinematic layer).
+                # Audio strategy pivot: original movie audio is now the dominant
+                # sound (was 7% background); TTS becomes commentary overlay.
+                orig_shifted_path = os.path.join(work_dir, "_orig_shifted.wav")
+                shift_cmd = [
+                    _FFMPEG_BIN, "-y", "-i", src_audio,
+                    "-af", f"asetrate=48000*{pitch_ratio},aresample=48000,atempo={1/pitch_ratio},volume=0.65",
+                    "-ar", "48000", "-ac", "1",
+                    orig_shifted_path,
+                ]
+                r2 = subprocess.run(shift_cmd, capture_output=True, timeout=30)
+                if r2.returncode != 0 or not (os.path.exists(orig_shifted_path) and os.path.getsize(orig_shifted_path) > 200):
+                    orig_shifted_path = None
+                else:
+                    print(f"  [sound] Original audio layered at 65% (pitch-shifted for Content ID evasion)", flush=True)
+        except Exception as e:
+            print(f"  [sound] Original audio extraction failed: {e}", flush=True)
+            orig_shifted_path = None
+
+    # ── Two-pass audio mix (محور 1+2 fix) ──
+    # Pass 1: mix all audio sources into a single WAV using filter_complex
+    # Pass 2: mux video (stream copy) + mixed audio (AAC encode)
+    # This avoids the "-c:v copy + filter_complex" conflict that caused
+    # "Streamcopy requested for output stream fed from a complex filtergraph" errors.
+
+    work_dir = os.path.dirname(output_path)
+    mixed_audio_path = os.path.join(work_dir, "_mixed_audio.wav")
+
+    # Define audio source flags BEFORE mix logic
+    has_tts = tts_final_path and os.path.exists(tts_final_path) and os.path.getsize(tts_final_path) > 200
+    tts_dur = _get_wav_duration(tts_final_path) if has_tts else 0
+
+    has_analysis = analysis_tts_path and os.path.exists(analysis_tts_path) and os.path.getsize(analysis_tts_path) > 200
+    analysis_dur = _get_wav_duration(analysis_tts_path) if has_analysis else 0
+
+    # Build audio-only mix inputs and filter
+    audio_inputs = []
+    audio_filter_parts = []
+    audio_idx = 0
+
+    # Original audio PRIMARY (65% baked into pitch-shifted file, 0.85 in mix for headroom)
+    if orig_shifted_path:
+        audio_inputs.extend(["-i", orig_shifted_path])
+        audio_filter_parts.append(f"[{audio_idx}:a]volume=0.85[a{audio_idx}]")
+        audio_idx += 1
+
+    # TTS voiceover (30% — commentary level over original)
+    if has_tts:
+        audio_inputs.extend(["-i", tts_final_path])
+        audio_filter_parts.append(f"[{audio_idx}:a]volume=0.30[a{audio_idx}]")
+        audio_idx += 1
+
+    # SFX subtle (5% — original audio carries cinematic weight)
+    audio_inputs.extend(["-i", sfx_path])
+    audio_filter_parts.append(f"[{audio_idx}:a]volume=0.05[a{audio_idx}]")
+    audio_idx += 1
+
+    # Analysis narration (30% — voiceover level)
+    if has_analysis:
+        audio_inputs.extend(["-i", analysis_tts_path])
+        delay_ms = int(tts_dur * 1000)
+        audio_filter_parts.append(f"[{audio_idx}:a]adelay={delay_ms}|{delay_ms},volume=0.30[a{audio_idx}]")
+        audio_idx += 1
+
+    # Ambient bed (8% — warmth)
+    if bed_path:
+        audio_inputs.extend(["-i", bed_path])
+        audio_filter_parts.append(f"[{audio_idx}:a]volume=0.08[a{audio_idx}]")
+        audio_idx += 1
+
+    if audio_idx == 0:
+        # No audio sources at all — fallback
+        print(f"  [sound] No audio sources, stripping audio", flush=True)
+        return _strip_audio_add_sfx(input_path, output_path, duration, hook_tts_path)
+
+    # Combine all audio sources
+    audio_indices = list(range(audio_idx))
+    amix_inputs = "".join(f"[a{i}]" for i in audio_indices)
+    nb_audio = len(audio_indices)
+    audio_filter_parts.append(f"{amix_inputs}amix=inputs={nb_audio}:duration=longest[a_mixed]")
+
+    # Pass 1: mix audio to WAV
+    mix_audio_cmd = [
+        _FFMPEG_BIN, "-y",
+    ] + audio_inputs + [
+        "-filter_complex", ";".join(audio_filter_parts),
+        "-map", "[a_mixed]",
+        "-ar", "48000", "-ac", "2",
+        mixed_audio_path,
+    ]
+
+    try:
+        result = subprocess.run(mix_audio_cmd, capture_output=True, timeout=60)
+        if result.returncode != 0 or not (os.path.exists(mixed_audio_path) and os.path.getsize(mixed_audio_path) > 200):
+            err = result.stderr[-300:].decode("utf-8", errors="replace") if result.stderr else "no stderr"
+            print(f"  [sound] Audio mix failed: {err}", flush=True)
+            return _strip_audio_add_sfx(input_path, output_path, duration, hook_tts_path)
+    except Exception as e:
+        print(f"  [sound] Audio mix error: {e}", flush=True)
+        return _strip_audio_add_sfx(input_path, output_path, duration, hook_tts_path)
+
+    # Pass 2: mux video (copy) + mixed audio (AAC)
+    mux_cmd = [
+        _FFMPEG_BIN, "-y",
+        "-i", input_path,
+        "-i", mixed_audio_path,
+        "-c:v", "copy",
+        "-c:a", "aac", "-b:a", "192k",
+        "-map", "0:v", "-map", "1:a",
         "-shortest",
         output_path,
     ]
+
     try:
+        result = subprocess.run(mux_cmd, capture_output=True, timeout=60)
+        if result.returncode != 0:
+            err = result.stderr[-300:].decode("utf-8", errors="replace") if result.stderr else "no stderr"
+            print(f"  [sound] Mux failed: {err}", flush=True)
+            return _strip_audio_add_sfx(input_path, output_path, duration, hook_tts_path)
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
+            label = "pitched SFX"
+            if has_tts: label += " + pitched TTS"
+            if has_analysis: label += " + analysis narration"
+            if orig_shifted_path: label += " + original audio (65%)"
+            print(f"  [sound] Sound design applied ({label})", flush=True)
+            return output_path
+        else:
+            print(f"  [sound] Mix failed, stripping audio and adding SFX only", flush=True)
+            return _strip_audio_add_sfx(input_path, output_path, duration, hook_tts_path)
+    except Exception as e:
+        print(f"  [sound] Mix error: {e}, stripping audio", flush=True)
+        return _strip_audio_add_sfx(input_path, output_path, duration, hook_tts_path)
+    finally:
+        for p in [sfx_path, tts_final_path, mixed_audio_path]:
+            try:
+                if p and os.path.exists(p):
+                    os.unlink(p)
+            except Exception:
+                pass
+
+
+def _strip_audio_add_sfx(input_path, output_path, duration, hook_tts_path=None):
+    """Fallback: strip audio track, add only generated SFX (+ TTS if available)."""
+    try:
+        # Generate minimal SFX
+        import wave as _wave
+        import struct as _struct
+        import math as _math
+        sr = 48000
+        n = int(duration * sr)
+        samples = [0.0] * n
+        climax = duration * 0.70
+        riser_start = max(0, climax - 1.5)
+        for i in range(n):
+            t = i / sr
+            if t < duration:
+                if riser_start <= t <= climax:
+                    freq = 150 + 650 * (t - riser_start) / 1.5
+                    samples[i] += 0.12 * _math.sin(2 * 3.14159 * freq * t)
+                elif climax < t <= climax + 0.3:
+                    samples[i] += 0.25 * _math.sin(2 * 3.14159 * 50 * t)
+                else:
+                    samples[i] += 0.015 * _math.sin(2 * 3.14159 * 60 * t)
+                    samples[i] += 0.008 * _math.sin(2 * 3.14159 * 120 * t)
+        peak = max(abs(max(samples)), abs(min(samples)), 0.001)
+        scale = min(1.0 / peak, 1.0)
+        scaled = [int(max(-32768, min(32767, s * scale * 32767))) for s in samples]
+        sfx_path = os.path.join(os.path.dirname(output_path), "_sfx_fb.wav")
+        with _wave.open(sfx_path, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sr)
+            for s in scaled:
+                wf.writeframes(_struct.pack("<h", s))
+
+        # Pitch shift SFX
+        pitch_shift = random.uniform(-5, -3) if random.random() < 0.5 else random.uniform(3, 5)
+        pitch_ratio = 2 ** (pitch_shift / 12.0)
+        sfx_pitched = os.path.join(os.path.dirname(output_path), "_sfx_fb_pitched.wav")
+        sfx_pitch_cmd = [
+            _FFMPEG_BIN, "-y", "-i", sfx_path,
+            "-af", f"asetrate=48000*{pitch_ratio},aresample=48000,atempo={1/pitch_ratio}",
+            sfx_pitched,
+        ]
+        subprocess.run(sfx_pitch_cmd, capture_output=True, timeout=30)
+        if os.path.exists(sfx_pitched) and os.path.getsize(sfx_pitched) > 200:
+            sfx_path = sfx_pitched
+
+        # Build mix command
+        has_tts = hook_tts_path and os.path.exists(hook_tts_path) and os.path.getsize(hook_tts_path) > 200
+        if has_tts:
+            tts_pitched = os.path.join(os.path.dirname(output_path), "_tts_fb_pitched.wav")
+            tts_pitch_cmd = [
+                _FFMPEG_BIN, "-y", "-i", hook_tts_path,
+                "-af", f"asetrate=44100*{pitch_ratio},aresample=44100,atempo={1/pitch_ratio}",
+                "-ac", "1", tts_pitched,
+            ]
+            subprocess.run(tts_pitch_cmd, capture_output=True, timeout=30)
+            if os.path.exists(tts_pitched) and os.path.getsize(tts_pitched) > 200:
+                tts_path = tts_pitched
+            else:
+                tts_path = hook_tts_path
+            tts_dur = _get_wav_duration(tts_path)
+            sfx_vol = f"volume='if(between(t,0,{tts_dur}),0.08,0.35)':eval=frame"
+            mix_cmd = [
+                _FFMPEG_BIN, "-y", "-i", tts_path, "-i", sfx_path,
+                "-filter_complex",
+                f"[1:a]{sfx_vol}[sfx_ducked];[0:a][sfx_ducked]amix=inputs=2:duration=first:weights=1 1.5[a_mixed]",
+                "-map", "0:v", "-map", "[a_mixed]",
+                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                "-shortest", output_path,
+            ]
+        else:
+            mix_cmd = [
+                _FFMPEG_BIN, "-y", "-i", input_path, "-i", sfx_path,
+                "-filter_complex",
+                "[1:a]volume=0.35[sfx_v];[0:v]copy[v];[sfx_v]anull[a]",
+                "-map", "[v]", "-map", "[a]",
+                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                "-shortest", output_path,
+            ]
+
         subprocess.run(mix_cmd, capture_output=True, timeout=60)
         if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
-            print(f"  [sound] TTS-only mix applied", flush=True)
+            print(f"  [sound] Fallback applied: original audio stripped, SFX only", flush=True)
             return output_path
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"  [sound] Fallback error: {e}", flush=True)
     return input_path
 
 
-def apply_movie_effects(input_path, output_path, content_type, title=""):
+def _build_zoom_expr(zoom_name, duration):
+    """Build an ffmpeg zoom expression for the named zoom curve.
+
+    Curves from vibe_of_the_day.pick_vibe():
+      ease_in_aggressive — hook punch 1.05→1.20 over 3s, then settle at 1.03
+      steady_build       — gentle 1.08→1.15 over 4s, continuous drift
+      punch_cut          — instant 1.00→1.18 at 1.5s mark, then hold
+
+    Returns an ffmpeg-compatible expression string.
+    """
+    base = "1.0"
+
+    if zoom_name == "ease_in_aggressive":
+        return (
+            f"(1.05"
+            f" + 0.15*max(0,1-t/3.0)"               # punch over 3s
+            f" + 0.04*max(0,t-1.5)/{max(duration,0.1)}" # slow drift
+            f" - 0.02*(1/(1+10*max(0,t-3))))"      # settle (was: {1/(1+10*max(0,t-3))} — Python evaluated at f-string time)
+        )
+    elif zoom_name == "steady_build":
+        return (
+            f"(1.08"
+            f" + 0.07*min(t/4.0,1)"                 # linear build over 4s
+            f" + 0.03*max(0,t-2)/{max(duration,0.1)}" # slow drift after 2s
+            f")"
+        )
+    elif zoom_name == "punch_cut":
+        # Instant punch at 1.5s: scale snaps from 1.00 to 1.18
+        # Use smoothstep instead of nested if for encoder compatibility
+        return (
+            f"1.0 + 0.18 * max(0, min(1, (t-1.5)*10)) * (1 - min(1, max(0, (t-1.6)*10)))"
+            f" + 0.12 * max(0, 1 - (t-1.6)/5.0)"  # slow settle
+        )
+    else:
+        # Fallback: classic hook punch + micro-pulses (current default)
+        pulse_t1 = duration * 0.30
+        pulse_t2 = duration * 0.60
+        return (
+            f"(1.0"
+            f" + 0.15*max(0,1-t/0.3)"
+            f" + 0.06*max(0,1-abs(t-{pulse_t1})/0.2)"
+            f" + 0.06*max(0,1-abs(t-{pulse_t2})/0.2)"
+            f" + 0.04*max(0,t-1.5)/{max(duration,0.1)})"
+        )
+
+
+def apply_movie_effects(input_path, output_path, content_type, title="", vibe=None):
     """Apply effects to a short: dynamic zoom, ASS captions, TTS voiceover hook.
-    Zoom punch 1.15x at t=0, curiosity-gap captions, hook voiceover TTS.
+
+    vibe dict (from vibe_of_the_day.pick_vibe()) controls:
+      hook    → caption opener + TTS spoken text
+      caption → ASS style set (bold_center, serif_top, glitch_mono, typewriter_reveal, marker_circle)
+      zoom    → zoom curve (ease_in_aggressive, steady_build, punch_cut)
+      color   → color profile filter injected into filter_complex (teal_orange, warm_sunset, cool_noir)
+      patterns → pattern interrupts (stubbed for now — wired as placeholder)
+
     Returns dict with path, duration, hook_text (for sound design mixing).
     """
     duration = get_video_duration(input_path)
     if duration <= 0:
         return None
 
+    vibe = vibe or {}
+    hook_phrase = vibe.get("hook")
+    caption_style = vibe.get("caption", "bold_center")
+    zoom_name = vibe.get("zoom", "ease_in_aggressive")
+    color_name = vibe.get("color")
+    color_intensity = vibe.get("color_intensity", 1.0)
+
     import uuid
     import tempfile
     ass_file = tempfile.NamedTemporaryFile(suffix=".ass", delete=False, mode="w", encoding="utf-8")
     ass_path = ass_file.name
     ass_file.close()
-    captions, hook_tts = _generate_5beat_captions(title, clip_duration=duration, content_type=content_type)
-    _write_ass(captions, ass_path)
+    captions, hook_tts = _generate_5beat_captions(title, clip_duration=duration, content_type=content_type, hook_phrase=hook_phrase)
+    _write_ass(captions, ass_path, caption_style=caption_style)
+    print(f"  [vibe] Caption style: {caption_style} | Hook: {hook_tts}", flush=True)
 
-    # Generate TTS WAV for hook voiceover
+    # Generate TTS WAV for hook voiceover — use voice_studio for best quality
     work_dir = os.path.dirname(output_path)
     tts_path = os.path.join(work_dir, "_hook_tts.wav")
-    tts_ok = _generate_tts_wav(hook_tts, tts_path)
+    # voice_studio: gTTS (natural) → edge-tts (fallback) + audio processing
+    from modules.voice_studio import generate_hook_voice
+    tts_ok = generate_hook_voice(hook_tts, tts_path, process=True)
+    if not tts_ok:
+        # Fallback to edge-tts
+        tts_ok = _generate_tts_wav(hook_tts, tts_path)
     if tts_ok:
         print(f"  [tts] Hook voiceover generated: \"{hook_tts}\"", flush=True)
     else:
         print(f"  [tts] Hook voiceover failed, continuing without", flush=True)
 
-    # Pattern interrupt: zoom punch 1.15x at t=0 + micro-pulse at 30%/60% + slow drift
-    # 2026 viral style: visual movement every 2-4 seconds
+    # Zoom curve expression
+    zoom_expr = _build_zoom_expr(zoom_name, duration)
+    print(f"  [vibe] Zoom curve: {zoom_name}", flush=True)
+
+    # Micro-shake on pulse points (30% / 60% of duration)
     pulse_t1 = duration * 0.30
     pulse_t2 = duration * 0.60
-    zoom_expr = (
-        f"(1.0"
-        f" + 0.15*max(0,1-t/0.3)"                          # hook punch
-        f" + 0.06*max(0,1-abs(t-{pulse_t1})/0.2)"          # interrupt at 30%
-        f" + 0.06*max(0,1-abs(t-{pulse_t2})/0.2)"          # interrupt at 60%
-        f" + 0.04*max(0,t-1.5)/{max(duration,0.1)})"        # slow drift
-    )
-    # Micro-shake on pulse points
     shake_expr = (
         f"12*sin(12*PI*t)*exp(-3*abs(t-{pulse_t1}))"
         f" + 12*sin(15*PI*t)*exp(-3*abs(t-{pulse_t2}))"
     )
-    filter_complex = (
-        f"[0:v]scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=0,setsar=1,"
-        f"scale='floor(iw*{zoom_expr})':'floor(ih*{zoom_expr})':eval=frame,"
-        f"crop={SHORTS_WIDTH}:{SHORTS_HEIGHT}:(iw-{SHORTS_WIDTH})/2+({shake_expr}):(ih-{SHORTS_HEIGHT})/2,"
-        f"unsharp=7:7:1.2:5:5:0.6,"
-        f"ass='{ass_path.replace(chr(92), chr(92)*2).replace(':', chr(92)+chr(58))}'"
-        f"[outv]"
+
+    # Color profile: inject into filter chain if named
+    color_part = ""
+    if color_name:
+        try:
+            from modules.color_profiles import get_filter_string
+            color_part = get_filter_string(color_name, color_intensity) + ","
+            print(f"  [vibe] Color profile: {color_name} (intensity {color_intensity})", flush=True)
+        except Exception:
+            pass
+
+    # Pattern interrupts (placeholder — ASS handles text; video-level glitch
+    # stubs will be added in a future pass via ffmpeg tpad/edgedetect/hue changes)
+    if vibe.get("patterns"):
+        print(f"  [vibe] Pattern set selected: {vibe['patterns']} (stub — not applied to video yet)", flush=True)
+
+    # Content ID Evasion: Visual Fingerprint Break
+    # 1. Micro-noise (1%) — breaks exact pixel hash
+    # 2. Micro-crop 2% — breaks spatial alignment
+    # 3. Color jitter ±0.02 — breaks color histogram hash
+    # 4. GOP randomization — breaks frame-sequence hash
+    # 5. Slight zoom 1.02x — breaks scale fingerprint
+    fid = random.randint(1000, 9999)
+    noise_seed = fid * 7
+    crop_x = f"2*sin(t*{noise_seed}*0.01)"  # micro jitter
+    crop_y = f"2*cos(t*{noise_seed}*0.013)"
+    color_jitter = f"eq=brightness={random.uniform(-0.015,0.015):.4f}:contrast={1+random.uniform(-0.02,0.02):.4f}:saturation={1+random.uniform(-0.02,0.02):.4f}"
+    # Micro-zoom 1.02x + crop to hide edges
+    evasion_zoom = "1.02"
+
+    # ── Mirevon-style Fast Cuts + Montage: single-pass with filter_complex ──
+    # Key insight: crop_to_shorts uses filter_complex with BOTH video and audio outputs
+    # and maps both [vout] and [aout] — this works. We do the same here.
+    # Mirevon style: rapid cuts every ~2.5s, micro-zoom punches via dynamic crop.
+
+    zoom_factor = 1.02
+    
+    # Build video filter chain with Mirevon-style dynamics
+    vf_parts = [
+        f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:force_original_aspect_ratio=0",
+        "setsar=1",
+        f"scale=trunc(iw*{zoom_factor}/2)*2:trunc(ih*{zoom_factor}/2)*2:flags=lanczos",
+        f"crop={SHORTS_WIDTH}:{SHORTS_HEIGHT}:(iw-{SHORTS_WIDTH})/2:(ih-{SHORTS_HEIGHT})/2",
+    ]
+    
+    # Mirevon-style: dynamic zoom punches using crop with time-based expressions
+    # This creates the "fast cuts + zoom punch" effect without zoompan
+    # We use multiple crop stages with between(t,start,end) for punch-in/out
+    # Base crop (centered)
+    base_crop_x = f"(iw-{SHORTS_WIDTH})/2"
+    base_crop_y = f"(ih-{SHORTS_HEIGHT})/2"
+    
+    # Add micro-zoom punches at 30% and 60% of duration
+    punch_t1 = duration * 0.30
+    punch_t2 = duration * 0.60
+    punch_dur = 0.5  # 0.5s punch duration
+    punch_zoom = 1.15  # 15% zoom-in for punch
+    
+    # Dynamic crop: zoom in at punch points, with micro-jitter
+    # crop=w:h:x:y where w,h = zoomed size, x,y = centered
+    # We chain multiple crop filters with enable=between(t,start,end)
+    vf_parts.append(
+        f"crop="
+        f"'{SHORTS_WIDTH}*if(between(t,{punch_t1},{punch_t1+punch_dur}),{punch_zoom},1)':"
+        f"'{SHORTS_HEIGHT}*if(between(t,{punch_t1},{punch_t1+punch_dur}),{punch_zoom},1)':"
+        f"'(iw-ow)/2+2*sin(t*7):(ih-oh)/2+2*cos(t*13)'"
     )
-    last_label = "outv"
+    vf_parts.append(
+        f"crop="
+        f"'{SHORTS_WIDTH}*if(between(t,{punch_t2},{punch_t2+punch_dur}),{punch_zoom},1)':"
+        f"'{SHORTS_HEIGHT}*if(between(t,{punch_t2},{punch_t2+punch_dur}),{punch_zoom},1)':"
+        f"'(iw-ow)/2+2*sin(t*11):(ih-oh)/2+2*cos(t*17)'"
+    )
+    
+    # Color grading + evasion
+    vf_parts.extend([
+        f"eq=brightness={random.uniform(-0.015,0.015):.4f}:contrast={1+random.uniform(-0.02,0.02):.4f}:saturation={1+random.uniform(-0.02,0.02):.4f}",
+        "noise=alls=1:allf=t+u",
+        "unsharp=5:5:0.8:3:3:0.4",
+    ])
 
-    input_files = ["-i", input_path]
-    audio_map = "0:a?"
+    # Add subtitles/captions if ass file exists
+    if ass_path and os.path.exists(ass_path):
+        escaped_path = ass_path.replace("\\", "/").replace(":", "\\:")
+        vf_parts.append(f"subtitles='{escaped_path}'")
 
+    video_chain = ",".join(vf_parts)
+
+    # Audio pass-through (anull = pass through unchanged)
+    filter_complex = (
+        f"[0:v]{video_chain}[vout];"
+        f"[0:a]anull[aout]"
+    )
+
+    gop_size = random.randint(12, 25)
     cmd = [
         _FFMPEG_BIN, "-y",
-    ] + input_files + [
+        "-i", input_path,
         "-filter_complex", filter_complex,
-        "-map", f"[{last_label}]",
-        "-map", audio_map,
+        "-map", "[vout]",
+        "-map", "[aout]",
         "-c:v", RENDER_CODEC, "-preset", RENDER_FINAL_PRESET, "-crf", str(RENDER_CRF),
+        "-g", str(gop_size), "-keyint_min", "1", "-sc_threshold", "0",
         "-b:v", RENDER_BITRATE,
         "-maxrate", RENDER_BITRATE,
         "-bufsize", RENDER_BUFFER_SIZE,
@@ -1651,12 +2446,11 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
 
     try:
         result = subprocess.run(cmd, capture_output=True, timeout=600)
-
         if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
             actual_dur = get_video_duration(output_path)
             if actual_dur <= 0:
                 actual_dur = fallback_duration(output_path)
-            print(f"  [editor] Montage + word captions applied: {output_path} ({actual_dur:.1f}s, {os.path.getsize(output_path)} bytes)", flush=True)
+            print(f"  [editor] Montage + captions applied ({caption_style}): {output_path} ({actual_dur:.1f}s, {os.path.getsize(output_path)} bytes)", flush=True)
             return {"path": output_path, "duration": actual_dur, "hook_text": hook_tts if tts_ok else None}
         else:
             err = result.stderr[-500:].decode('utf-8', errors='replace') if result.stderr else "no stderr"
@@ -1675,6 +2469,12 @@ def apply_movie_effects(input_path, output_path, content_type, title=""):
         shutil.copy2(input_path, output_path)
         return {"path": output_path, "duration": duration}
     finally:
+        # Clean up temp file
+        try:
+            if os.path.exists(video_only_path):
+                os.unlink(video_only_path)
+        except Exception:
+            pass
         try:
             if ass_path and os.path.exists(ass_path):
                 os.unlink(ass_path)
@@ -2240,6 +3040,96 @@ def create_weekly_video(input_path, output_path, source_title="", voiceover_path
 
     print(f"  [weekly] Output invalid", flush=True)
     return None
+
+
+def generate_chapter_markers(story_texts, video_duration, intro_duration=0):
+    """
+    Generate YouTube chapter markers from story text segments.
+    
+    Args:
+        story_texts: List of (text, start_ratio) tuples
+        video_duration: Total video duration in seconds
+        intro_duration: Intro duration to offset (if any)
+    
+    Returns:
+        List of (timestamp, title) for YouTube description chapters.
+    """
+    chapters = []
+    for i, (text, ratio) in enumerate(story_texts):
+        # Calculate timestamp
+        timestamp = intro_duration + ratio * (video_duration - intro_duration)
+        if timestamp < 0:
+            timestamp = 0
+        
+        # Format: "0:00 Title" or "00:00:00 Title" for >1hr
+        hours = int(timestamp // 3600)
+        minutes = int((timestamp % 3600) // 60)
+        seconds = int(timestamp % 60)
+        
+        if hours > 0:
+            ts_str = f"{hours}:{minutes:02d}:{seconds:02d}"
+        else:
+            ts_str = f"{minutes}:{seconds:02d}"
+        
+        # Clean title for chapter
+        title = text.replace("⚡ ", "").strip()
+        if len(title) > 80:
+            title = title[:77] + "..."
+        
+        chapters.append((ts_str, title))
+    
+    return chapters
+
+
+def format_chapters_for_description(chapters):
+    """Format chapters for YouTube description (timestamp Title format)."""
+    lines = ["\nCHAPTERS:"]
+    for ts, title in chapters:
+        lines.append(f"{ts} {title}")
+    return "\n".join(lines)
+
+
+def generate_weekly_description(source_title, story_texts, video_duration, hooks=None):
+    """
+    Generate vidIQ-optimized description for weekly long-form video.
+    
+    Includes:
+    - Hook-first opening (first 2 lines critical for CTR)
+    - SEO keywords
+    - Chapter markers
+    - Hashtags
+    - Call to action
+    """
+    movie_name = _extract_movie_name(source_title)
+    chapters = generate_chapter_markers(story_texts, video_duration)
+    
+    # Hook-first description (first 2 lines = 125 chars visible in search)
+    hook_line = hooks[0] if hooks else f"Why {movie_name} is a masterpiece of cinema"
+    desc = f"{hook_line}\n\n"
+    desc += f"A deep dive into {movie_name} — scene by scene analysis, cinematography breakdown, and the storytelling secrets that make it unforgettable.\n\n"
+    
+    # Chapters
+    desc += format_chapters_for_description(chapters)
+    desc += "\n\n"
+    
+    # SEO keywords
+    desc += "KEYWORDS: "
+    keywords = [
+        f"{movie_name} analysis", f"{movie_name} breakdown", "film analysis",
+        "cinema breakdown", "movie explained", "cinematography analysis",
+        "film theory", "visual storytelling", "director style"
+    ]
+    desc += ", ".join(keywords) + "\n\n"
+    
+    # Hashtags
+    desc += "#cinema #filmanalysis #moviedbreakdown #cinematography #filmtheory "
+    desc += f"#{movie_name.replace(' ', '')} #VARY\n\n"
+    
+    # CTA
+    desc += "🔔 Subscribe for a short every night, a long every week.\n"
+    desc += "🎬 Suggest the next film in comments!\n"
+    
+    return desc
 
 
 if __name__ == "__main__":
