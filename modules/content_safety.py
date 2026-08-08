@@ -182,7 +182,7 @@ def _check_nudenet(video_path):
             pass
 
 
-def check_video_safety(video_path, use_nudenet=True):
+def check_video_safety(video_path, use_nudenet=False):
     """Full safety check: skin exposure + optional NudeNet.
 
     Returns:

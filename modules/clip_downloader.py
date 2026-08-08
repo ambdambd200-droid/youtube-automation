@@ -29,11 +29,60 @@ from config import (
 )
 
 
-# ── Copyright / Freshness filters ───────────────────────
-# Major studios with aggressive Content ID (skip these channels)
-# See .github/POLICIES.md and modules/youtube_policy_check.py for full list
+# ── Whitelist-Only Channel Policy (Content ID Elimination) ──
+# ONLY download from these curated analysis/commentary channels.
+# They provide transformative content (criticism, review, analysis) with lower claim risk.
+_WHITELIST_CHANNELS = [
+    # Movie analysis / criticism / video essays
+    "now you see it",           # Video essays on film
+    "lessons from the screenplay",  # Screenplay analysis
+    "nerdwriter1",              # Video essays (some film)
+    "every frame a painting",   # Visual analysis (classic)
+    "the take",                 # Film/TV analysis
+    "screenprism",              # Film analysis
+    "cinemastix",               # Film analysis
+    "accented cinema",          # Asian/arthouse film analysis
+    "patrick (h) willems",      # Film criticism
+    "film crux",                # Film analysis
+    "marcus klu",               # Video essays
+    "royal ocean film society", # Film analysis
+    "studiobinder",             # Filmmaking education
+    "jolly sailor bold",        # Film analysis
+    "film radar",               # Film analysis
+    "crash course",             # Educational (film episodes)
+    "lisbug",                   # Film analysis
+    "kaptainkristian",          # Video essays
+    "one hundred years of cinema", # Film analysis
+    "the critical drinker",     # Film criticism
+    "chris stuckmann",          # Film reviews
+    "jeremy jahns",             # Film reviews
+    "schmoes know",             # Film analysis
+    "collider",                 # Film news/analysis
+    "screen rant",              # Film/TV analysis
+    "looper",                   # Film/TV analysis
+    "watchmojo",                # Top 10s (some analysis)
+    "fandom",                   # Film/TV deep dives
+    "nerdwriter1",              # Video essays
+    "kaptainkristian",          # Video essays
+    "jacksfilms",               # Commentary
+    "jontron",                  # Commentary
+    "i hate everything",        # Criticism
+    "ralph the movie maker",    # Film analysis
+    "your movie sucks",         # Criticism
+    "adum & friends",           # Criticism
+    "bobdylan0715",             # Film essays
+    "the closer look",          # Film analysis
+    "nick chen",                # Film analysis
+    "alex meyer",               # Film analysis
+    "film theory",              # MatPat's film theory
+    "kyle kuchta",              # Film analysis
+    "magnetwire",               # Film analysis
+]
+# Normalize to lowercase for comparison
+_WHITELIST_CHANNELS = [c.lower() for c in _WHITELIST_CHANNELS]
+
+# Blacklist (major studios + aggressive claimants) — kept as backup
 _COPYRIGHT_BLACKLIST = [
-    # ── Major movie studios ──
     "paramount pictures", "paramount movies",
     "universal pictures",
     "warner bros. pictures", "warner bros pictures",
@@ -45,26 +94,10 @@ _COPYRIGHT_BLACKLIST = [
     "dreamworks", "illumination", "studio ghibli",
     "lionsgate", "mgm", "a24",
     "apple tv+", "amazon prime video",
-    # ── Official sports leagues (aggressive Content ID) ──
-    "fifa",                        # FIFA World Cup matches
-    "premier league",              # EPL highlights
-    "uefa",                        # Champions League
-    "laliga",                      # Spanish league
-    "serie a",                     # Italian league
-    "bundesliga",                  # German league
-    "ligue 1",                     # French league
-    "mls",                         # US league
-    "nba",                         # Basketball
-    "nfl",                         # Football
-    "nhl",                         # Hockey
-    "espn",                        # Sports broadcaster
-    "sky sports",                  # UK sports broadcaster
-    "beIN SPORTS", "bein sports",   # MENA sports broadcaster
-]
-# But allow these specific copyright-safe channels
-_COPYRIGHT_SAFE_CHANNELS = [
-    "jo blo", "jolo", "shaeel", "now you see it",
-    "kimer", "vibey", "yellow sub", "uday",
+    # Official sports leagues
+    "fifa", "premier league", "uefa", "laliga", "serie a",
+    "bundesliga", "ligue 1", "mls", "nba", "nfl", "nhl",
+    "espn", "sky sports", "beIN SPORTS", "bein sports",
 ]
 
 # Indian cinema — completely blocked (user requirement)
@@ -80,7 +113,21 @@ _INDIAN_BLOCKLIST = [
     "telugu", "tamil", "hindi", "bollywood", "tollywood",
     "kollywood", "mallu", "kannada", "malayalam", "bengali",
     "punjabi", "marathi", "bhojpuri",
-    "mflix", "movie", "south movie",
+    "mflix", "south movie",
+    # Production houses
+    "yrf", "yash raj films", "dharma productions", "dharma",
+    "tips industries", "tips official", "t-series", "tseries",
+    "eros now", "eros international", "eros universe", "eros",
+    "pen studios", "lyca productions", "red giant movies",
+    "sun pictures", "v creations", "geetha arts",
+    "swami movies", "matinee entertainment", "sithara entertainments",
+    # Common Indian movie title markers
+    "shah rukh khan", "salman khan", "amir khan", "aamir khan",
+    "akshay kumar", "ranveer singh", "ranbir kapoor",
+    "deepika padukone", "priyanka chopra", "alia bhatt",
+    "rajinikanth", "vijay", "ajith", "suriya", "karthi",
+    "allu arjun", "mahesh babu", "prabhas", "ram charan",
+    "mammootty", "mohanlal",
 ]
 
 
@@ -282,8 +329,11 @@ def search_youtube(query, max_results=30):
     Tries multiple player clients to bypass bot detection.
     """
     def _search(client, timeout):
+        # Use python -m yt_dlp since yt-dlp command may not be in PATH
+        import sys
+        python_exe = sys.executable
         cmd = [
-            "yt-dlp",
+            python_exe, "-m", "yt_dlp",
             "-J",
             "--flat-playlist",
             f"ytsearch{max_results}:{query}",
@@ -347,8 +397,10 @@ def _extract_video_info(video_url):
         Tuple of (info_dict, video_id, duration) or (None, None, 0)
     """
     def _get_info(client, timeout):
+        import sys
+        python_exe = sys.executable
         info_cmd = [
-            "yt-dlp",
+            python_exe, "-m", "yt_dlp",
             "-J",
             video_url,
         ] + _get_info_args(player_client=client)
@@ -399,10 +451,12 @@ def download_clip(video_url, output_template=None, video_id=None):
     attempts.append(("no cookies", None, "android_vr"))
 
     for label, cookie_path, client in attempts:
+        import sys
+        python_exe = sys.executable
         cmd = [
-            "yt-dlp",
+            python_exe, "-m", "yt_dlp",
             "--no-warnings",
-            "-f", "best[height<=2160]/best[height<=1080]/best[height<=720]/best",
+            "-f", "best[height>=720]/best[height>=480]/best",
         ]
         if client:
             cmd += ["--extractor-args", f"youtube:player_client={client}"]
@@ -505,14 +559,16 @@ def get_video_dimensions_simple(video_path):
         return 0, 0
 
 
-MIN_DOWNLOAD_RESOLUTION = (640, 360)  # Min 360p — 480p+ too restrictive for fan clips on YT
+MIN_DOWNLOAD_RESOLUTION = (640, 360)   # Hard floor 360p — most fan uploads are 360p; upscaling pipeline handles quality
 
 
 def _check_resolution_quick(video_url):
     """Quick resolution check using yt-dlp format listing (no download)."""
     try:
+        import sys
+        python_exe = sys.executable
         cmd = [
-            "yt-dlp", "-J",
+            python_exe, "-m", "yt_dlp", "-J",
             "--no-warnings",
             "--user-agent", _get_random_user_agent(),
             "--format", "best[height>=720]/best[height>=480]/best",
@@ -607,22 +663,34 @@ def download_best_match(search_query, used_ids=None, content_type=None, min_reso
         viral_candidates = fresh  # even weak ones
     quality_candidates = viral_candidates
 
-    # ── Copyright avoidance: reject major studio channels ─
-    copyright_safe = []
+    # ── Whitelist Channel Scoring (Content ID Risk Reduction) ──
+    # Whitelist channels get a viral score bonus; non-whitelisted must pass other gates.
+    for v in quality_candidates:
+        channel = (v.get("channel") or "").lower()
+        is_whitelisted = any(wl in channel for wl in _WHITELIST_CHANNELS)
+        if is_whitelisted:
+            v["_viral_score"] = v.get("_viral_score", 0) + 0.2  # bonus for safe channels
+            v["_whitelisted"] = True
+        else:
+            v["_whitelisted"] = False
+    
+    # Re-sort with whitelist bonus
+    quality_candidates.sort(key=lambda v: (v.get("_viral_tier", 4), -v.get("_viral_score", 0)))
+    
+    whitelist_count = sum(1 for v in quality_candidates if v.get("_whitelisted"))
+    print(f"  [downloader] Whitelist bonus: {whitelist_count}/{len(quality_candidates)} candidates boosted", flush=True)
+
+    # Skip Indian cinema (user requirement)
+    indian_safe = []
     for v in quality_candidates:
         channel = (v.get("channel") or "").lower()
         title = (v.get("title") or "").lower()
-        # Skip major studio channels (aggressive Content ID)
-        if any(studio in channel for studio in _COPYRIGHT_BLACKLIST):
-            if not any(safe in channel for safe in _COPYRIGHT_SAFE_CHANNELS):
-                continue
-        # Skip Indian cinema (user requirement)
         if any(kw in channel for kw in _INDIAN_BLOCKLIST) or \
            any(kw in title for kw in _INDIAN_BLOCKLIST):
             continue
-        copyright_safe.append(v)
-    if copyright_safe and len(copyright_safe) >= 2:
-        quality_candidates = copyright_safe
+        indian_safe.append(v)
+    if indian_safe:
+        quality_candidates = indian_safe
 
     # ── Freshness: prefer recent uploads ──────────────────
     from datetime import datetime
@@ -664,6 +732,93 @@ def download_best_match(search_query, used_ids=None, content_type=None, min_reso
 
     # Already sorted by (_viral_tier, -_viral_score); pick from top candidates
 
+    # ── Pre-download content-suitability filters ───────────
+    # Reject candidates whose text metadata signals are bad (cheaper than
+    # downloading + analyzing the file itself).
+    # NOTE: We KEEP "analysis", "breakdown", "explained" — these are transformative!
+    _SUITABILITY_SKIP_TERMS = (
+        # music-driven scenes we can't reuse (audio stripped)
+        "soundtrack", "official music video", "music video", "song sync",
+        "music scene", "song scene", "score suite", "orchestral score",
+        # pure parody/reaction content (no original footage)
+        "reaction", "reacts to",
+    )
+
+    def _text_suitable(v):
+        t = (v.get("title", "") + " " + v.get("description", "")).lower()
+        return not any(term in t for term in _SUITABILITY_SKIP_TERMS)
+
+    quality_candidates = [v for v in quality_candidates if _text_suitable(v)]
+    if not quality_candidates:
+        print(f"  [downloader] WARNING: All candidates filtered by suitability — skipping", flush=True)
+        return None
+
+    # ── Aggressive Pre-Download Visual Screening ─────────
+    # Reject candidates BEFORE download if their visual hook is weak.
+    # Uses YouTube thumbnails as proxy for first-frame quality.
+    # Threshold: first_frame_hook >= 50 (strict — saves bandwidth/compute)
+    _MIN_THUMB_HOOK = 50.0
+
+    if quality_candidates:
+        try:
+            from modules.clip_critique import score_thumbnail_url
+        except Exception:
+            score_thumbnail_url = None
+
+        if score_thumbnail_url:
+            thumb_screened = []
+            rejected_count = 0
+            for v in quality_candidates[:10]:  # cap to top 10
+                thumbs = v.get("thumbnails") or []
+                url = thumbs[-1].get("url") if thumbs else None
+                if not url:
+                    # Fallback to YouTube deterministic thumbnail by ID
+                    vid = v.get("id") or v.get("url", "").rsplit("=", 1)[-1]
+                    if vid and len(vid) >= 11:
+                        url = f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
+                if not url:
+                    thumb_screened.append(v)
+                    continue
+                try:
+                    s = score_thumbnail_url(url, content_type)
+                except Exception:
+                    s = None
+                if s is not None and s < _MIN_THUMB_HOOK:
+                    rejected_count += 1
+                    print(f"  [downloader] Visual screen REJECT: {v.get('title','?')[:60]} -> hook {s:.1f} (< {_MIN_THUMB_HOOK})", flush=True)
+                    continue
+                v["_thumb_hook"] = s
+                thumb_screened.append(v)
+            if rejected_count:
+                print(f"  [downloader] Visual screen: rejected {rejected_count}/{len(quality_candidates[:10])} candidates", flush=True)
+            if thumb_screened:
+                quality_candidates = thumb_screened
+            else:
+                print(f"  [downloader] WARNING: All candidates rejected by visual screen — softening threshold", flush=True)
+                _MIN_THUMB_HOOK = 30.0
+                # Re-run with softened threshold
+                thumb_screened = []
+                for v in quality_candidates[:10]:
+                    thumbs = v.get("thumbnails") or []
+                    url = thumbs[-1].get("url") if thumbs else None
+                    if not url:
+                        vid = v.get("id") or v.get("url", "").rsplit("=", 1)[-1]
+                        if vid and len(vid) >= 11:
+                            url = f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
+                    if not url:
+                        thumb_screened.append(v)
+                        continue
+                    try:
+                        s = score_thumbnail_url(url, content_type)
+                    except Exception:
+                        s = None
+                    if s is not None and s < _MIN_THUMB_HOOK:
+                        continue
+                    v["_thumb_hook"] = s
+                    thumb_screened.append(v)
+                if thumb_screened:
+                    quality_candidates = thumb_screened
+
     # Try each candidate in order until one passes resolution check
     for chosen in quality_candidates[:5]:
         tier_label = {1: "Viral", 2: "Popular", 3: "Normal", 4: "Weak"}.get(chosen.get("_viral_tier", 4), "?")
@@ -672,22 +827,16 @@ def download_best_match(search_query, used_ids=None, content_type=None, min_reso
               f"Views: {chosen.get('view_count', 0):,} | "
               f"Tier: {tier_label} | Score: {chosen.get('_viral_score', 0):.3f}", flush=True)
 
-        # Quick resolution check BEFORE download (uses yt-dlp metadata, no file)
-        w, h = _check_resolution_quick(chosen["url"])
-        min_w, min_h = min_resolution
-        if w > 0 and h > 0 and (w < min_w or h < min_h):
-            print(f"  [downloader] Skipped: {w}x{h} — below {min_w}x{min_h} minimum (pre-check)", flush=True)
-            continue
-
+        # Download with 720p+ format selector (yt-dlp will get best available up to 1080p)
         filepath = download_clip(chosen["url"], video_id=chosen["id"])
 
         if not filepath:
             continue
 
-        # Post-download resolution verification
+        # Post-download resolution verification (hard filter: 360p minimum)
         w, h = get_video_dimensions_simple(filepath)
-        if w > 0 and h > 0 and (w < min_w or h < min_h):
-            print(f"  [downloader] Rejected after download: {w}x{h} — below {min_w}x{min_h}", flush=True)
+        if w > 0 and h > 0 and (w < 640 or h < 360):
+            print(f"  [downloader] REJECTED: post-download {w}x{h} below 360p — deleting", flush=True)
             try:
                 os.remove(filepath)
             except Exception:
